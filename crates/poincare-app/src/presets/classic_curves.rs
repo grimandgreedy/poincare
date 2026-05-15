@@ -1,7 +1,7 @@
 use std::f64::consts::PI;
 
 use poincare_lib::{ColormapSource, ColourMode, Domain, PlotStyle, Resolution};
-use viewport_lib::BuiltinColormap;
+use viewport_lib::BuiltinColourmap;
 
 use crate::plot::entry::PlotEntry;
 use crate::plot::kind::PlotKind;
@@ -15,7 +15,7 @@ pub fn build() -> Vec<PlotEntry> {
             resolution: Resolution { u: 400, v: 2 },
             style: PlotStyle {
                 colour_mode: ColourMode::Colormap {
-                    colormap: ColormapSource::Builtin(BuiltinColormap::Plasma),
+                    colormap: ColormapSource::Builtin(BuiltinColourmap::Plasma),
                     scalar_range: None,
                 },
                 line_width: 3.0,
@@ -35,7 +35,7 @@ pub fn build() -> Vec<PlotEntry> {
             resolution: Resolution { u: 500, v: 2 },
             style: PlotStyle {
                 colour_mode: ColourMode::Colormap {
-                    colormap: ColormapSource::Builtin(BuiltinColormap::Viridis),
+                    colormap: ColormapSource::Builtin(BuiltinColourmap::Viridis),
                     scalar_range: None,
                 },
                 line_width: 2.5,
@@ -98,7 +98,7 @@ pub fn build() -> Vec<PlotEntry> {
             resolution: Resolution { u: 500, v: 2 },
             style: PlotStyle {
                 colour_mode: ColourMode::Colormap {
-                    colormap: ColormapSource::Builtin(BuiltinColormap::Coolwarm),
+                    colormap: ColormapSource::Builtin(BuiltinColourmap::Coolwarm),
                     scalar_range: None,
                 },
                 line_width: 2.5,

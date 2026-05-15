@@ -4,7 +4,7 @@ use poincare_lib::{
     ColormapSource, ColourMode, Domain, MatcapSource, ParamVisSettings, PlotStyle, Resolution,
     ShadingMode,
 };
-use viewport_lib::{BuiltinColormap, BuiltinMatcap, ParamVisMode};
+use viewport_lib::{BuiltinColourmap, BuiltinMatcap, ParamVisMode};
 
 use crate::plot::entry::PlotEntry;
 use crate::plot::kind::PlotKind;
@@ -23,7 +23,7 @@ pub fn build() -> Vec<PlotEntry> {
             resolution: Resolution { u: 80, v: 40 },
             style: PlotStyle {
                 colour_mode: ColourMode::Colormap {
-                    colormap: ColormapSource::Builtin(BuiltinColormap::Viridis),
+                    colormap: ColormapSource::Builtin(BuiltinColourmap::Viridis),
                     scalar_range: None,
                 },
                 two_sided: true,
@@ -74,7 +74,7 @@ pub fn build() -> Vec<PlotEntry> {
             resolution: Resolution { u: 60, v: 60 },
             style: PlotStyle {
                 colour_mode: ColourMode::Colormap {
-                    colormap: ColormapSource::Builtin(BuiltinColormap::Coolwarm),
+                    colormap: ColormapSource::Builtin(BuiltinColourmap::Coolwarm),
                     scalar_range: None,
                 },
                 two_sided: true,
@@ -97,7 +97,7 @@ pub fn build() -> Vec<PlotEntry> {
             resolution: Resolution { u: 80, v: 80 },
             style: PlotStyle {
                 colour_mode: ColourMode::Colormap {
-                    colormap: ColormapSource::Builtin(BuiltinColormap::Plasma),
+                    colormap: ColormapSource::Builtin(BuiltinColourmap::Plasma),
                     scalar_range: None,
                 },
                 two_sided: true,
@@ -119,7 +119,7 @@ pub fn build() -> Vec<PlotEntry> {
             resolution: Resolution { u: 80, v: 80 },
             style: PlotStyle {
                 colour_mode: ColourMode::Colormap {
-                    colormap: ColormapSource::Builtin(BuiltinColormap::Coolwarm),
+                    colormap: ColormapSource::Builtin(BuiltinColourmap::Coolwarm),
                     scalar_range: None,
                 },
                 two_sided: true,
@@ -142,7 +142,7 @@ pub fn build() -> Vec<PlotEntry> {
             resolution: Resolution { u: 80, v: 60 },
             style: PlotStyle {
                 colour_mode: ColourMode::Colormap {
-                    colormap: ColormapSource::Builtin(BuiltinColormap::Viridis),
+                    colormap: ColormapSource::Builtin(BuiltinColourmap::Viridis),
                     scalar_range: None,
                 },
                 two_sided: true,

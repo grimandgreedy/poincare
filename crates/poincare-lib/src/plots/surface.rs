@@ -522,8 +522,8 @@ fn expand_flat_shaded_mesh(mesh: MeshData) -> MeshData {
             AttributeData::Face(values) => {
                 passthrough_attributes.insert(name, AttributeData::Face(values));
             }
-            AttributeData::FaceColor(values) => {
-                passthrough_attributes.insert(name, AttributeData::FaceColor(values));
+            AttributeData::FaceColour(values) => {
+                passthrough_attributes.insert(name, AttributeData::FaceColour(values));
             }
             AttributeData::Edge(values)
             | AttributeData::Halfedge(values)

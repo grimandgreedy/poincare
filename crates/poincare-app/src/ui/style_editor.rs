@@ -3,7 +3,7 @@ use poincare_lib::{
     ColormapSource, ColourMode, MatcapSource, ParamVisSettings, PlotStyle, ShadingMode,
     SurfaceFaceQuantity, SurfaceLicSettings, SurfaceLicVectorField,
 };
-use viewport_lib::{AttributeKind, BuiltinColormap, BuiltinMatcap, ParamVisMode};
+use viewport_lib::{AttributeKind, BuiltinColourmap, BuiltinMatcap, ParamVisMode};
 
 use crate::plot::kind::StyleCaps;
 
@@ -125,7 +125,7 @@ pub(crate) fn edit_colour_mode(
         *colour_mode = match mode {
             Mode::Solid => ColourMode::Solid([0.55, 0.75, 1.0, 1.0]),
             Mode::Colormap => ColourMode::Colormap {
-                colormap: ColormapSource::Builtin(BuiltinColormap::Viridis),
+                colormap: ColormapSource::Builtin(BuiltinColourmap::Viridis),
                 scalar_range: None,
             },
             Mode::Attribute => ColourMode::ByAttribute {
@@ -157,32 +157,32 @@ pub(crate) fn edit_colour_mode(
         } => {
             let mut preset = match *colormap {
                 ColormapSource::Builtin(preset) => preset,
-                ColormapSource::Uploaded(_) => BuiltinColormap::Viridis,
+                ColormapSource::Uploaded(_) => BuiltinColourmap::Viridis,
             };
             egui::ComboBox::from_label("Preset")
                 .selected_text(match preset {
-                    BuiltinColormap::Viridis => "Viridis",
-                    BuiltinColormap::Plasma => "Plasma",
-                    BuiltinColormap::Greyscale => "Greyscale",
-                    BuiltinColormap::Coolwarm => "Coolwarm",
-                    BuiltinColormap::Rainbow => "Rainbow",
-                    BuiltinColormap::Magma => "Magma",
-                    BuiltinColormap::Inferno => "Inferno",
-                    BuiltinColormap::Turbo => "Turbo",
-                    BuiltinColormap::Jet => "Jet",
-                    BuiltinColormap::RdBu => "RdBu",
+                    BuiltinColourmap::Viridis => "Viridis",
+                    BuiltinColourmap::Plasma => "Plasma",
+                    BuiltinColourmap::Greyscale => "Greyscale",
+                    BuiltinColourmap::Coolwarm => "Coolwarm",
+                    BuiltinColourmap::Rainbow => "Rainbow",
+                    BuiltinColourmap::Magma => "Magma",
+                    BuiltinColourmap::Inferno => "Inferno",
+                    BuiltinColourmap::Turbo => "Turbo",
+                    BuiltinColourmap::Jet => "Jet",
+                    BuiltinColourmap::RdBu => "RdBu",
                 })
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut preset, BuiltinColormap::Viridis, "Viridis");
-                    ui.selectable_value(&mut preset, BuiltinColormap::Plasma, "Plasma");
-                    ui.selectable_value(&mut preset, BuiltinColormap::Greyscale, "Greyscale");
-                    ui.selectable_value(&mut preset, BuiltinColormap::Coolwarm, "Coolwarm");
-                    ui.selectable_value(&mut preset, BuiltinColormap::Rainbow, "Rainbow");
-                    ui.selectable_value(&mut preset, BuiltinColormap::Magma, "Magma");
-                    ui.selectable_value(&mut preset, BuiltinColormap::Inferno, "Inferno");
-                    ui.selectable_value(&mut preset, BuiltinColormap::Turbo, "Turbo");
-                    ui.selectable_value(&mut preset, BuiltinColormap::Jet, "Jet");
-                    ui.selectable_value(&mut preset, BuiltinColormap::RdBu, "RdBu");
+                    ui.selectable_value(&mut preset, BuiltinColourmap::Viridis, "Viridis");
+                    ui.selectable_value(&mut preset, BuiltinColourmap::Plasma, "Plasma");
+                    ui.selectable_value(&mut preset, BuiltinColourmap::Greyscale, "Greyscale");
+                    ui.selectable_value(&mut preset, BuiltinColourmap::Coolwarm, "Coolwarm");
+                    ui.selectable_value(&mut preset, BuiltinColourmap::Rainbow, "Rainbow");
+                    ui.selectable_value(&mut preset, BuiltinColourmap::Magma, "Magma");
+                    ui.selectable_value(&mut preset, BuiltinColourmap::Inferno, "Inferno");
+                    ui.selectable_value(&mut preset, BuiltinColourmap::Turbo, "Turbo");
+                    ui.selectable_value(&mut preset, BuiltinColourmap::Jet, "Jet");
+                    ui.selectable_value(&mut preset, BuiltinColourmap::RdBu, "RdBu");
                 });
             if *colormap != ColormapSource::Builtin(preset) {
                 *colormap = ColormapSource::Builtin(preset);
@@ -233,7 +233,7 @@ pub(crate) fn edit_colour_mode(
                         AttributeKind::Vertex => "Vertex",
                         AttributeKind::Face => "Face",
                         AttributeKind::Cell => "Cell",
-                        AttributeKind::FaceColor => "Face Color",
+                        AttributeKind::FaceColour => "Face Color",
                         _ => "Other",
                     })
                     .show_ui(ui, |ui| {
@@ -375,7 +375,7 @@ fn edit_surface_quantity(ui: &mut egui::Ui, style: &mut PlotStyle) -> bool {
         match &mut style.colour_mode {
             ColourMode::Solid(_) => {
                 style.colour_mode = ColourMode::Colormap {
-                    colormap: ColormapSource::Builtin(BuiltinColormap::Viridis),
+                    colormap: ColormapSource::Builtin(BuiltinColourmap::Viridis),
                     scalar_range: None,
                 };
                 changed = true;

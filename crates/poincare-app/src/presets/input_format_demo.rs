@@ -1,5 +1,5 @@
 use poincare_lib::{ColormapSource, ColourMode, Domain, PlotStyle, Resolution, TransferFunction};
-use viewport_lib::{AttributeKind, BuiltinColormap};
+use viewport_lib::{AttributeKind, BuiltinColourmap};
 
 use crate::plot::entry::PlotEntry;
 use crate::plot::kind::PlotKind;
@@ -24,7 +24,7 @@ pub fn build() -> Vec<PlotEntry> {
             resolution: Resolution { u: 80, v: 80 },
             style: PlotStyle {
                 colour_mode: ColourMode::Colormap {
-                    colormap: ColormapSource::Builtin(BuiltinColormap::Coolwarm),
+                    colormap: ColormapSource::Builtin(BuiltinColourmap::Coolwarm),
                     scalar_range: None,
                 },
                 two_sided: true,
@@ -42,7 +42,7 @@ pub fn build() -> Vec<PlotEntry> {
             resolution: Resolution { u: 80, v: 40 },
             style: PlotStyle {
                 colour_mode: ColourMode::Colormap {
-                    colormap: ColormapSource::Builtin(BuiltinColormap::Viridis),
+                    colormap: ColormapSource::Builtin(BuiltinColourmap::Viridis),
                     scalar_range: None,
                 },
                 two_sided: true,

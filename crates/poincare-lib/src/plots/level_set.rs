@@ -98,7 +98,7 @@ fn build_isoline_geometry(
     isoline_item.indices = mesh.indices.clone();
     isoline_item.scalars = scalars;
     isoline_item.isovalues = isovalues.to_vec();
-    isoline_item.color = [1.0, 1.0, 1.0, contour_style.opacity.clamp(0.0, 1.0)];
+    isoline_item.colour = [1.0, 1.0, 1.0, contour_style.opacity.clamp(0.0, 1.0)];
     isoline_item.line_width = contour_style.line_width;
     let (positions, strip_lengths) = extract_isolines(&isoline_item);
 

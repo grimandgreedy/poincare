@@ -1,7 +1,7 @@
 use glam::Vec3;
 
 use viewport_lib::{
-    AttributeKind, AttributeRef, Camera, ColormapId, FrameData, GlyphItem, LabelItem, LightKind,
+    AttributeKind, AttributeRef, Camera, ColourmapId, FrameData, GlyphItem, LabelItem, LightKind,
     LightSource, LightingSettings, Material, MeshId, PointCloudItem, PolylineItem, RenderCamera,
     SceneRenderItem, StreamtubeItem, SurfaceLICConfig, SurfaceLICItem, SurfaceSubmission,
     ViewportError, ViewportGpuResources,
@@ -20,7 +20,7 @@ use crate::axis::Axis3;
 struct CachedSurface {
     mesh_index: MeshId,
     style: PlotStyle,
-    colormap_id: Option<ColormapId>,
+    colourmap_id: Option<ColourmapId>,
     matcap_id: Option<viewport_lib::MatcapId>,
     lic_vector_attributes: Vec<String>,
     /// CPU-side copies kept for probe picking (ray-triangle intersection).
@@ -33,20 +33,20 @@ struct CachedPolyline {
     strip_lengths: Vec<u32>,
     scalars: Option<Vec<f32>>,
     style: PlotStyle,
-    colormap_id: Option<ColormapId>,
+    colourmap_id: Option<ColourmapId>,
 }
 
 struct CachedPointCloud {
     positions: Vec<Vec3>,
     scalars: Option<Vec<f32>>,
     style: PlotStyle,
-    colormap_id: Option<ColormapId>,
+    colourmap_id: Option<ColourmapId>,
 }
 
 struct CachedGlyphs {
     instances: Vec<GlyphInstance>,
     style: PlotStyle,
-    colormap_id: Option<ColormapId>,
+    colourmap_id: Option<ColourmapId>,
 }
 
 struct CachedStreamtube {
@@ -128,7 +128,7 @@ impl GraphScene {
         queue: &wgpu::Queue,
         resources: &mut ViewportGpuResources,
     ) -> Result<(), ViewportError> {
-        resources.ensure_colormaps_initialized(device, queue);
+        resources.ensure_colourmaps_initialized(device, queue);
         resources.ensure_matcaps_initialized(device, queue);
 
         for (i, plot) in self.plots.iter().enumerate() {
@@ -167,7 +167,7 @@ impl GraphScene {
                     if surface.style.two_sided {
                         item.material.backface_policy = viewport_lib::BackfacePolicy::Identical;
                     }
-                    apply_surface_colour_mode(&mut item, &surface.style, surface.colormap_id);
+                    apply_surface_colour_mode(&mut item, &surface.style, surface.colourmap_id);
                     item
                 })
             })
@@ -208,14 +208,14 @@ impl GraphScene {
                     let mut item = PolylineItem::default();
                     item.positions = polyline.positions.iter().map(|p| p.to_array()).collect();
                     item.strip_lengths = polyline.strip_lengths.clone();
-                    item.default_color = default_rgba(&polyline.style);
+                    item.default_colour = default_rgba(&polyline.style);
                     item.line_width = polyline.style.line_width;
                     apply_polyline_colour_mode(
                         &mut item,
                         &polyline.style,
                         &polyline.positions,
                         polyline.scalars.as_deref(),
-                        polyline.colormap_id,
+                        polyline.colourmap_id,
                     );
                     Some(item)
                 })
@@ -233,13 +233,13 @@ impl GraphScene {
                     let mut item = PointCloudItem::default();
                     item.positions = points.positions.iter().map(|p| p.to_array()).collect();
                     item.point_size = points.style.point_size;
-                    item.default_color = default_rgba(&points.style);
+                    item.default_colour = default_rgba(&points.style);
                     apply_point_colour_mode(
                         &mut item,
                         &points.style,
                         &points.positions,
                         points.scalars.as_deref(),
-                        points.colormap_id,
+                        points.colourmap_id,
                     );
                     Some(item)
                 })
@@ -271,7 +271,7 @@ impl GraphScene {
                         &mut item,
                         &glyphs.style,
                         &glyphs.instances,
-                        glyphs.colormap_id,
+                        glyphs.colourmap_id,
                     );
                     Some(item)
                 })
@@ -291,7 +291,7 @@ impl GraphScene {
                     item.positions = st.positions.iter().map(|p| p.to_array()).collect();
                     item.strip_lengths = st.strip_lengths.clone();
                     item.radius = st.radius;
-                    item.color = default_rgba(&st.style);
+                    item.colour = default_rgba(&st.style);
                     Some(item)
                 })
             })
@@ -397,14 +397,14 @@ impl Default for GraphScene {
 }
 
 impl GraphScene {
-    /// Upload a custom 256-sample RGBA colormap through the viewport resource manager.
-    pub fn upload_colormap(
+    /// Upload a custom 256-sample RGBA colourmap through the viewport resource manager.
+    pub fn upload_colourmap(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         resources: &mut ViewportGpuResources,
         rgba_data: &[[u8; 4]; 256],
-    ) -> ColormapId {
-        resources.upload_colormap(device, queue, rgba_data)
+    ) -> ColourmapId {
+        resources.upload_colourmap(device, queue, rgba_data)
     }
 }
 
@@ -416,7 +416,7 @@ fn cache_geometry(
     queue: &wgpu::Queue,
     resources: &mut ViewportGpuResources,
 ) -> Result<(), ViewportError> {
-    let colormap_id = resolve_colormap_id(&style, resources);
+    let colourmap_id = resolve_colourmap_id(&style, resources);
     let matcap_id = resolve_matcap_id(&style, resources);
     match geometry {
         PlotGeometry::Surface(mesh_data) => {
@@ -434,7 +434,7 @@ fn cache_geometry(
             cache.surfaces.push(CachedSurface {
                 mesh_index,
                 style,
-                colormap_id,
+                colourmap_id,
                 matcap_id,
                 lic_vector_attributes,
                 cpu_positions,
@@ -451,7 +451,7 @@ fn cache_geometry(
                 strip_lengths,
                 scalars,
                 style,
-                colormap_id,
+                colourmap_id,
             });
         }
         PlotGeometry::Points { positions, scalars } => {
@@ -459,14 +459,14 @@ fn cache_geometry(
                 positions,
                 scalars,
                 style,
-                colormap_id,
+                colourmap_id,
             });
         }
         PlotGeometry::Glyphs(instances) => {
             cache.glyphs.push(CachedGlyphs {
                 instances,
                 style,
-                colormap_id,
+                colourmap_id,
             });
         }
         PlotGeometry::Streamtube {
@@ -514,15 +514,15 @@ fn cache_geometry(
     Ok(())
 }
 
-fn resolve_colormap_id(style: &PlotStyle, resources: &ViewportGpuResources) -> Option<ColormapId> {
+fn resolve_colourmap_id(style: &PlotStyle, resources: &ViewportGpuResources) -> Option<ColourmapId> {
     match &style.colour_mode {
         ColourMode::Solid(_) => None,
         ColourMode::Colormap { colormap, .. } => match colormap {
-            ColormapSource::Builtin(preset) => Some(resources.builtin_colormap_id(*preset)),
+            ColormapSource::Builtin(preset) => Some(resources.builtin_colourmap_id(*preset)),
             ColormapSource::Uploaded(id) => Some(*id),
         },
         ColourMode::ByAttribute { .. } => {
-            Some(resources.builtin_colormap_id(viewport_lib::BuiltinColormap::Viridis))
+            Some(resources.builtin_colourmap_id(viewport_lib::BuiltinColourmap::Viridis))
         }
     }
 }
@@ -539,7 +539,7 @@ fn resolve_matcap_id(
 
 fn material_from_style(style: &PlotStyle, matcap_id: Option<viewport_lib::MatcapId>) -> Material {
     let rgba = default_rgba(style);
-    let mut material = Material::from_color([rgba[0], rgba[1], rgba[2]]);
+    let mut material = Material::from_colour([rgba[0], rgba[1], rgba[2]]);
     material.opacity = rgba[3];
     material.matcap_id = matcap_id;
     material.param_vis = style.param_vis.map(Into::into);
@@ -586,21 +586,21 @@ fn default_rgba(style: &PlotStyle) -> [f32; 4] {
 fn apply_surface_colour_mode(
     item: &mut SceneRenderItem,
     style: &PlotStyle,
-    resolved_colormap_id: Option<ColormapId>,
+    resolved_colourmap_id: Option<ColourmapId>,
 ) {
     match &style.colour_mode {
         ColourMode::Solid(_) => {}
         ColourMode::Colormap { scalar_range, .. } => {
             item.active_attribute = Some(surface_attribute_ref(style, "value".to_string()));
             item.scalar_range = *scalar_range;
-            item.colormap_id = resolved_colormap_id;
+            item.colourmap_id = resolved_colourmap_id;
         }
         ColourMode::ByAttribute { name, kind } => {
             item.active_attribute = Some(AttributeRef {
                 name: name.clone(),
                 kind: *kind,
             });
-            item.colormap_id = resolved_colormap_id;
+            item.colourmap_id = resolved_colourmap_id;
         }
     }
 }
@@ -610,7 +610,7 @@ fn apply_polyline_colour_mode(
     style: &PlotStyle,
     points: &[Vec3],
     explicit_scalars: Option<&[f32]>,
-    resolved_colormap_id: Option<ColormapId>,
+    resolved_colourmap_id: Option<ColourmapId>,
 ) {
     match &style.colour_mode {
         ColourMode::Solid(_) => {}
@@ -619,12 +619,12 @@ fn apply_polyline_colour_mode(
                 .map(ToOwned::to_owned)
                 .unwrap_or_else(|| default_scalars_for_positions(points));
             item.scalar_range = *scalar_range;
-            item.colormap_id = resolved_colormap_id;
+            item.colourmap_id = resolved_colourmap_id;
         }
         ColourMode::ByAttribute { name, .. } => {
             if let Some(scalars) = derive_position_scalars(name, points, explicit_scalars) {
                 item.scalars = scalars;
-                item.colormap_id = None;
+                item.colourmap_id = None;
             }
         }
     }
@@ -635,7 +635,7 @@ fn apply_point_colour_mode(
     style: &PlotStyle,
     points: &[Vec3],
     explicit_scalars: Option<&[f32]>,
-    resolved_colormap_id: Option<ColormapId>,
+    resolved_colourmap_id: Option<ColourmapId>,
 ) {
     match &style.colour_mode {
         ColourMode::Solid(_) => {}
@@ -644,12 +644,12 @@ fn apply_point_colour_mode(
                 .map(ToOwned::to_owned)
                 .unwrap_or_else(|| default_scalars_for_positions(points));
             item.scalar_range = *scalar_range;
-            item.colormap_id = resolved_colormap_id;
+            item.colourmap_id = resolved_colourmap_id;
         }
         ColourMode::ByAttribute { name, .. } => {
             if let Some(scalars) = derive_position_scalars(name, points, explicit_scalars) {
                 item.scalars = scalars;
-                item.colormap_id = None;
+                item.colourmap_id = None;
             }
         }
     }
@@ -659,19 +659,19 @@ fn apply_glyph_colour_mode(
     item: &mut GlyphItem,
     style: &PlotStyle,
     instances: &[GlyphInstance],
-    resolved_colormap_id: Option<ColormapId>,
+    resolved_colourmap_id: Option<ColourmapId>,
 ) {
     match &style.colour_mode {
         ColourMode::Solid(_) => {}
         ColourMode::Colormap { scalar_range, .. } => {
             item.scalars = instances.iter().map(|g| g.vector.length()).collect();
             item.scalar_range = *scalar_range;
-            item.colormap_id = resolved_colormap_id;
+            item.colourmap_id = resolved_colourmap_id;
         }
         ColourMode::ByAttribute { name, .. } => {
             if let Some(scalars) = derive_glyph_scalars(name, instances) {
                 item.scalars = scalars;
-                item.colormap_id = None;
+                item.colourmap_id = None;
             }
         }
     }
@@ -808,12 +808,12 @@ fn hemisphere_lighting() -> LightingSettings {
                 // ~65° elevation, slight front-right bias (Z-up convention).
                 direction: [0.4, 0.3, 1.5],
             },
-            color: [1.0, 1.0, 1.0],
+            colour: [1.0, 1.0, 1.0],
             intensity: 0.75,
         }],
         shadows_enabled: false,
-        sky_color: [0.8, 0.9, 1.0],
-        ground_color: [0.5, 0.55, 0.6],
+        sky_colour: [0.8, 0.9, 1.0],
+        ground_colour: [0.5, 0.55, 0.6],
         hemisphere_intensity: 0.65,
         ..LightingSettings::default()
     }

@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use eframe::egui;
 use grimdock::{PanelStyle, PanelTree};
 use poincare_lib::{AxisConfig, ColormapSource, ColourMode};
-use viewport_lib::BuiltinColormap;
+use viewport_lib::BuiltinColourmap;
 use viewport_lib::{GroundPlaneMode, OrbitCameraController, Projection, ViewPreset, ViewportRenderer};
 
 use dock::{DockTab, build_panel_tree};
@@ -79,7 +79,7 @@ struct App {
     add_error: String,
     slider_dragging: bool,
     eq_editor: EquationEditor,
-    default_colormap: BuiltinColormap,
+    default_colormap: BuiltinColourmap,
     invert_scroll: bool,
     save_state_on_exit: bool,
     settings_open: bool,
@@ -112,7 +112,7 @@ impl App {
             add_error: String::new(),
             slider_dragging: false,
             eq_editor: EquationEditor::default(),
-            default_colormap: BuiltinColormap::Viridis,
+            default_colormap: BuiltinColourmap::Viridis,
             invert_scroll: false,
             save_state_on_exit: false,
             settings_open: false,
@@ -180,7 +180,7 @@ impl App {
         self.documents[self.active_document_idx].ground_plane_color = [0.3, 0.3, 0.3, 1.0];
         self.documents[self.active_document_idx].ground_plane_tile_size = 1.0;
         self.documents[self.active_document_idx].viewport_background = DEFAULT_VIEWPORT_BACKGROUND;
-        self.default_colormap = BuiltinColormap::Viridis;
+        self.default_colormap = BuiltinColourmap::Viridis;
         self.invert_scroll = false;
         self.save_state_on_exit = false;
         let default_style = default_panel_style();
@@ -265,14 +265,14 @@ impl App {
             self.documents[self.active_document_idx].export_height as f32,
         ];
         frame_data.viewport.show_grid = false;
-        frame_data.viewport.background_color =
+        frame_data.viewport.background_colour =
             Some(self.documents[self.active_document_idx].viewport_background);
         frame_data.effects.ground_plane = viewport_lib::GroundPlane {
             mode: self.documents[self.active_document_idx].ground_plane_mode,
             height: self.documents[self.active_document_idx].ground_plane_height,
-            color: self.documents[self.active_document_idx].ground_plane_color,
+            colour: self.documents[self.active_document_idx].ground_plane_color,
             tile_size: self.documents[self.active_document_idx].ground_plane_tile_size,
-            shadow_color: [0.0, 0.0, 0.0, 1.0],
+            shadow_colour: [0.0, 0.0, 0.0, 1.0],
             shadow_opacity: 0.35,
         };
 

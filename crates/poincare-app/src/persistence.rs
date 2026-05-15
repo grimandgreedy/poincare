@@ -9,7 +9,7 @@ use poincare_lib::{
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use viewport_lib::{
-    AttributeKind, BuiltinColormap, BuiltinMatcap, GroundPlaneMode, ParamVisMode, Projection,
+    AttributeKind, BuiltinColourmap, BuiltinMatcap, GroundPlaneMode, ParamVisMode, Projection,
 };
 
 use crate::App;
@@ -645,7 +645,7 @@ impl PersistedColourMode {
             } => Self::Colormap {
                 colormap: match colormap {
                     ColormapSource::Builtin(preset) => builtin_colormap_to_u8(*preset),
-                    ColormapSource::Uploaded(_) => builtin_colormap_to_u8(BuiltinColormap::Viridis),
+                    ColormapSource::Uploaded(_) => builtin_colormap_to_u8(BuiltinColourmap::Viridis),
                 },
                 scalar_range: *scalar_range,
             },
@@ -1071,34 +1071,34 @@ fn default_export_height() -> u32 {
 // Enum ↔ u8 helpers (unchanged)
 // ---------------------------------------------------------------------------
 
-fn builtin_colormap_to_u8(value: BuiltinColormap) -> u8 {
+fn builtin_colormap_to_u8(value: BuiltinColourmap) -> u8 {
     match value {
-        BuiltinColormap::Viridis => 0,
-        BuiltinColormap::Plasma => 1,
-        BuiltinColormap::Greyscale => 2,
-        BuiltinColormap::Coolwarm => 3,
-        BuiltinColormap::Rainbow => 4,
-        BuiltinColormap::Magma => 5,
-        BuiltinColormap::Inferno => 6,
-        BuiltinColormap::Turbo => 7,
-        BuiltinColormap::Jet => 8,
-        BuiltinColormap::RdBu => 9,
+        BuiltinColourmap::Viridis => 0,
+        BuiltinColourmap::Plasma => 1,
+        BuiltinColourmap::Greyscale => 2,
+        BuiltinColourmap::Coolwarm => 3,
+        BuiltinColourmap::Rainbow => 4,
+        BuiltinColourmap::Magma => 5,
+        BuiltinColourmap::Inferno => 6,
+        BuiltinColourmap::Turbo => 7,
+        BuiltinColourmap::Jet => 8,
+        BuiltinColourmap::RdBu => 9,
     }
 }
 
-fn u8_to_builtin_colormap(value: u8) -> BuiltinColormap {
+fn u8_to_builtin_colormap(value: u8) -> BuiltinColourmap {
     match value {
-        0 => BuiltinColormap::Viridis,
-        1 => BuiltinColormap::Plasma,
-        2 => BuiltinColormap::Greyscale,
-        3 => BuiltinColormap::Coolwarm,
-        4 => BuiltinColormap::Rainbow,
-        5 => BuiltinColormap::Magma,
-        6 => BuiltinColormap::Inferno,
-        7 => BuiltinColormap::Turbo,
-        8 => BuiltinColormap::Jet,
-        9 => BuiltinColormap::RdBu,
-        _ => BuiltinColormap::Viridis,
+        0 => BuiltinColourmap::Viridis,
+        1 => BuiltinColourmap::Plasma,
+        2 => BuiltinColourmap::Greyscale,
+        3 => BuiltinColourmap::Coolwarm,
+        4 => BuiltinColourmap::Rainbow,
+        5 => BuiltinColourmap::Magma,
+        6 => BuiltinColourmap::Inferno,
+        7 => BuiltinColourmap::Turbo,
+        8 => BuiltinColourmap::Jet,
+        9 => BuiltinColourmap::RdBu,
+        _ => BuiltinColourmap::Viridis,
     }
 }
 
@@ -1107,7 +1107,7 @@ fn ground_plane_to_u8(value: GroundPlaneMode) -> u8 {
         GroundPlaneMode::None => 0,
         GroundPlaneMode::ShadowOnly => 1,
         GroundPlaneMode::Tile => 2,
-        GroundPlaneMode::SolidColor => 3,
+        GroundPlaneMode::SolidColour => 3,
     }
 }
 
@@ -1115,7 +1115,7 @@ fn u8_to_ground_plane(value: u8) -> GroundPlaneMode {
     match value {
         1 => GroundPlaneMode::ShadowOnly,
         2 => GroundPlaneMode::Tile,
-        3 => GroundPlaneMode::SolidColor,
+        3 => GroundPlaneMode::SolidColour,
         _ => GroundPlaneMode::None,
     }
 }
@@ -1140,7 +1140,7 @@ fn attribute_kind_to_u8(value: AttributeKind) -> u8 {
         AttributeKind::Vertex => 0,
         AttributeKind::Cell => 1,
         AttributeKind::Face => 2,
-        AttributeKind::FaceColor => 3,
+        AttributeKind::FaceColour => 3,
         AttributeKind::Edge => 4,
         AttributeKind::Halfedge => 5,
         AttributeKind::Corner => 6,
@@ -1151,7 +1151,7 @@ fn u8_to_attribute_kind(value: u8) -> AttributeKind {
     match value {
         1 => AttributeKind::Cell,
         2 => AttributeKind::Face,
-        3 => AttributeKind::FaceColor,
+        3 => AttributeKind::FaceColour,
         4 => AttributeKind::Edge,
         5 => AttributeKind::Halfedge,
         6 => AttributeKind::Corner,

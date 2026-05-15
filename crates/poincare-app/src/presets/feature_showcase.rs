@@ -4,7 +4,7 @@ use poincare_lib::{
     ColormapSource, ColourMode, Domain, ParamVisSettings, PlotStyle, Resolution, ShadingMode,
     SurfaceFaceQuantity,
 };
-use viewport_lib::{BuiltinColormap, ParamVisMode};
+use viewport_lib::{BuiltinColourmap, ParamVisMode};
 
 use crate::plot::entry::PlotEntry;
 use crate::plot::kind::PlotKind;
@@ -46,7 +46,7 @@ pub fn build() -> Vec<PlotEntry> {
             resolution: Resolution { u: 120, v: 26 },
             style: PlotStyle {
                 colour_mode: ColourMode::Colormap {
-                    colormap: ColormapSource::Builtin(BuiltinColormap::Plasma),
+                    colormap: ColormapSource::Builtin(BuiltinColourmap::Plasma),
                     scalar_range: None,
                 },
                 two_sided: true,
@@ -71,7 +71,7 @@ pub fn build() -> Vec<PlotEntry> {
             resolution: Resolution { u: 96, v: 64 },
             style: PlotStyle {
                 colour_mode: ColourMode::Colormap {
-                    colormap: ColormapSource::Builtin(BuiltinColormap::Coolwarm),
+                    colormap: ColormapSource::Builtin(BuiltinColourmap::Coolwarm),
                     scalar_range: None,
                 },
                 two_sided: true,

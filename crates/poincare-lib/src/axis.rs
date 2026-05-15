@@ -312,8 +312,8 @@ pub fn build_axis_polyline_projected(
             item.scalars = Vec::new();
             item.strip_lengths = vec![2];
             item.scalar_range = None;
-            item.colormap_id = None;
-            item.default_color = colour;
+            item.colourmap_id = None;
+            item.default_colour = colour;
             item.line_width = 1.5;
             items.push(item);
         }
@@ -334,8 +334,8 @@ pub fn build_axis_polyline_projected(
                 item.scalars = Vec::new();
                 item.strip_lengths = strip_lengths;
                 item.scalar_range = None;
-                item.colormap_id = None;
-                item.default_color = colour;
+                item.colourmap_id = None;
+                item.default_colour = colour;
                 item.line_width = 1.0;
                 items.push(item);
             }
@@ -408,7 +408,7 @@ pub fn build_axis_labels_projected(
                 tick_label_anchor(domain, vp, Axis3::X, &ticks_per_axis[0], *pos).to_array(),
             );
             lbl.text = text.clone();
-            lbl.color = tc;
+            lbl.colour = tc;
             lbl.font_size = 11.0;
             labels.push(lbl);
         }
@@ -424,7 +424,7 @@ pub fn build_axis_labels_projected(
                 tick_label_anchor(domain, vp, Axis3::Y, &ticks_per_axis[1], *pos).to_array(),
             );
             lbl.text = text.clone();
-            lbl.color = tc;
+            lbl.colour = tc;
             lbl.font_size = 11.0;
             labels.push(lbl);
         }
@@ -440,7 +440,7 @@ pub fn build_axis_labels_projected(
                 tick_label_anchor(domain, vp, Axis3::Z, &ticks_per_axis[2], *pos).to_array(),
             );
             lbl.text = text.clone();
-            lbl.color = tc;
+            lbl.colour = tc;
             lbl.font_size = 11.0;
             labels.push(lbl);
         }
@@ -480,7 +480,7 @@ pub fn build_axis_labels_projected(
             let mut lbl = LabelItem::default();
             lbl.world_anchor = Some(world_pos.to_array());
             lbl.text = name.to_string();
-            lbl.color = tc;
+            lbl.colour = tc;
             lbl.font_size = 13.0;
             labels.push(lbl);
         }

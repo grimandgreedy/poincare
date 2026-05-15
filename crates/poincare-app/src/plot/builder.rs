@@ -2,7 +2,7 @@ use poincare_lib::{
     ColormapSource, ColourMode, DetectedPlotType, Domain, PlotStyle, Resolution, TransferFunction,
     auto_detect_plot_type, parse_csv_grid, parse_csv_points, parse_expr_with_vars,
 };
-use viewport_lib::{AttributeKind, BuiltinColormap};
+use viewport_lib::{AttributeKind, BuiltinColourmap};
 
 /// Replace whole-identifier occurrences of `from` with `to` in an expression string.
 /// Unlike a plain `str::replace`, this respects identifier boundaries so that e.g.
@@ -73,7 +73,7 @@ pub(crate) fn build_plot_entry_from_inputs(
                         style: PlotStyle {
                             colour_mode: ColourMode::Colormap {
                                 colormap: ColormapSource::Builtin(
-                                    viewport_lib::BuiltinColormap::Viridis,
+                                    viewport_lib::BuiltinColourmap::Viridis,
                                 ),
                                 scalar_range: None,
                             },
@@ -97,7 +97,7 @@ pub(crate) fn build_plot_entry_from_inputs(
                         style: PlotStyle {
                             colour_mode: ColourMode::Colormap {
                                 colormap: ColormapSource::Builtin(
-                                    viewport_lib::BuiltinColormap::Viridis,
+                                    viewport_lib::BuiltinColourmap::Viridis,
                                 ),
                                 scalar_range: None,
                             },
@@ -121,7 +121,7 @@ pub(crate) fn build_plot_entry_from_inputs(
                         style: PlotStyle {
                             colour_mode: ColourMode::Colormap {
                                 colormap: ColormapSource::Builtin(
-                                    viewport_lib::BuiltinColormap::Viridis,
+                                    viewport_lib::BuiltinColourmap::Viridis,
                                 ),
                                 scalar_range: None,
                             },
@@ -145,7 +145,7 @@ pub(crate) fn build_plot_entry_from_inputs(
                         style: PlotStyle {
                             colour_mode: ColourMode::Colormap {
                                 colormap: ColormapSource::Builtin(
-                                    viewport_lib::BuiltinColormap::Viridis,
+                                    viewport_lib::BuiltinColourmap::Viridis,
                                 ),
                                 scalar_range: None,
                             },
@@ -221,7 +221,7 @@ pub(crate) fn build_plot_entry_from_inputs(
                         style: PlotStyle {
                             colour_mode: ColourMode::Colormap {
                                 colormap: ColormapSource::Builtin(
-                                    viewport_lib::BuiltinColormap::Viridis,
+                                    viewport_lib::BuiltinColourmap::Viridis,
                                 ),
                                 scalar_range: None,
                             },
@@ -252,7 +252,7 @@ pub(crate) fn build_plot_entry_from_inputs(
                 resolution: default_res,
                 style: PlotStyle {
                     colour_mode: ColourMode::Colormap {
-                        colormap: ColormapSource::Builtin(BuiltinColormap::Viridis),
+                        colormap: ColormapSource::Builtin(BuiltinColourmap::Viridis),
                         scalar_range: None,
                     },
                     two_sided: true,
@@ -275,7 +275,7 @@ pub(crate) fn build_plot_entry_from_inputs(
                 resolution: default_res,
                 style: PlotStyle {
                     colour_mode: ColourMode::Colormap {
-                        colormap: ColormapSource::Builtin(BuiltinColormap::Viridis),
+                        colormap: ColormapSource::Builtin(BuiltinColourmap::Viridis),
                         scalar_range: None,
                     },
                     two_sided: true,
@@ -298,7 +298,7 @@ pub(crate) fn build_plot_entry_from_inputs(
                 resolution: default_res,
                 style: PlotStyle {
                     colour_mode: ColourMode::Colormap {
-                        colormap: ColormapSource::Builtin(BuiltinColormap::Viridis),
+                        colormap: ColormapSource::Builtin(BuiltinColourmap::Viridis),
                         scalar_range: None,
                     },
                     two_sided: true,
@@ -321,7 +321,7 @@ pub(crate) fn build_plot_entry_from_inputs(
                 resolution: default_res,
                 style: PlotStyle {
                     colour_mode: ColourMode::Colormap {
-                        colormap: ColormapSource::Builtin(BuiltinColormap::Viridis),
+                        colormap: ColormapSource::Builtin(BuiltinColourmap::Viridis),
                         scalar_range: None,
                     },
                     two_sided: true,
@@ -361,7 +361,7 @@ pub(crate) fn build_plot_entry_from_inputs(
                 resolution: default_res,
                 style: PlotStyle {
                     colour_mode: ColourMode::Colormap {
-                        colormap: ColormapSource::Builtin(BuiltinColormap::Viridis),
+                        colormap: ColormapSource::Builtin(BuiltinColourmap::Viridis),
                         scalar_range: None,
                     },
                     two_sided: true,
@@ -385,7 +385,7 @@ pub(crate) fn build_plot_entry_from_inputs(
                 resolution: Resolution::default(),
                 style: PlotStyle {
                     colour_mode: ColourMode::Colormap {
-                        colormap: ColormapSource::Builtin(BuiltinColormap::Viridis),
+                        colormap: ColormapSource::Builtin(BuiltinColourmap::Viridis),
                         scalar_range: None,
                     },
                     two_sided: true,
@@ -594,7 +594,7 @@ pub(crate) fn build_plot_entry_from_inputs(
                 resolution: Resolution::default(),
                 style: PlotStyle {
                     colour_mode: ColourMode::Colormap {
-                        colormap: ColormapSource::Builtin(BuiltinColormap::Plasma),
+                        colormap: ColormapSource::Builtin(BuiltinColourmap::Plasma),
                         scalar_range: None,
                     },
                     tube_radius: Some(0.06),

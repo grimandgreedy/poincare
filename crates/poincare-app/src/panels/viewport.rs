@@ -88,14 +88,14 @@ impl App {
         frame_data.camera.viewport_size = [rect.width(), rect.height()];
         frame_data.camera.pixels_per_point = ctx.pixels_per_point();
         frame_data.viewport.show_grid = self.documents[self.active_document_idx].axis_config.show_grid;
-        frame_data.viewport.background_color =
+        frame_data.viewport.background_colour =
             Some(self.documents[self.active_document_idx].viewport_background);
         frame_data.effects.ground_plane = viewport_lib::GroundPlane {
             mode: self.documents[self.active_document_idx].ground_plane_mode,
             height: self.documents[self.active_document_idx].ground_plane_height,
-            color: self.documents[self.active_document_idx].ground_plane_color,
+            colour: self.documents[self.active_document_idx].ground_plane_color,
             tile_size: self.documents[self.active_document_idx].ground_plane_tile_size,
-            shadow_color: [0.0, 0.0, 0.0, 1.0],
+            shadow_colour: [0.0, 0.0, 0.0, 1.0],
             shadow_opacity: 0.35,
         };
 

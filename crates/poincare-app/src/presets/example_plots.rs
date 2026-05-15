@@ -2,7 +2,7 @@ use poincare_lib::{
     ColormapSource, ColourMode, Domain, MatcapSource, ParamVisSettings, PlotStyle, Resolution,
     ShadingMode, SurfaceFaceQuantity, TransferFunction,
 };
-use viewport_lib::{AttributeKind, BuiltinColormap, BuiltinMatcap, ParamVisMode};
+use viewport_lib::{AttributeKind, BuiltinColourmap, BuiltinMatcap, ParamVisMode};
 
 use crate::plot::entry::PlotEntry;
 use crate::plot::kind::{PlotKind, evenly_spaced_isovalues};
@@ -81,7 +81,7 @@ impl ExamplePlot {
                 resolution: Resolution { u: 80, v: 80 },
                 style: PlotStyle {
                     colour_mode: ColourMode::Colormap {
-                        colormap: ColormapSource::Builtin(BuiltinColormap::Coolwarm),
+                        colormap: ColormapSource::Builtin(BuiltinColourmap::Coolwarm),
                         scalar_range: Some((3.5, 6.5)),
                     },
                     opacity: 0.72,
@@ -148,7 +148,7 @@ impl ExamplePlot {
                 resolution: Resolution { u: 36, v: 36 },
                 style: PlotStyle {
                     colour_mode: ColourMode::Colormap {
-                        colormap: ColormapSource::Builtin(BuiltinColormap::Coolwarm),
+                        colormap: ColormapSource::Builtin(BuiltinColourmap::Coolwarm),
                         scalar_range: None,
                     },
                     two_sided: true,
@@ -183,7 +183,7 @@ impl ExamplePlot {
                     resolution: Resolution::default(),
                     style: PlotStyle {
                         colour_mode: ColourMode::Colormap {
-                            colormap: ColormapSource::Builtin(BuiltinColormap::Plasma),
+                            colormap: ColormapSource::Builtin(BuiltinColourmap::Plasma),
                             scalar_range: None,
                         },
                         tube_radius: Some(0.08),

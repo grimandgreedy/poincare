@@ -1,5 +1,5 @@
 use viewport_lib::{
-    AttributeKind, BuiltinColormap, BuiltinMatcap, ColormapId, ParamVis, ParamVisMode,
+    AttributeKind, BuiltinColourmap, BuiltinMatcap, ColourmapId, ParamVis, ParamVisMode,
 };
 
 /// Transfer function for volume opacity control.
@@ -56,14 +56,14 @@ impl Default for ColourMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColormapSource {
     /// One of the viewport's built-in LUT presets.
-    Builtin(BuiltinColormap),
+    Builtin(BuiltinColourmap),
     /// A caller-uploaded LUT.
-    Uploaded(ColormapId),
+    Uploaded(ColourmapId),
 }
 
 impl Default for ColormapSource {
     fn default() -> Self {
-        Self::Builtin(BuiltinColormap::Viridis)
+        Self::Builtin(BuiltinColourmap::Viridis)
     }
 }
 

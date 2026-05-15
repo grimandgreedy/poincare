@@ -1,5 +1,5 @@
 use eframe::egui;
-use viewport_lib::{BuiltinColormap, GroundPlaneMode, Projection, ViewPreset};
+use viewport_lib::{BuiltinColourmap, GroundPlaneMode, Projection, ViewPreset};
 
 use crate::App;
 
@@ -255,7 +255,7 @@ fn show_graph_settings(ui: &mut egui::Ui, app: &mut App) {
                 GroundPlaneMode::None => "Off",
                 GroundPlaneMode::ShadowOnly => "Shadow Only",
                 GroundPlaneMode::Tile => "Tile",
-                GroundPlaneMode::SolidColor => "Solid",
+                GroundPlaneMode::SolidColour => "Solid",
             })
             .show_ui(ui, |ui| {
                 ui.selectable_value(
@@ -275,7 +275,7 @@ fn show_graph_settings(ui: &mut egui::Ui, app: &mut App) {
                 );
                 ui.selectable_value(
                     &mut app.documents[app.active_document_idx].ground_plane_mode,
-                    GroundPlaneMode::SolidColor,
+                    GroundPlaneMode::SolidColour,
                     "Solid",
                 );
             });
@@ -289,7 +289,7 @@ fn show_graph_settings(ui: &mut egui::Ui, app: &mut App) {
     });
     if matches!(
         app.documents[app.active_document_idx].ground_plane_mode,
-        GroundPlaneMode::Tile | GroundPlaneMode::SolidColor
+        GroundPlaneMode::Tile | GroundPlaneMode::SolidColour
     ) {
         field_row(ui, "Ground tile size", |ui| {
             ui.add(egui::Slider::new(
@@ -340,32 +340,32 @@ fn show_input_settings(ui: &mut egui::Ui, app: &mut App) {
     ui.label("Reverses mouse-wheel zoom direction in the viewport.");
 }
 
-fn colormap_presets() -> [BuiltinColormap; 10] {
+fn colormap_presets() -> [BuiltinColourmap; 10] {
     [
-        BuiltinColormap::Viridis,
-        BuiltinColormap::Plasma,
-        BuiltinColormap::Greyscale,
-        BuiltinColormap::Coolwarm,
-        BuiltinColormap::Rainbow,
-        BuiltinColormap::Magma,
-        BuiltinColormap::Inferno,
-        BuiltinColormap::Turbo,
-        BuiltinColormap::Jet,
-        BuiltinColormap::RdBu,
+        BuiltinColourmap::Viridis,
+        BuiltinColourmap::Plasma,
+        BuiltinColourmap::Greyscale,
+        BuiltinColourmap::Coolwarm,
+        BuiltinColourmap::Rainbow,
+        BuiltinColourmap::Magma,
+        BuiltinColourmap::Inferno,
+        BuiltinColourmap::Turbo,
+        BuiltinColourmap::Jet,
+        BuiltinColourmap::RdBu,
     ]
 }
 
-fn colormap_name(preset: BuiltinColormap) -> &'static str {
+fn colormap_name(preset: BuiltinColourmap) -> &'static str {
     match preset {
-        BuiltinColormap::Viridis => "Viridis",
-        BuiltinColormap::Plasma => "Plasma",
-        BuiltinColormap::Greyscale => "Greyscale",
-        BuiltinColormap::Coolwarm => "Coolwarm",
-        BuiltinColormap::Rainbow => "Rainbow",
-        BuiltinColormap::Magma => "Magma",
-        BuiltinColormap::Inferno => "Inferno",
-        BuiltinColormap::Turbo => "Turbo",
-        BuiltinColormap::Jet => "Jet",
-        BuiltinColormap::RdBu => "RdBu",
+        BuiltinColourmap::Viridis => "Viridis",
+        BuiltinColourmap::Plasma => "Plasma",
+        BuiltinColourmap::Greyscale => "Greyscale",
+        BuiltinColourmap::Coolwarm => "Coolwarm",
+        BuiltinColourmap::Rainbow => "Rainbow",
+        BuiltinColourmap::Magma => "Magma",
+        BuiltinColourmap::Inferno => "Inferno",
+        BuiltinColourmap::Turbo => "Turbo",
+        BuiltinColourmap::Jet => "Jet",
+        BuiltinColourmap::RdBu => "RdBu",
     }
 }
