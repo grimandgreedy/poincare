@@ -1,0 +1,13 @@
+pub mod advanced_scivis;
+pub mod classic_curves;
+pub mod classic_surfaces;
+pub mod composite_demo;
+pub mod example_plots;
+pub mod expression_demo;
+pub mod feature_showcase;
+pub mod ground_plane_demo;
+pub mod input_format_demo;
+pub mod material_showcase;
+pub mod scivis_sampler;
+pub mod surface_gallery;
+pub mod transparency_demo;
