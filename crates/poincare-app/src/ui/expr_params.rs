@@ -389,18 +389,7 @@ pub(crate) fn show_expression_params(
                         )
                         .changed();
                     let c = &mut iso_colours[i];
-                    dirty |= ui
-                        .add(egui::Slider::new(&mut c[0], 0.0..=1.0).text("R"))
-                        .changed();
-                    dirty |= ui
-                        .add(egui::Slider::new(&mut c[1], 0.0..=1.0).text("G"))
-                        .changed();
-                    dirty |= ui
-                        .add(egui::Slider::new(&mut c[2], 0.0..=1.0).text("B"))
-                        .changed();
-                    dirty |= ui
-                        .add(egui::Slider::new(&mut c[3], 0.0..=1.0).text("A"))
-                        .changed();
+                    dirty |= ui.color_edit_button_rgba_unmultiplied(c).changed();
                     if ui.small_button("X").clicked() {
                         remove_idx = Some(i);
                         dirty = true;

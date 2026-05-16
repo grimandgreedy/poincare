@@ -1,6 +1,7 @@
 use eframe::egui;
 use viewport_lib::ViewPreset;
 
+use crate::presets::example_plots::ExamplePlot;
 use crate::App;
 use crate::PlotPreset;
 
@@ -13,7 +14,7 @@ impl App {
                 self.menu_file(ui, ctx);
                 self.menu_edit(ui);
                 self.menu_view(ui);
-                // self.menu_examples(ui);
+                self.menu_examples(ui);
             });
         });
 
@@ -119,9 +120,23 @@ impl App {
 
     fn menu_examples(&mut self, ui: &mut egui::Ui) {
         ui.menu_button("Examples", |ui| {
+            ui.label(egui::RichText::new("Presets").small().strong());
             for &preset in PlotPreset::all() {
                 if ui.button(preset.name()).clicked() {
                     self.load_preset(preset);
+                    ui.close();
+                }
+            }
+            ui.separator();
+            ui.label(egui::RichText::new("Single Plots").small().strong());
+            for &example in ExamplePlot::all() {
+                if ui.button(example.name()).clicked() {
+                    let doc = &mut self.documents[self.active_document_idx];
+                    doc.plots = vec![example.build()];
+                    doc.sweep_config.clear();
+                    doc.selected_plot = Some(0);
+                    doc.scene_dirty = true;
+                    doc.export_status.clear();
                     ui.close();
                 }
             }

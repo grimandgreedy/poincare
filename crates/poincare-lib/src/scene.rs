@@ -1,10 +1,10 @@
 use glam::Vec3;
 
 use viewport_lib::{
-    AttributeKind, AttributeRef, Camera, ColourmapId, FrameData, GlyphItem, LabelItem, LightKind,
-    LightSource, LightingSettings, Material, MeshId, PointCloudItem, PolylineItem, RenderCamera,
-    SceneRenderItem, StreamtubeItem, SurfaceLICConfig, SurfaceLICItem, SurfaceSubmission,
-    ViewportError, ViewportGpuResources,
+    AppearanceSettings, AttributeKind, AttributeRef, Camera, ColourmapId, FrameData, GlyphItem,
+    LabelItem, LightKind, LightSource, LightingSettings, Material, MeshId, PointCloudItem,
+    PolylineItem, RenderCamera, SceneRenderItem, StreamtubeItem, SurfaceLICConfig,
+    SurfaceLICItem, SurfaceSubmission, ViewportError, ViewportGpuResources,
     VolumeId, VolumeItem,
 };
 
@@ -164,6 +164,7 @@ impl GraphScene {
                     let mut item = SceneRenderItem::default();
                     item.mesh_id = surface.mesh_index;
                     item.material = material_from_style(&surface.style, surface.matcap_id);
+                    item.appearance = appearance_from_style(&surface.style);
                     if surface.style.two_sided {
                         item.material.backface_policy = viewport_lib::BackfacePolicy::Identical;
                     }
@@ -208,8 +209,9 @@ impl GraphScene {
                     let mut item = PolylineItem::default();
                     item.positions = polyline.positions.iter().map(|p| p.to_array()).collect();
                     item.strip_lengths = polyline.strip_lengths.clone();
-                    item.default_colour = default_rgba(&polyline.style);
+                    item.default_colour = default_colour_rgba(&polyline.style);
                     item.line_width = polyline.style.line_width;
+                    item.appearance = appearance_from_style(&polyline.style);
                     apply_polyline_colour_mode(
                         &mut item,
                         &polyline.style,
@@ -233,7 +235,8 @@ impl GraphScene {
                     let mut item = PointCloudItem::default();
                     item.positions = points.positions.iter().map(|p| p.to_array()).collect();
                     item.point_size = points.style.point_size;
-                    item.default_colour = default_rgba(&points.style);
+                    item.default_colour = default_colour_rgba(&points.style);
+                    item.appearance = appearance_from_style(&points.style);
                     apply_point_colour_mode(
                         &mut item,
                         &points.style,
@@ -267,6 +270,9 @@ impl GraphScene {
                         .collect();
                     item.scale = 1.0;
                     item.scale_by_magnitude = false;
+                    item.default_colour = default_colour_rgba(&glyphs.style);
+                    item.use_default_colour = matches!(glyphs.style.colour_mode, ColourMode::Solid(_));
+                    item.appearance = appearance_from_style(&glyphs.style);
                     apply_glyph_colour_mode(
                         &mut item,
                         &glyphs.style,
@@ -291,7 +297,8 @@ impl GraphScene {
                     item.positions = st.positions.iter().map(|p| p.to_array()).collect();
                     item.strip_lengths = st.strip_lengths.clone();
                     item.radius = st.radius;
-                    item.colour = default_rgba(&st.style);
+                    item.colour = default_colour_rgba(&st.style);
+                    item.appearance = appearance_from_style(&st.style);
                     Some(item)
                 })
             })
@@ -323,6 +330,7 @@ impl GraphScene {
                     item.threshold_min = threshold_min;
                     item.threshold_max = threshold_max;
                     item.enable_shading = true;
+                    item.appearance = appearance_from_style(&vol.style);
                     item
                 })
             })
@@ -538,9 +546,8 @@ fn resolve_matcap_id(
 }
 
 fn material_from_style(style: &PlotStyle, matcap_id: Option<viewport_lib::MatcapId>) -> Material {
-    let rgba = default_rgba(style);
+    let rgba = default_colour_rgba(style);
     let mut material = Material::from_colour([rgba[0], rgba[1], rgba[2]]);
-    material.opacity = rgba[3];
     material.matcap_id = matcap_id;
     material.param_vis = style.param_vis.map(Into::into);
 
@@ -561,6 +568,13 @@ fn material_from_style(style: &PlotStyle, matcap_id: Option<viewport_lib::Matcap
     material
 }
 
+fn appearance_from_style(style: &PlotStyle) -> AppearanceSettings {
+    let mut appearance = AppearanceSettings::default();
+    appearance.opacity = default_colour_rgba(style)[3];
+    appearance.unlit = matches!(style.shading, ShadingMode::Unlit);
+    appearance
+}
+
 fn surface_lic_config(settings: &SurfaceLicSettings) -> SurfaceLICConfig {
     let mut config = SurfaceLICConfig::default();
     config.steps = settings.steps;
@@ -569,17 +583,10 @@ fn surface_lic_config(settings: &SurfaceLicSettings) -> SurfaceLICConfig {
     config
 }
 
-fn default_rgba(style: &PlotStyle) -> [f32; 4] {
+fn default_colour_rgba(style: &PlotStyle) -> [f32; 4] {
     match style.colour_mode {
-        ColourMode::Solid(rgba) => [
-            rgba[0],
-            rgba[1],
-            rgba[2],
-            (rgba[3] * style.opacity).clamp(0.0, 1.0),
-        ],
-        ColourMode::Colormap { .. } | ColourMode::ByAttribute { .. } => {
-            [1.0, 1.0, 1.0, style.opacity.clamp(0.0, 1.0)]
-        }
+        ColourMode::Solid(rgba) => [rgba[0], rgba[1], rgba[2], rgba[3].clamp(0.0, 1.0)],
+        ColourMode::Colormap { .. } | ColourMode::ByAttribute { .. } => [1.0, 1.0, 1.0, 1.0],
     }
 }
 

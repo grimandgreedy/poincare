@@ -138,18 +138,10 @@ pub(crate) fn edit_colour_mode(
 
     match colour_mode {
         ColourMode::Solid(rgba) => {
-            changed |= ui
-                .add(egui::Slider::new(&mut rgba[0], 0.0..=1.0).text("R"))
-                .changed();
-            changed |= ui
-                .add(egui::Slider::new(&mut rgba[1], 0.0..=1.0).text("G"))
-                .changed();
-            changed |= ui
-                .add(egui::Slider::new(&mut rgba[2], 0.0..=1.0).text("B"))
-                .changed();
-            changed |= ui
-                .add(egui::Slider::new(&mut rgba[3], 0.0..=1.0).text("A"))
-                .changed();
+            ui.horizontal(|ui| {
+                ui.label("Solid Colour");
+                changed |= ui.color_edit_button_rgba_unmultiplied(rgba).changed();
+            });
         }
         ColourMode::Colormap {
             colormap,

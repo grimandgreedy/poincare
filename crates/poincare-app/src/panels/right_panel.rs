@@ -22,85 +22,172 @@ impl App {
             self.documents[doc_idx].sweep_config.resize_with(n, Default::default);
         }
 
-        // Borrow three disjoint fields of App simultaneously:
-        //   self.slider_dragging, self.eq_editor  (App fields)
-        //   self.documents[doc_idx]               (App field, different from the above)
         let slider_dragging = &mut self.slider_dragging;
         let eq_editor = &mut self.eq_editor;
         let doc = &mut self.documents[doc_idx];
 
-        // Split doc into two disjoint field borrows so we can hold both
-        // plot (&mut PlotEntry) and sweep_map (&mut SweepMap) at the same time.
         let plots = &mut doc.plots;
         let sweep_config = &mut doc.sweep_config;
 
         if let Some(plot) = plots.get_mut(index) {
-            ui.label(format!("Selected: {}", plot.name));
-            ui.add_space(6.0);
-
-            selected_dirty |= edit_domain(ui, &mut plot.domain, plot.kind.domain_labels());
-
-            ui.add_space(6.0);
-            let resolution_label = if plot.kind.uses_seed_resolution() {
-                "Seed Resolution"
-            } else {
-                "Resolution"
-            };
-            ui.label(resolution_label);
-            selected_dirty |=
-                edit_resolution(ui, &mut plot.resolution, plot.kind.uses_resolution());
-
-            ui.add_space(6.0);
-            ui.label("Style");
-            selected_dirty |= ui
-                .push_id("plot_style", |ui| {
-                    edit_plot_style(ui, &mut plot.style, plot.kind.style_caps())
-                })
-                .inner;
-            selected_dirty |= align_surface_colour_for_lic(&mut plot.style);
-
-            if let PlotKind::ContouredSurface {
-                contour_values,
-                contour_style,
-            } = &mut plot.kind
-            {
-                ui.add_space(6.0);
-                ui.label("Contours");
-                let mut contour_count = contour_values.len() as u32;
-                if ui
-                    .add(egui::Slider::new(&mut contour_count, 1..=20).text("Line Count"))
-                    .changed()
-                {
-                    *contour_values = evenly_spaced_isovalues(contour_count as usize);
-                    selected_dirty = true;
-                }
-                selected_dirty |= ui
-                    .push_id("contour_style", |ui| {
-                        edit_plot_style(
-                            ui,
-                            contour_style,
-                            StyleCaps {
-                                mesh: false,
-                                line: true,
-                                point: false,
-                                glyph: false,
-                            },
-                        )
-                    })
-                    .inner;
-            }
-
             let sweep_map = &mut sweep_config[index];
 
-            let param_section_dirty = show_expression_params(
-                ui,
-                &mut plot.kind,
-                slider_dragging,
-                eq_editor,
-                sweep_map,
-            );
-            selected_dirty |= param_section_dirty;
-            // Last use of plot and sweep_map — NLL ends those borrows here.
+            ui.label(format!("Selected: {}", plot.name));
+
+            let wide = ui.available_width() > 600.0;
+
+            if wide {
+                // Wide layout (e.g. bottom-docked): split into two columns.
+                // Left  → domain / resolution / expressions & parameters
+                // Right → style / contours
+                ui.add_space(4.0);
+
+                let col_dirty = ui.columns(2, |cols| {
+                    let mut dirty = false;
+
+                    // ── Left column ──────────────────────────────────────────
+                    {
+                        let ui = &mut cols[0];
+                        dirty |= edit_domain(ui, &mut plot.domain, plot.kind.domain_labels());
+                        ui.add_space(6.0);
+                        let resolution_label = if plot.kind.uses_seed_resolution() {
+                            "Seed Resolution"
+                        } else {
+                            "Resolution"
+                        };
+                        ui.label(resolution_label);
+                        dirty |= edit_resolution(
+                            ui,
+                            &mut plot.resolution,
+                            plot.kind.uses_resolution(),
+                        );
+                        ui.add_space(6.0);
+                        dirty |= show_expression_params(
+                            ui,
+                            &mut plot.kind,
+                            slider_dragging,
+                            eq_editor,
+                            sweep_map,
+                        );
+                    }
+
+                    // ── Right column ─────────────────────────────────────────
+                    {
+                        let ui = &mut cols[1];
+                        ui.label("Style");
+                        dirty |= ui
+                            .push_id("plot_style", |ui| {
+                                edit_plot_style(ui, &mut plot.style, plot.kind.style_caps())
+                            })
+                            .inner;
+                        dirty |= align_surface_colour_for_lic(&mut plot.style);
+
+                        if let PlotKind::ContouredSurface {
+                            contour_values,
+                            contour_style,
+                        } = &mut plot.kind
+                        {
+                            ui.add_space(6.0);
+                            ui.label("Contours");
+                            let mut contour_count = contour_values.len() as u32;
+                            if ui
+                                .add(
+                                    egui::Slider::new(&mut contour_count, 1..=20)
+                                        .text("Line Count"),
+                                )
+                                .changed()
+                            {
+                                *contour_values =
+                                    evenly_spaced_isovalues(contour_count as usize);
+                                dirty = true;
+                            }
+                            dirty |= ui
+                                .push_id("contour_style", |ui| {
+                                    edit_plot_style(
+                                        ui,
+                                        contour_style,
+                                        StyleCaps {
+                                            mesh: false,
+                                            line: true,
+                                            point: false,
+                                            glyph: false,
+                                        },
+                                    )
+                                })
+                                .inner;
+                        }
+                    }
+
+                    dirty
+                });
+
+                selected_dirty |= col_dirty;
+            } else {
+                // Narrow layout (side-docked): original single-column flow.
+                ui.add_space(6.0);
+
+                selected_dirty |= edit_domain(ui, &mut plot.domain, plot.kind.domain_labels());
+
+                ui.add_space(6.0);
+                let resolution_label = if plot.kind.uses_seed_resolution() {
+                    "Seed Resolution"
+                } else {
+                    "Resolution"
+                };
+                ui.label(resolution_label);
+                selected_dirty |=
+                    edit_resolution(ui, &mut plot.resolution, plot.kind.uses_resolution());
+
+                ui.add_space(6.0);
+                ui.label("Style");
+                selected_dirty |= ui
+                    .push_id("plot_style", |ui| {
+                        edit_plot_style(ui, &mut plot.style, plot.kind.style_caps())
+                    })
+                    .inner;
+                selected_dirty |= align_surface_colour_for_lic(&mut plot.style);
+
+                if let PlotKind::ContouredSurface {
+                    contour_values,
+                    contour_style,
+                } = &mut plot.kind
+                {
+                    ui.add_space(6.0);
+                    ui.label("Contours");
+                    let mut contour_count = contour_values.len() as u32;
+                    if ui
+                        .add(egui::Slider::new(&mut contour_count, 1..=20).text("Line Count"))
+                        .changed()
+                    {
+                        *contour_values = evenly_spaced_isovalues(contour_count as usize);
+                        selected_dirty = true;
+                    }
+                    selected_dirty |= ui
+                        .push_id("contour_style", |ui| {
+                            edit_plot_style(
+                                ui,
+                                contour_style,
+                                StyleCaps {
+                                    mesh: false,
+                                    line: true,
+                                    point: false,
+                                    glyph: false,
+                                },
+                            )
+                        })
+                        .inner;
+                }
+
+                let param_section_dirty = show_expression_params(
+                    ui,
+                    &mut plot.kind,
+                    slider_dragging,
+                    eq_editor,
+                    sweep_map,
+                );
+                selected_dirty |= param_section_dirty;
+                // Last use of plot and sweep_map — NLL ends those borrows here.
+            }
 
             if selected_dirty {
                 // plot/sweep_map borrows have ended; doc is still in scope but

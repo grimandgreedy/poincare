@@ -127,14 +127,6 @@ impl App {
         app
     }
 
-    pub(crate) fn active_document(&self) -> &Document {
-        &self.documents[self.active_document_idx]
-    }
-
-    pub(crate) fn active_document_mut(&mut self) -> &mut Document {
-        &mut self.documents[self.active_document_idx]
-    }
-
     pub(crate) fn new_document(&mut self) {
         self.documents.push(Document::new_default());
         self.active_document_idx = self.documents.len() - 1;

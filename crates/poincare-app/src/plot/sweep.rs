@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 /// Per-parameter ping-pong sweep/animation configuration.
 #[derive(Clone, Debug)]
 pub(crate) struct ParameterSweep {
@@ -66,6 +64,3 @@ impl ParameterSweep {
         self.playing = false;
     }
 }
-
-/// Convenience type alias used throughout the crate.
-pub(crate) type SweepMap = HashMap<String, ParameterSweep>;
