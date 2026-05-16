@@ -3,6 +3,10 @@ name = "poincare-app"
 version = "0.2.0"
 edition = "2024"
 description = "Interactive 3D mathematical graphing application"
+license = "MIT"
+repository = "https://github.com/grimandgreedy/poincare"
+homepage = "https://github.com/grimandgreedy/poincare"
+documentation = "https://docs.rs/poincare-app"
 readme = "../../README.md"
 keywords = ["math", "visualization", "visualisation", "3d", "egui"]
 categories = ["graphics", "mathematics", "rendering", "science", "gui"]
@@ -12,7 +16,7 @@ name = "poincare"
 path = "src/main.rs"
 
 [dependencies]
-poincare-lib = { workspace = true }
+poincare-lib = { version = "0.1.0", path = "../poincare-lib" }
 viewport-lib = { workspace = true }
 eframe = { version = "=0.33.3", default-features = false, features = ["wgpu", "default_fonts", "persistence"] }
 egui = { version = "=0.33.3" }
