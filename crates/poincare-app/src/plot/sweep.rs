@@ -3,6 +3,7 @@
 pub(crate) struct ParameterSweep {
     pub min: f64,
     pub max: f64,
+    pub step: f64,
     /// Range traversals per second (min→max counts as one traversal).
     pub speed: f64,
     pub playing: bool,
@@ -17,6 +18,7 @@ impl Default for ParameterSweep {
         Self {
             min: -5.0,
             max: 5.0,
+            step: 0.1,
             speed: 0.5,
             playing: false,
             phase: 0.0,
@@ -29,9 +31,11 @@ impl ParameterSweep {
     /// Build a sweep with a sensible range centred on the current value.
     pub fn new_for_value(current: f64) -> Self {
         let half = 5.0_f64.max(current.abs() + 1.0);
+        let span = (half * 2.0).max(1.0);
         Self {
             min: current - half,
             max: current + half,
+            step: (span / 100.0).max(0.01),
             ..Self::default()
         }
     }

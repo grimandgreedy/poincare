@@ -2,6 +2,7 @@ use eframe::egui;
 use poincare_lib::{Domain, Resolution};
 
 use crate::plot::kind::DomainLabels;
+use crate::ui::scalar_control::{ScalarControl, edit_scalar_control};
 
 pub(crate) fn edit_domain(ui: &mut egui::Ui, domain: &mut Domain, labels: DomainLabels) -> bool {
     if labels == DomainLabels::None {
@@ -57,16 +58,24 @@ pub(crate) fn edit_range(
 ) -> bool {
     let mut start = *range.start();
     let mut end = *range.end();
-    let mut changed = false;
-    ui.horizontal(|ui| {
-        ui.label(label);
-        changed |= ui
-            .add(egui::DragValue::new(&mut start).speed(0.1).prefix("min "))
-            .changed();
-        changed |= ui
-            .add(egui::DragValue::new(&mut end).speed(0.1).prefix("max "))
-            .changed();
-    });
+    let span = (end - start).abs();
+    let mut step = (span / 100.0).max(0.1);
+    let resp = edit_scalar_control(
+        ui,
+        ("domain_range", label),
+        ScalarControl {
+            label,
+            framed: false,
+            value: None,
+            min: &mut start,
+            max: &mut end,
+            step: Some(&mut step),
+            speed: None,
+            playing: None,
+            reset_label: None,
+        },
+    );
+    let changed = resp.changed;
     if changed {
         if start > end {
             std::mem::swap(&mut start, &mut end);

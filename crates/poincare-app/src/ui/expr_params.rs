@@ -6,6 +6,7 @@ use poincare_lib::{parse_csv_grid, parse_csv_points, parse_curve_expr, parse_exp
 use crate::plot::kind::{DEFAULT_ISO_PALETTE, PlotKind, SeedMode};
 use crate::plot::sweep::ParameterSweep;
 use crate::ui::equation_editor::{EquationEditor, equation_row_ed};
+use crate::ui::scalar_control::{ScalarControl, edit_scalar_control};
 
 /// Show parameter sliders (and sweep controls) for expression-type plots.
 /// Returns `true` if any value changed that requires a scene rebuild.
@@ -540,74 +541,40 @@ pub(crate) fn show_param_sliders(
 
     let mut any_dragging = false;
     for (name, value) in parameters.iter_mut() {
-        let is_playing = sweep_map.get(name).is_some_and(|s| s.playing);
-
-        ui.horizontal(|ui| {
-            // Slider — disabled while the sweep is driving the value.
-            let r = ui.add_enabled(
-                !is_playing,
-                egui::Slider::new(value, -10.0..=10.0)
-                    .text(egui::RichText::new(name.as_str()).monospace()),
-            );
-            if !is_playing {
-                if r.dragged() {
-                    any_dragging = true;
-                }
-                if r.drag_stopped() {
-                    dirty = true;
-                }
+        let sweep = sweep_map
+            .entry(name.clone())
+            .or_insert_with(|| ParameterSweep::new_for_value(*value));
+        let resp = edit_scalar_control(
+            ui,
+            ("param_control", name.as_str()),
+            ScalarControl {
+                label: name.as_str(),
+                framed: true,
+                value: Some(value),
+                min: &mut sweep.min,
+                max: &mut sweep.max,
+                step: Some(&mut sweep.step),
+                speed: Some(&mut sweep.speed),
+                playing: Some(&mut sweep.playing),
+                reset_label: Some("Reset"),
+            },
+        );
+        any_dragging |= resp.dragging;
+        if resp.drag_stopped {
+            dirty = true;
+        }
+        if resp.reset_clicked {
+            sweep.reset();
+            *value = sweep.current_value();
+            dirty = true;
+        }
+        if resp.play_toggled {
+            if sweep.playing {
+                dirty = true;
             }
-
-            // Play / pause toggle.
-            let btn = if is_playing { "⏸" } else { "▶" };
-            if ui
-                .small_button(btn)
-                .on_hover_text("Sweep this parameter")
-                .clicked()
-            {
-                let sweep = sweep_map
-                    .entry(name.clone())
-                    .or_insert_with(|| ParameterSweep::new_for_value(*value));
-                sweep.playing = !sweep.playing;
-                if sweep.playing {
-                    dirty = true;
-                }
-            }
-        });
-
-        // Sweep settings row — always shown; entry created with sensible defaults on first render.
-        {
-            let sweep = sweep_map
-                .entry(name.clone())
-                .or_insert_with(|| ParameterSweep::new_for_value(*value));
-            ui.horizontal(|ui| {
-                ui.add_space(12.0);
-                ui.add(
-                    egui::DragValue::new(&mut sweep.min)
-                        .speed(0.1)
-                        .prefix("min "),
-                );
-                ui.add(
-                    egui::DragValue::new(&mut sweep.max)
-                        .speed(0.1)
-                        .prefix("max "),
-                );
-                ui.add(
-                    egui::DragValue::new(&mut sweep.speed)
-                        .speed(0.01)
-                        .range(0.01..=20.0)
-                        .prefix("speed "),
-                );
-                if ui
-                    .small_button("↺")
-                    .on_hover_text("Reset to start")
-                    .clicked()
-                {
-                    sweep.reset();
-                    *value = sweep.current_value();
-                    dirty = true;
-                }
-            });
+        }
+        if resp.changed && !resp.dragging && !resp.drag_stopped {
+            dirty = true;
         }
     }
 

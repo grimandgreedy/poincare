@@ -55,6 +55,8 @@ struct PersistedAppSettings {
 pub(crate) struct PersistedParameterSweep {
     min: f64,
     max: f64,
+    #[serde(default = "default_parameter_step")]
+    step: f64,
     speed: f64,
     playing: bool,
     phase: f64,
@@ -66,6 +68,7 @@ impl PersistedParameterSweep {
         Self {
             min: s.min,
             max: s.max,
+            step: s.step,
             speed: s.speed,
             playing: s.playing,
             phase: s.phase,
@@ -77,12 +80,17 @@ impl PersistedParameterSweep {
         ParameterSweep {
             min: self.min,
             max: self.max,
+            step: self.step,
             speed: self.speed,
             playing: self.playing,
             phase: self.phase,
             direction: self.direction,
         }
     }
+}
+
+fn default_parameter_step() -> f64 {
+    0.1
 }
 
 // ---------------------------------------------------------------------------
