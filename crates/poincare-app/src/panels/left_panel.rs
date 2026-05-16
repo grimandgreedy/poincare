@@ -234,7 +234,7 @@ impl App {
                                     self.mark_dirty();
                                 }
 
-                                ui.menu_button("⋯", |ui| {
+                                ui.menu_button("...", |ui| {
                                     self.plot_row_menu(ui, index, plot_count, &mut pending_action);
                                 });
                             });
