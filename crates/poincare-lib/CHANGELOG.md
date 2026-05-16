@@ -6,7 +6,7 @@ This project uses internal pre-release versioning. Until `1.0.0`, breaking chang
 
 ## [Unreleased]
 
-- No unreleased changes recorded yet.
+- No public API changes. The new camera controls and keyboard-shortcuts help UI were added in `poincare-app`.
 
 ## [0.1.0] - Initial pre-release
 
