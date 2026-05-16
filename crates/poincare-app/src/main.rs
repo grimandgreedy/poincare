@@ -12,6 +12,7 @@ mod topbar;
 mod ui;
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use eframe::egui;
 use grimdock::{PanelStyle, PanelTree};
@@ -35,11 +36,25 @@ fn default_panel_style() -> PanelStyle {
     }
 }
 
+fn app_icon() -> Arc<egui::IconData> {
+    let image = image::load_from_memory(include_bytes!("../../../assets/icon.png"))
+        .expect("embedded app icon png should decode")
+        .into_rgba8();
+    let (width, height) = image.dimensions();
+    Arc::new(egui::IconData {
+        rgba: image.into_raw(),
+        width,
+        height,
+    })
+}
+
 fn main() -> eframe::Result {
     eframe::run_native(
         "Poincaré",
         eframe::NativeOptions {
-            viewport: egui::ViewportBuilder::default().with_inner_size([1280.0, 780.0]),
+            viewport: egui::ViewportBuilder::default()
+                .with_inner_size([1280.0, 780.0])
+                .with_icon(app_icon()),
             depth_buffer: 24,
             stencil_buffer: 8,
             ..Default::default()
