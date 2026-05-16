@@ -229,31 +229,44 @@ impl App {
         ui.add_space(10.0);
         ui.separator();
         ui.label("Animation");
-        ui.checkbox(&mut self.camera_animations_enabled, "Animate Camera");
-        ui.add(
-            egui::Slider::new(&mut self.camera_animation_duration, 0.1_f32..=2.0_f32)
-                .text("Duration"),
+        ui.checkbox(&mut self.camera_animations_enabled, "Animate View Changes");
+        ui.label(
+            egui::RichText::new(
+                "Applies to preset views, framing actions, reset view, and saved-view recall.",
+            )
+            .small()
+            .weak(),
         );
-        egui::ComboBox::from_label("Easing")
-            .selected_text(match self.camera_animation_easing {
-                Easing::Linear => "Linear",
-                Easing::EaseOutCubic => "Ease Out",
-                Easing::EaseInOutCubic => "Ease In Out",
-                _ => "Custom",
-            })
-            .show_ui(ui, |ui| {
-                ui.selectable_value(&mut self.camera_animation_easing, Easing::Linear, "Linear");
-                ui.selectable_value(
-                    &mut self.camera_animation_easing,
-                    Easing::EaseOutCubic,
-                    "Ease Out",
-                );
-                ui.selectable_value(
-                    &mut self.camera_animation_easing,
-                    Easing::EaseInOutCubic,
-                    "Ease In Out",
-                );
-            });
+        ui.add_enabled_ui(self.camera_animations_enabled, |ui| {
+            ui.add(
+                egui::Slider::new(&mut self.camera_animation_duration, 0.1_f32..=2.0_f32)
+                    .text("Duration"),
+            );
+            egui::ComboBox::from_label("Easing")
+                .selected_text(match self.camera_animation_easing {
+                    Easing::Linear => "Linear",
+                    Easing::EaseOutCubic => "Ease Out",
+                    Easing::EaseInOutCubic => "Ease In Out",
+                    _ => "Custom",
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut self.camera_animation_easing,
+                        Easing::Linear,
+                        "Linear",
+                    );
+                    ui.selectable_value(
+                        &mut self.camera_animation_easing,
+                        Easing::EaseOutCubic,
+                        "Ease Out",
+                    );
+                    ui.selectable_value(
+                        &mut self.camera_animation_easing,
+                        Easing::EaseInOutCubic,
+                        "Ease In Out",
+                    );
+                });
+        });
 
         ui.add_space(10.0);
         ui.separator();
