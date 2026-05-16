@@ -90,6 +90,7 @@ struct App {
     add_plot_open: bool,
     add_plot_focus_pending: bool,
     export_open: bool,
+    shortcuts_open: bool,
     command_palette_open: bool,
     command_palette_focus_pending: bool,
     command_palette_query: String,
@@ -153,6 +154,7 @@ impl App {
             add_plot_open: false,
             add_plot_focus_pending: false,
             export_open: false,
+            shortcuts_open: false,
             command_palette_open: false,
             command_palette_focus_pending: false,
             command_palette_query: String::new(),
@@ -724,6 +726,7 @@ impl eframe::App for App {
         self.show_add_plot_modal(ctx);
         self.show_export_modal(ctx, frame);
         self.show_command_palette(ctx);
+        self.show_shortcuts_modal(ctx);
         if self.settings_open {
             let mut open = self.settings_open;
             settings::show_settings_window(ctx, &mut open, self, frame);

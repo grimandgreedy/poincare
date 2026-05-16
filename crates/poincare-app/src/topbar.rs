@@ -16,6 +16,7 @@ enum PaletteCommand {
     CloseTab,
     ExportPng,
     Settings,
+    ShowShortcuts,
     Quit,
     DuplicatePlot,
     DeletePlot,
@@ -40,6 +41,7 @@ impl App {
                 self.menu_edit(ui);
                 self.menu_view(ui);
                 self.menu_examples(ui);
+                self.menu_help(ui, ctx);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("Export PNG").clicked() {
                         self.export_open = true;
@@ -185,6 +187,15 @@ impl App {
         });
     }
 
+    fn menu_help(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        ui.menu_button("Help", |ui| {
+            if ui.button("Keyboard Shortcuts").clicked() {
+                self.execute_palette_command(PaletteCommand::ShowShortcuts, ctx);
+                ui.close();
+            }
+        });
+    }
+
     fn duplicate_selected_plot(&mut self) {
         if let Some(idx) = self.documents[self.active_document_idx].selected_plot {
             let mut cloned = self.documents[self.active_document_idx].plots[idx].clone();
@@ -236,6 +247,7 @@ impl App {
             }
             PaletteCommand::ExportPng => self.export_open = true,
             PaletteCommand::Settings => self.settings_open = true,
+            PaletteCommand::ShowShortcuts => self.shortcuts_open = true,
             PaletteCommand::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
             PaletteCommand::DuplicatePlot => self.duplicate_selected_plot(),
             PaletteCommand::DeletePlot => self.delete_selected_plot(),
@@ -283,6 +295,11 @@ impl App {
             PaletteItem {
                 label: "File: Settings…".to_string(),
                 command: PaletteCommand::Settings,
+                enabled: true,
+            },
+            PaletteItem {
+                label: "Help: Keyboard Shortcuts".to_string(),
+                command: PaletteCommand::ShowShortcuts,
                 enabled: true,
             },
             PaletteItem {
@@ -486,6 +503,57 @@ impl App {
         self.command_palette_open = open;
     }
 
+    pub(crate) fn show_shortcuts_modal(&mut self, ctx: &egui::Context) {
+        if !self.shortcuts_open {
+            return;
+        }
+
+        let mut open = self.shortcuts_open;
+        egui::Window::new("Keyboard Shortcuts")
+            .collapsible(false)
+            .resizable(false)
+            .default_width(520.0)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .open(&mut open)
+            .show(ctx, |ui| {
+                shortcut_section(
+                    ui,
+                    "File",
+                    &[
+                        ("Cmd/Ctrl+O", "Open document"),
+                        ("Cmd/Ctrl+S", "Save document"),
+                        ("Cmd/Ctrl+Shift+S", "Save document as"),
+                        ("Cmd/Ctrl+,", "Open settings"),
+                    ],
+                );
+                ui.separator();
+                shortcut_section(ui, "Command", &[("Cmd/Ctrl+K", "Open command palette")]);
+                ui.separator();
+                shortcut_section(
+                    ui,
+                    "Camera",
+                    &[
+                        ("F", "Front view"),
+                        ("T", "Top view"),
+                        ("I", "Isometric view"),
+                        ("O", "Toggle perspective / orthographic"),
+                    ],
+                );
+                ui.separator();
+                shortcut_section(
+                    ui,
+                    "Viewport",
+                    &[
+                        ("Left drag", "Orbit camera"),
+                        ("Right drag", "Pan camera"),
+                        ("Scroll", "Zoom"),
+                        ("Axis indicator click", "Snap to axis view"),
+                    ],
+                );
+            });
+        self.shortcuts_open = open;
+    }
+
     fn document_tab_strip(&mut self, ui: &mut egui::Ui) {
         // Collect display info before the UI loop to avoid holding borrows into self.documents.
         let tabs: Vec<(String, bool)> = self
@@ -548,4 +616,18 @@ impl App {
             self.switch_document(new_active);
         }
     }
+}
+
+fn shortcut_section(ui: &mut egui::Ui, title: &str, rows: &[(&str, &str)]) {
+    ui.label(egui::RichText::new(title).strong());
+    egui::Grid::new(format!("shortcuts_{title}"))
+        .num_columns(2)
+        .spacing([20.0, 6.0])
+        .show(ui, |ui| {
+            for (shortcut, description) in rows {
+                ui.monospace(*shortcut);
+                ui.label(*description);
+                ui.end_row();
+            }
+        });
 }
