@@ -1,6 +1,6 @@
 # Poincare
 
-Poincare is an interactive 3D mathematical plotting tool built on top of [`viewport-lib`](https://github.com/grimandgreedy/viewport-lib). It is designed for exploring equations, geometry, fields, and volumetric data in a GPU-backed scientific viewport.
+Poincare is an interactive 3D mathematical plotting tool built on top of [`viewport-lib`](https://github.com/grimandgreedy/viewport-lib). It is designed for exploring equations, geometry, fields, and volumetric data.
 
 ![Poincare demo](assets/demo1.png)
 
