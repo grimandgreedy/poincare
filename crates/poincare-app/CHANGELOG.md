@@ -6,7 +6,10 @@ This project uses internal pre-release versioning. Until `1.0.0`, breaking chang
 
 ## [Unreleased]
 
-- No unreleased changes recorded yet.
+- Added a dedicated `Camera` tab as a second bottom `grimdock` tab alongside plot properties.
+- Added animated camera controls for named views, framing, projection switching, and saved camera slots.
+- Routed camera actions through shared commands so the bottom camera tab, View menu, command palette, axis indicator, and shortcuts use consistent behaviour.
+- Added a `Help` menu with a `Keyboard Shortcuts` modal documenting the app's current shortcuts.
 
 ## [0.2.0] - Initial pre-release
 
