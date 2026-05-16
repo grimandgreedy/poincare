@@ -3,6 +3,7 @@ name = "poincare-app"
 version = "0.2.0"
 edition = "2024"
 description = "Interactive 3D mathematical graphing application"
+readme = "../../README.md"
 keywords = ["math", "visualization", "visualisation", "3d", "egui"]
 categories = ["graphics", "mathematics", "rendering", "science", "gui"]
 
