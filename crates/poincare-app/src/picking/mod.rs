@@ -141,11 +141,7 @@ pub(crate) fn ray_triangle_t(
         return None;
     }
     let t = f * e2.dot(q);
-    if t > 1e-4 {
-        Some(t)
-    } else {
-        None
-    }
+    if t > 1e-4 { Some(t) } else { None }
 }
 
 /// Find the closest point on segment `[a, b]` to `cursor_screen` (viewport-local pixels).

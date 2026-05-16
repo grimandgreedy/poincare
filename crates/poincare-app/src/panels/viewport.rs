@@ -4,14 +4,20 @@ use viewport_lib::{
     ViewportContext, ViewportEvent,
 };
 
-use crate::picking::{pick_probe, world_to_screen, ProbeHit};
 use crate::App;
+use crate::CameraCommand;
+use crate::picking::{ProbeHit, pick_probe, world_to_screen};
 
 impl App {
     pub(crate) fn viewport(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         let available = ui.available_size();
         let (rect, response) = ui.allocate_exact_size(available, egui::Sense::click_and_drag());
         self.last_viewport_size = [rect.width().max(1.0) as u32, rect.height().max(1.0) as u32];
+        let scrolled =
+            response.hovered() && ui.ctx().input(|i| i.raw_scroll_delta != egui::Vec2::ZERO);
+        if response.dragged() || response.drag_started() || scrolled {
+            self.cancel_camera_animation();
+        }
 
         if self.documents[self.active_document_idx].probe_mode {
             push_egui_events_filtered(
@@ -47,25 +53,23 @@ impl App {
                     //   axis 0 (X) → Right (+X) / Left (−X)
                     //   axis 1 (Y) → Front (+Y) / Back (−Y)
                     //   axis 2 (Z) → Top  (+Z, looking down at XY) / Bottom (−Z)
-                    let positive = [
-                        ViewPreset::Right.orientation(),
-                        ViewPreset::Front.orientation(),
-                        ViewPreset::Top.orientation(),
-                    ];
-                    let negative = [
-                        ViewPreset::Left.orientation(),
-                        ViewPreset::Back.orientation(),
-                        ViewPreset::Bottom.orientation(),
-                    ];
                     let i = hit.axis_index;
-                    self.documents[self.active_document_idx].camera.orientation =
-                        if self.last_axes_snap == Some((i, true)) {
-                            self.last_axes_snap = Some((i, false));
-                            negative[i]
-                        } else {
-                            self.last_axes_snap = Some((i, true));
-                            positive[i]
-                        };
+                    let preset = if self.last_axes_snap == Some((i, true)) {
+                        self.last_axes_snap = Some((i, false));
+                        match i {
+                            0 => ViewPreset::Left,
+                            1 => ViewPreset::Back,
+                            _ => ViewPreset::Bottom,
+                        }
+                    } else {
+                        self.last_axes_snap = Some((i, true));
+                        match i {
+                            0 => ViewPreset::Right,
+                            1 => ViewPreset::Front,
+                            _ => ViewPreset::Top,
+                        }
+                    };
+                    self.run_camera_command(CameraCommand::ViewPreset(preset));
                 }
             }
         }

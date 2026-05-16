@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use poincare_lib::{
-    eval_curve_point, eval_surface, eval_with_vars, parse_csv_grid, parse_csv_points,
-    parse_curve_expr, parse_expr_with_vars, parse_surface_expr, ColourMode, ContourPlot3D, Curve3D,
-    DensityPlot3D, Domain, GraphScene, LevelSet3D, PlotStyle, Resolution, Scatter3D, StreamPlot3D,
-    Surface3D, VectorField3D,
+    ColourMode, ContourPlot3D, Curve3D, DensityPlot3D, Domain, GraphScene, LevelSet3D, PlotStyle,
+    Resolution, Scatter3D, StreamPlot3D, Surface3D, VectorField3D, eval_curve_point, eval_surface,
+    eval_with_vars, parse_csv_grid, parse_csv_points, parse_curve_expr, parse_expr_with_vars,
+    parse_surface_expr,
 };
 
 use crate::plot::kind::PlotKind;

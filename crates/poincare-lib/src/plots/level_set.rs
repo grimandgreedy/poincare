@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use viewport_lib::{extract_isolines, IsolineItem, MeshData};
+use viewport_lib::{IsolineItem, MeshData, extract_isolines};
 
 use crate::coordinate::CoordinateSystem;
 use crate::domain::{DataBounds, Domain};

@@ -1,9 +1,10 @@
 use eframe::egui;
-use viewport_lib::ViewPreset;
+use viewport_lib::{Projection, ViewPreset};
 
-use crate::presets::example_plots::ExamplePlot;
 use crate::App;
+use crate::CameraCommand;
 use crate::PlotPreset;
+use crate::presets::example_plots::ExamplePlot;
 
 #[derive(Clone, Copy)]
 enum PaletteCommand {
@@ -18,7 +19,7 @@ enum PaletteCommand {
     Quit,
     DuplicatePlot,
     DeletePlot,
-    ViewPreset(ViewPreset),
+    Camera(CameraCommand),
     LoadPreset(PlotPreset),
     LoadExample(ExamplePlot),
 }
@@ -107,20 +108,56 @@ impl App {
 
     fn menu_view(&mut self, ui: &mut egui::Ui) {
         ui.menu_button("View", |ui| {
-            if ui.button("Front").clicked() {
+            for (label, preset) in [
+                ("Front", ViewPreset::Front),
+                ("Back", ViewPreset::Back),
+                ("Left", ViewPreset::Left),
+                ("Right", ViewPreset::Right),
+                ("Top", ViewPreset::Top),
+                ("Bottom", ViewPreset::Bottom),
+                ("Isometric", ViewPreset::Isometric),
+            ] {
+                if ui.button(label).clicked() {
+                    self.execute_palette_command(
+                        PaletteCommand::Camera(CameraCommand::ViewPreset(preset)),
+                        ui.ctx(),
+                    );
+                    ui.close();
+                }
+            }
+            ui.separator();
+            if ui.button("Frame All").clicked() {
                 self.execute_palette_command(
-                    PaletteCommand::ViewPreset(ViewPreset::Front),
+                    PaletteCommand::Camera(CameraCommand::FrameAll),
                     ui.ctx(),
                 );
                 ui.close();
             }
-            if ui.button("Top").clicked() {
-                self.execute_palette_command(PaletteCommand::ViewPreset(ViewPreset::Top), ui.ctx());
+            if ui.button("Frame Selected").clicked() {
+                self.execute_palette_command(
+                    PaletteCommand::Camera(CameraCommand::FrameSelected),
+                    ui.ctx(),
+                );
                 ui.close();
             }
-            if ui.button("Isometric").clicked() {
+            if ui.button("Reset View").clicked() {
                 self.execute_palette_command(
-                    PaletteCommand::ViewPreset(ViewPreset::Isometric),
+                    PaletteCommand::Camera(CameraCommand::ResetView),
+                    ui.ctx(),
+                );
+                ui.close();
+            }
+            ui.separator();
+            if ui.button("Perspective").clicked() {
+                self.execute_palette_command(
+                    PaletteCommand::Camera(CameraCommand::SetProjection(Projection::Perspective)),
+                    ui.ctx(),
+                );
+                ui.close();
+            }
+            if ui.button("Orthographic").clicked() {
+                self.execute_palette_command(
+                    PaletteCommand::Camera(CameraCommand::SetProjection(Projection::Orthographic)),
                     ui.ctx(),
                 );
                 ui.close();
@@ -202,7 +239,7 @@ impl App {
             PaletteCommand::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
             PaletteCommand::DuplicatePlot => self.duplicate_selected_plot(),
             PaletteCommand::DeletePlot => self.delete_selected_plot(),
-            PaletteCommand::ViewPreset(preset) => self.set_view_preset(preset),
+            PaletteCommand::Camera(command) => self.run_camera_command(command),
             PaletteCommand::LoadPreset(preset) => self.load_preset(preset),
             PaletteCommand::LoadExample(example) => self.load_example_plot(example),
         }
@@ -270,17 +307,66 @@ impl App {
             },
             PaletteItem {
                 label: "View: Front".to_string(),
-                command: PaletteCommand::ViewPreset(ViewPreset::Front),
+                command: PaletteCommand::Camera(CameraCommand::ViewPreset(ViewPreset::Front)),
+                enabled: true,
+            },
+            PaletteItem {
+                label: "View: Back".to_string(),
+                command: PaletteCommand::Camera(CameraCommand::ViewPreset(ViewPreset::Back)),
+                enabled: true,
+            },
+            PaletteItem {
+                label: "View: Left".to_string(),
+                command: PaletteCommand::Camera(CameraCommand::ViewPreset(ViewPreset::Left)),
+                enabled: true,
+            },
+            PaletteItem {
+                label: "View: Right".to_string(),
+                command: PaletteCommand::Camera(CameraCommand::ViewPreset(ViewPreset::Right)),
                 enabled: true,
             },
             PaletteItem {
                 label: "View: Top".to_string(),
-                command: PaletteCommand::ViewPreset(ViewPreset::Top),
+                command: PaletteCommand::Camera(CameraCommand::ViewPreset(ViewPreset::Top)),
+                enabled: true,
+            },
+            PaletteItem {
+                label: "View: Bottom".to_string(),
+                command: PaletteCommand::Camera(CameraCommand::ViewPreset(ViewPreset::Bottom)),
                 enabled: true,
             },
             PaletteItem {
                 label: "View: Isometric".to_string(),
-                command: PaletteCommand::ViewPreset(ViewPreset::Isometric),
+                command: PaletteCommand::Camera(CameraCommand::ViewPreset(ViewPreset::Isometric)),
+                enabled: true,
+            },
+            PaletteItem {
+                label: "View: Frame All".to_string(),
+                command: PaletteCommand::Camera(CameraCommand::FrameAll),
+                enabled: true,
+            },
+            PaletteItem {
+                label: "View: Frame Selected".to_string(),
+                command: PaletteCommand::Camera(CameraCommand::FrameSelected),
+                enabled: true,
+            },
+            PaletteItem {
+                label: "View: Reset View".to_string(),
+                command: PaletteCommand::Camera(CameraCommand::ResetView),
+                enabled: true,
+            },
+            PaletteItem {
+                label: "View: Perspective".to_string(),
+                command: PaletteCommand::Camera(CameraCommand::SetProjection(
+                    Projection::Perspective,
+                )),
+                enabled: true,
+            },
+            PaletteItem {
+                label: "View: Orthographic".to_string(),
+                command: PaletteCommand::Camera(CameraCommand::SetProjection(
+                    Projection::Orthographic,
+                )),
                 enabled: true,
             },
         ];

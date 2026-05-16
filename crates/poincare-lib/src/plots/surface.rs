@@ -6,8 +6,8 @@ use glam::Vec3;
 use viewport_lib::{AttributeData, MeshData};
 
 use crate::coordinate::{
-    cylindrical_to_cartesian, polar_to_cartesian, spherical_to_cartesian, CoordinateSystem,
-    ParametricDomain,
+    CoordinateSystem, ParametricDomain, cylindrical_to_cartesian, polar_to_cartesian,
+    spherical_to_cartesian,
 };
 use crate::domain::{DataBounds, Domain};
 use crate::plot_object::{PlotGeometry, PlotObject};

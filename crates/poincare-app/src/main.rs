@@ -18,11 +18,12 @@ use grimdock::{PanelStyle, PanelTree};
 use poincare_lib::{AxisConfig, ColormapSource, ColourMode};
 use viewport_lib::BuiltinColourmap;
 use viewport_lib::{
-    GroundPlaneMode, OrbitCameraController, Projection, ViewPreset, ViewportRenderer,
+    CameraAnimator, Easing, GroundPlaneMode, OrbitCameraController, Projection, ViewPreset,
+    ViewportRenderer,
 };
 
-use dock::{build_panel_tree, DockTab};
-use document::{default_camera, Document, DEFAULT_VIEWPORT_BACKGROUND};
+use dock::{DockTab, build_panel_tree};
+use document::{DEFAULT_VIEWPORT_BACKGROUND, Document, default_camera};
 use plot::entry::PlotEntry;
 use plot::selected_type::SelectedPlotType;
 use ui::equation_editor::EquationEditor;
@@ -93,6 +94,10 @@ struct App {
     command_palette_focus_pending: bool,
     command_palette_query: String,
     command_palette_selected: usize,
+    camera_animator: CameraAnimator,
+    camera_animations_enabled: bool,
+    camera_animation_duration: f32,
+    camera_animation_easing: Easing,
     inspector_tab: InspectorTab,
     pending_focus_tab: Option<DockTab>,
     renaming_plot: Option<usize>,
@@ -105,6 +110,18 @@ pub(crate) enum InspectorTab {
     Domain,
     Style,
     Surface,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CameraCommand {
+    ViewPreset(ViewPreset),
+    FrameAll,
+    FrameSelected,
+    ResetView,
+    SetProjection(Projection),
+    ToggleProjection,
+    SaveSlot(usize),
+    RecallSlot(usize),
 }
 
 impl App {
@@ -140,6 +157,10 @@ impl App {
             command_palette_focus_pending: false,
             command_palette_query: String::new(),
             command_palette_selected: 0,
+            camera_animator: CameraAnimator::with_default_damping(),
+            camera_animations_enabled: true,
+            camera_animation_duration: 0.6,
+            camera_animation_easing: Easing::EaseInOutCubic,
             inspector_tab: InspectorTab::Domain,
             pending_focus_tab: None,
             renaming_plot: None,
@@ -364,28 +385,152 @@ impl App {
         }
 
         if ctx.input(|i| i.key_pressed(egui::Key::F)) {
-            self.set_view_preset(ViewPreset::Front);
+            self.run_camera_command(CameraCommand::ViewPreset(ViewPreset::Front));
         }
         if ctx.input(|i| i.key_pressed(egui::Key::T)) {
-            self.set_view_preset(ViewPreset::Top);
+            self.run_camera_command(CameraCommand::ViewPreset(ViewPreset::Top));
         }
         if ctx.input(|i| i.key_pressed(egui::Key::I)) {
-            self.set_view_preset(ViewPreset::Isometric);
+            self.run_camera_command(CameraCommand::ViewPreset(ViewPreset::Isometric));
         }
         if ctx.input(|i| i.key_pressed(egui::Key::O)) {
-            self.documents[self.active_document_idx].camera.projection =
-                match self.documents[self.active_document_idx].camera.projection {
+            self.run_camera_command(CameraCommand::ToggleProjection);
+        }
+    }
+
+    pub(crate) fn run_camera_command(&mut self, command: CameraCommand) {
+        match command {
+            CameraCommand::ViewPreset(preset) => {
+                let camera = &self.documents[self.active_document_idx].camera;
+                self.apply_camera_view(
+                    camera.center,
+                    camera.distance,
+                    preset.orientation(),
+                    preset.preferred_projection(),
+                );
+            }
+            CameraCommand::FrameAll => {
+                if let Some(target) = self.documents[self.active_document_idx]
+                    .visible_scene_bounds()
+                    .map(|aabb| {
+                        self.documents[self.active_document_idx]
+                            .camera
+                            .fit_aabb_target(&aabb)
+                    })
+                {
+                    self.apply_camera_target(target, None);
+                }
+            }
+            CameraCommand::FrameSelected => {
+                let target = self.documents[self.active_document_idx]
+                    .selected_plot_bounds()
+                    .or_else(|| self.documents[self.active_document_idx].visible_scene_bounds())
+                    .map(|aabb| {
+                        self.documents[self.active_document_idx]
+                            .camera
+                            .fit_aabb_target(&aabb)
+                    });
+                if let Some(target) = target {
+                    self.apply_camera_target(target, None);
+                }
+            }
+            CameraCommand::ResetView => {
+                let default = default_camera();
+                self.documents[self.active_document_idx].camera.fov_y = default.fov_y;
+                self.apply_camera_view(
+                    default.center,
+                    default.distance,
+                    default.orientation,
+                    Some(default.projection),
+                );
+            }
+            CameraCommand::SetProjection(projection) => {
+                self.camera_animator.cancel_flight();
+                self.documents[self.active_document_idx].camera.projection = projection;
+            }
+            CameraCommand::ToggleProjection => {
+                let projection = match self.documents[self.active_document_idx].camera.projection {
                     Projection::Perspective => Projection::Orthographic,
                     Projection::Orthographic => Projection::Perspective,
                     _ => Projection::Perspective,
                 };
+                self.run_camera_command(CameraCommand::SetProjection(projection));
+            }
+            CameraCommand::SaveSlot(slot) => {
+                let saved = self.documents[self.active_document_idx].camera.clone();
+                if let Some(target) = self
+                    .documents
+                    .get_mut(self.active_document_idx)
+                    .and_then(|doc| doc.camera_slots.get_mut(slot))
+                {
+                    *target = Some(saved);
+                }
+            }
+            CameraCommand::RecallSlot(slot) => {
+                if let Some(saved) = self.documents[self.active_document_idx]
+                    .camera_slots
+                    .get(slot)
+                    .and_then(|slot| slot.clone())
+                {
+                    self.documents[self.active_document_idx].camera.fov_y = saved.fov_y;
+                    self.apply_camera_view(
+                        saved.center,
+                        saved.distance,
+                        saved.orientation,
+                        Some(saved.projection),
+                    );
+                }
+            }
         }
     }
 
     pub(crate) fn set_view_preset(&mut self, preset: ViewPreset) {
-        self.documents[self.active_document_idx].camera.orientation = preset.orientation();
-        if let Some(projection) = preset.preferred_projection() {
-            self.documents[self.active_document_idx].camera.projection = projection;
+        self.run_camera_command(CameraCommand::ViewPreset(preset));
+    }
+
+    pub(crate) fn cancel_camera_animation(&mut self) {
+        self.camera_animator.cancel_flight();
+    }
+
+    fn apply_camera_target(
+        &mut self,
+        target: viewport_lib::CameraTarget,
+        projection: Option<Projection>,
+    ) {
+        self.apply_camera_view(
+            target.center,
+            target.distance,
+            target.orientation,
+            projection,
+        );
+    }
+
+    fn apply_camera_view(
+        &mut self,
+        center: glam::Vec3,
+        distance: f32,
+        orientation: glam::Quat,
+        projection: Option<Projection>,
+    ) {
+        let camera = &mut self.documents[self.active_document_idx].camera;
+        if self.camera_animations_enabled {
+            self.camera_animator.fly_to_full(
+                camera,
+                center,
+                distance,
+                orientation,
+                projection,
+                self.camera_animation_duration,
+                self.camera_animation_easing,
+            );
+        } else {
+            self.camera_animator.cancel_flight();
+            camera.set_center(center);
+            camera.set_distance(distance);
+            camera.set_orientation(orientation);
+            if let Some(projection) = projection {
+                camera.projection = projection;
+            }
         }
     }
 
@@ -556,6 +701,13 @@ impl eframe::App for App {
         // are picked up by the same frame's rebuild.
         let dt = ctx.input(|i| i.stable_dt) as f64;
         if self.tick_parameter_sweeps(dt) {
+            ctx.request_repaint();
+        }
+        let camera_dt = ctx.input(|i| i.stable_dt).max(1.0 / 240.0);
+        if self.camera_animator.update(
+            camera_dt,
+            &mut self.documents[self.active_document_idx].camera,
+        ) {
             ctx.request_repaint();
         }
 

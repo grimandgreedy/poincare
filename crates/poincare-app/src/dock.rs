@@ -12,6 +12,7 @@ pub(crate) enum DockTab {
     Plots,
     Viewport,
     PlotProperties,
+    CameraProperties,
 }
 
 fn tab(title: &str, id: DockTab) -> Tab<DockTab> {
@@ -19,6 +20,7 @@ fn tab(title: &str, id: DockTab) -> Tab<DockTab> {
         DockTab::Plots => ("☰", egui::Color32::from_rgb(110, 160, 220)),
         DockTab::Viewport => ("⬡", egui::Color32::from_rgb(100, 200, 140)),
         DockTab::PlotProperties => ("⚙", egui::Color32::from_rgb(210, 150, 80)), // amber
+        DockTab::CameraProperties => ("◎", egui::Color32::from_rgb(150, 190, 230)),
     };
     Tab::new(title, id)
         .with_leading_visual(icon)
@@ -30,7 +32,7 @@ fn tab(title: &str, id: DockTab) -> Tab<DockTab> {
 
 pub(crate) fn build_panel_tree() -> PanelTree<DockTab> {
     let mut tree = PanelTree::new(vec![
-        tab("Viewport", DockTab::Viewport).with_draggable(false)
+        tab("Viewport", DockTab::Viewport).with_draggable(false),
     ]);
     tree.split_leaf(
         0,
@@ -78,6 +80,10 @@ pub(crate) fn build_panel_tree() -> PanelTree<DockTab> {
             ..PaneOptions::default()
         },
     );
+    tree.ensure_tab_in_leaf(
+        6,
+        tab("Camera", DockTab::CameraProperties).with_closable(false),
+    );
 
     tree
 }
@@ -102,6 +108,7 @@ impl App {
                     DockTab::Plots => ("Plots", 1),
                     DockTab::Viewport => ("Viewport", 5),
                     DockTab::PlotProperties => ("Plot", 6),
+                    DockTab::CameraProperties => ("Camera", 6),
                 };
                 self.panel_tree
                     .as_mut()
@@ -126,6 +133,11 @@ impl App {
             DockTab::PlotProperties => {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     self.bottom_inspector(ui);
+                });
+            }
+            DockTab::CameraProperties => {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    self.camera_inspector(ui);
                 });
             }
         }

@@ -154,7 +154,8 @@ fn stub_length_for_axis(domain: &Domain, axis: Axis3, tick_positions: &[(f64, St
 }
 
 fn label_offset_for_axis(domain: &Domain, axis: Axis3, tick_positions: &[(f64, String)]) -> f32 {
-    (stub_length_for_axis(domain, axis, tick_positions) * 1.4).clamp(MIN_LABEL_OFFSET, MAX_LABEL_OFFSET)
+    (stub_length_for_axis(domain, axis, tick_positions) * 1.4)
+        .clamp(MIN_LABEL_OFFSET, MAX_LABEL_OFFSET)
 }
 
 fn stub_direction(axis: Axis3) -> Vec3 {
@@ -217,9 +218,14 @@ fn projected_stub_length(
 ) -> f32 {
     let fallback = stub_length_for_axis(domain, axis, tick_positions);
     let Some(vp) = vp else { return fallback };
-    projected_world_extent(vp, axis_point(axis, pos), stub_direction(axis), TARGET_TICK_NDC)
-        .unwrap_or(fallback)
-        .clamp(MIN_STUB_LENGTH, MAX_STUB_LENGTH)
+    projected_world_extent(
+        vp,
+        axis_point(axis, pos),
+        stub_direction(axis),
+        TARGET_TICK_NDC,
+    )
+    .unwrap_or(fallback)
+    .clamp(MIN_STUB_LENGTH, MAX_STUB_LENGTH)
 }
 
 fn projected_label_offset(
@@ -231,9 +237,14 @@ fn projected_label_offset(
 ) -> f32 {
     let fallback = label_offset_for_axis(domain, axis, tick_positions);
     let Some(vp) = vp else { return fallback };
-    projected_world_extent(vp, axis_point(axis, pos), stub_direction(axis), TARGET_LABEL_OFFSET_NDC)
-        .unwrap_or(fallback)
-        .clamp(MIN_LABEL_OFFSET, MAX_LABEL_OFFSET)
+    projected_world_extent(
+        vp,
+        axis_point(axis, pos),
+        stub_direction(axis),
+        TARGET_LABEL_OFFSET_NDC,
+    )
+    .unwrap_or(fallback)
+    .clamp(MIN_LABEL_OFFSET, MAX_LABEL_OFFSET)
 }
 
 /// Returns short perpendicular line stubs at each tick position along `axis`.
@@ -404,9 +415,8 @@ pub fn build_axis_labels_projected(
                 origin_labelled = true;
             }
             let mut lbl = LabelItem::default();
-            lbl.world_anchor = Some(
-                tick_label_anchor(domain, vp, Axis3::X, &ticks_per_axis[0], *pos).to_array(),
-            );
+            lbl.world_anchor =
+                Some(tick_label_anchor(domain, vp, Axis3::X, &ticks_per_axis[0], *pos).to_array());
             lbl.text = text.clone();
             lbl.colour = tc;
             lbl.font_size = 11.0;
@@ -420,9 +430,8 @@ pub fn build_axis_labels_projected(
                 origin_labelled = true;
             }
             let mut lbl = LabelItem::default();
-            lbl.world_anchor = Some(
-                tick_label_anchor(domain, vp, Axis3::Y, &ticks_per_axis[1], *pos).to_array(),
-            );
+            lbl.world_anchor =
+                Some(tick_label_anchor(domain, vp, Axis3::Y, &ticks_per_axis[1], *pos).to_array());
             lbl.text = text.clone();
             lbl.colour = tc;
             lbl.font_size = 11.0;
@@ -436,9 +445,8 @@ pub fn build_axis_labels_projected(
                 origin_labelled = true;
             }
             let mut lbl = LabelItem::default();
-            lbl.world_anchor = Some(
-                tick_label_anchor(domain, vp, Axis3::Z, &ticks_per_axis[2], *pos).to_array(),
-            );
+            lbl.world_anchor =
+                Some(tick_label_anchor(domain, vp, Axis3::Z, &ticks_per_axis[2], *pos).to_array());
             lbl.text = text.clone();
             lbl.colour = tc;
             lbl.font_size = 11.0;
@@ -451,7 +459,13 @@ pub fn build_axis_labels_projected(
         (
             config.labels[0].as_deref(),
             Vec3::new(
-                x1 + projected_label_offset(domain, vp, Axis3::X, &ticks_per_axis[0], *domain.x.end()),
+                x1 + projected_label_offset(
+                    domain,
+                    vp,
+                    Axis3::X,
+                    &ticks_per_axis[0],
+                    *domain.x.end(),
+                ),
                 0.0,
                 0.0,
             ),
@@ -460,7 +474,13 @@ pub fn build_axis_labels_projected(
             config.labels[1].as_deref(),
             Vec3::new(
                 0.0,
-                y1 + projected_label_offset(domain, vp, Axis3::Y, &ticks_per_axis[1], *domain.y.end()),
+                y1 + projected_label_offset(
+                    domain,
+                    vp,
+                    Axis3::Y,
+                    &ticks_per_axis[1],
+                    *domain.y.end(),
+                ),
                 0.0,
             ),
         ),
@@ -469,7 +489,13 @@ pub fn build_axis_labels_projected(
             Vec3::new(
                 0.0,
                 0.0,
-                z1 + projected_label_offset(domain, vp, Axis3::Z, &ticks_per_axis[2], *domain.z.end()),
+                z1 + projected_label_offset(
+                    domain,
+                    vp,
+                    Axis3::Z,
+                    &ticks_per_axis[2],
+                    *domain.z.end(),
+                ),
             ),
         ),
     ];

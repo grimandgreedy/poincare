@@ -1,6 +1,6 @@
 //! ContourPlot3D — marching-cubes isosurface extraction plot type.
 
-use viewport_lib::{extract_isosurface, VolumeData};
+use viewport_lib::{VolumeData, extract_isosurface};
 
 use crate::coordinate::CoordinateSystem;
 use crate::domain::{DataBounds, Domain};
