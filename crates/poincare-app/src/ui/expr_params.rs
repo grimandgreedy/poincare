@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use eframe::egui;
 use poincare_lib::{parse_csv_grid, parse_csv_points, parse_curve_expr, parse_expr_with_vars};
 
-use crate::plot::kind::{DEFAULT_ISO_PALETTE, PlotKind, SeedMode};
+use crate::plot::kind::{PlotKind, SeedMode, DEFAULT_ISO_PALETTE};
 use crate::plot::sweep::ParameterSweep;
-use crate::ui::equation_editor::{EquationEditor, equation_row_ed};
+use crate::ui::equation_editor::{equation_row_ed, EquationEditor};
 
 /// Show parameter sliders (and sweep controls) for expression-type plots.
 /// Returns `true` if any value changed that requires a scene rebuild.
@@ -560,7 +560,11 @@ pub(crate) fn show_param_sliders(
 
             // Play / pause toggle.
             let btn = if is_playing { "⏸" } else { "▶" };
-            if ui.small_button(btn).on_hover_text("Sweep this parameter").clicked() {
+            if ui
+                .small_button(btn)
+                .on_hover_text("Sweep this parameter")
+                .clicked()
+            {
                 let sweep = sweep_map
                     .entry(name.clone())
                     .or_insert_with(|| ParameterSweep::new_for_value(*value));
@@ -578,15 +582,27 @@ pub(crate) fn show_param_sliders(
                 .or_insert_with(|| ParameterSweep::new_for_value(*value));
             ui.horizontal(|ui| {
                 ui.add_space(12.0);
-                ui.add(egui::DragValue::new(&mut sweep.min).speed(0.1).prefix("min "));
-                ui.add(egui::DragValue::new(&mut sweep.max).speed(0.1).prefix("max "));
+                ui.add(
+                    egui::DragValue::new(&mut sweep.min)
+                        .speed(0.1)
+                        .prefix("min "),
+                );
+                ui.add(
+                    egui::DragValue::new(&mut sweep.max)
+                        .speed(0.1)
+                        .prefix("max "),
+                );
                 ui.add(
                     egui::DragValue::new(&mut sweep.speed)
                         .speed(0.01)
                         .range(0.01..=20.0)
                         .prefix("speed "),
                 );
-                if ui.small_button("↺").on_hover_text("Reset to start").clicked() {
+                if ui
+                    .small_button("↺")
+                    .on_hover_text("Reset to start")
+                    .clicked()
+                {
                     sweep.reset();
                     *value = sweep.current_value();
                     dirty = true;

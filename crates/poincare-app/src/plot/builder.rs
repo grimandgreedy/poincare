@@ -1,6 +1,6 @@
 use poincare_lib::{
-    ColormapSource, ColourMode, DetectedPlotType, Domain, PlotStyle, Resolution, TransferFunction,
-    auto_detect_plot_type, parse_csv_grid, parse_csv_points, parse_expr_with_vars,
+    auto_detect_plot_type, parse_csv_grid, parse_csv_points, parse_expr_with_vars, ColormapSource,
+    ColourMode, DetectedPlotType, Domain, PlotStyle, Resolution, TransferFunction,
 };
 use viewport_lib::{AttributeKind, BuiltinColourmap};
 
@@ -36,7 +36,7 @@ fn replace_var(expr: &str, from: &str, to: &str) -> String {
 }
 
 use crate::plot::entry::PlotEntry;
-use crate::plot::kind::{DEFAULT_ISO_PALETTE, PlotKind, SeedMode};
+use crate::plot::kind::{PlotKind, SeedMode, DEFAULT_ISO_PALETTE};
 use crate::plot::selected_type::SelectedPlotType;
 
 /// Build a PlotEntry from the current "Add Plot" input state.

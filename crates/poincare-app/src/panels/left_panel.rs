@@ -1,20 +1,26 @@
 use eframe::egui;
-use poincare_lib::{DetectedPlotType, auto_detect_plot_type};
+use poincare_lib::{auto_detect_plot_type, ColormapSource, ColourMode, DetectedPlotType};
+use viewport_lib::BuiltinColourmap;
 
-use crate::App;
+use crate::color32_from_rgba;
 use crate::plot::builder::build_plot_entry_from_inputs;
+use crate::plot::entry::PlotEntry;
 use crate::plot::kind::PlotKind;
 use crate::plot::selected_type::SelectedPlotType;
 use crate::ui::domain_editor::truncate_str;
 use crate::ui::equation_editor::{equation_row, equation_row_ed, filter_auto_templates};
+use crate::App;
 
 fn expression_summary(kind: &PlotKind) -> Option<String> {
     match kind {
         PlotKind::ExprCartesian { expression, .. } => Some(format!("z = {expression}")),
         PlotKind::ExprCurve { .. } => None,
-        PlotKind::ExprCartesianLine { dep_var, ind_var, expression, .. } => {
-            Some(format!("{dep_var}({ind_var}) = {expression}"))
-        }
+        PlotKind::ExprCartesianLine {
+            dep_var,
+            ind_var,
+            expression,
+            ..
+        } => Some(format!("{dep_var}({ind_var}) = {expression}")),
         PlotKind::ExprSpherical { expression, .. } => Some(format!("r(θ, φ) = {expression}")),
         PlotKind::ExprCylindrical { expression, .. } => Some(format!("r(θ, z) = {expression}")),
         PlotKind::ExprPolar { expression, .. } => Some(format!("r(θ) = {expression}")),
@@ -39,53 +45,334 @@ fn expression_summary(kind: &PlotKind) -> Option<String> {
     }
 }
 
+#[derive(Clone, Copy)]
+enum PlotAction {
+    AddPlot,
+    Rename(usize),
+    Duplicate(usize),
+    MoveUp(usize),
+    MoveDown(usize),
+    Remove(usize),
+}
+
 impl App {
-    pub(crate) fn left_panel(&mut self, ui: &mut egui::Ui) {
-        // ── Document header ─────────────────────────────────────────────
-        {
-            let doc = &self.documents[self.active_document_idx];
-            let path_label = doc
-                .path
-                .as_ref()
-                .and_then(|p| p.file_name())
-                .and_then(|f| f.to_str())
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| "Unsaved".to_string());
-            let plot_count = doc.plots.len();
+    pub(crate) fn open_add_plot_modal(&mut self) {
+        self.add_plot_open = true;
+        self.add_plot_focus_pending = true;
+    }
 
-            let mut title = doc.title.clone();
-            let title_resp = ui.add(
-                egui::TextEdit::singleline(&mut title)
-                    .font(egui::TextStyle::Heading)
-                    .hint_text("Untitled")
-                    .desired_width(ui.available_width()),
-            );
-            if title_resp.changed() {
-                self.documents[self.active_document_idx].title = title;
-                self.mark_dirty();
-            }
-
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(&path_label).weak().small());
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "{} plot{}",
-                            plot_count,
-                            if plot_count == 1 { "" } else { "s" }
-                        ))
-                        .weak()
-                        .small(),
-                    );
-                });
-            });
+    fn plot_row_menu(
+        &mut self,
+        ui: &mut egui::Ui,
+        index: usize,
+        plot_count: usize,
+        pending_action: &mut Option<PlotAction>,
+    ) {
+        if ui.button("Add Plot").clicked() {
+            *pending_action = Some(PlotAction::AddPlot);
+            ui.close();
         }
+        ui.separator();
+        if ui.button("Rename").clicked() {
+            *pending_action = Some(PlotAction::Rename(index));
+            ui.close();
+        }
+        if ui.button("Duplicate").clicked() {
+            *pending_action = Some(PlotAction::Duplicate(index));
+            ui.close();
+        }
+        if index > 0 && ui.button("Move Up").clicked() {
+            *pending_action = Some(PlotAction::MoveUp(index));
+            ui.close();
+        }
+        if index + 1 < plot_count && ui.button("Move Down").clicked() {
+            *pending_action = Some(PlotAction::MoveDown(index));
+            ui.close();
+        }
+        if let Some(summary) =
+            expression_summary(&self.documents[self.active_document_idx].plots[index].kind)
+        {
+            if ui.button("Copy Expression").clicked() {
+                ui.ctx().copy_text(summary);
+                ui.close();
+            }
+        }
+        ui.separator();
+        if ui.button("Remove").clicked() {
+            *pending_action = Some(PlotAction::Remove(index));
+            ui.close();
+        }
+    }
 
+    pub(crate) fn representative_plot_color(&self, plot: &PlotEntry) -> egui::Color32 {
+        match &plot.style.colour_mode {
+            ColourMode::Solid(rgba) => color32_from_rgba(*rgba),
+            ColourMode::Colormap { colormap, .. } => match colormap {
+                ColormapSource::Builtin(preset) => builtin_colormap_color(*preset),
+                ColormapSource::Uploaded(_) => egui::Color32::from_rgb(110, 180, 235),
+            },
+            ColourMode::ByAttribute { name, .. } => {
+                let palette = [
+                    egui::Color32::from_rgb(111, 203, 155),
+                    egui::Color32::from_rgb(255, 176, 95),
+                    egui::Color32::from_rgb(120, 176, 255),
+                    egui::Color32::from_rgb(255, 118, 163),
+                ];
+                let index = name
+                    .bytes()
+                    .fold(0usize, |acc, b| acc.wrapping_add(b as usize))
+                    % palette.len();
+                palette[index]
+            }
+        }
+    }
+
+    pub(crate) fn left_panel(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.add_space(ui.available_width().max(0.0) - 28.0);
+            if ui
+                .add_sized(
+                    [24.0, 24.0],
+                    egui::Button::new(egui::RichText::new("+").strong()),
+                )
+                .on_hover_text("Add plot")
+                .clicked()
+            {
+                self.open_add_plot_modal();
+            }
+        });
         ui.separator();
 
-        // ── Add Plot ────────────────────────────────────────────────────
-        ui.label("Add Plot");
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                let plot_count = self.documents[self.active_document_idx].plots.len();
+                if plot_count == 0 {
+                    ui.add_space(12.0);
+                    ui.label(
+                        egui::RichText::new("No plots yet. Use + to add one.")
+                            .weak()
+                            .small(),
+                    );
+                    return;
+                }
 
+                let mut pending_action: Option<PlotAction> = None;
+                let mut apply_rename: Option<usize> = None;
+                let mut cancel_rename = false;
+                let escape_pressed = ui.input(|i| i.key_pressed(egui::Key::Escape));
+
+                for index in 0..plot_count {
+                    let is_selected =
+                        self.documents[self.active_document_idx].selected_plot == Some(index);
+                    let is_renaming = self.renaming_plot == Some(index);
+                    let (plot_name, label, dot_color) = {
+                        let plot = &self.documents[self.active_document_idx].plots[index];
+                        let label =
+                            expression_summary(&plot.kind).unwrap_or_else(|| plot.name.clone());
+                        (
+                            plot.name.clone(),
+                            truncate_str(&label, 28),
+                            self.representative_plot_color(plot),
+                        )
+                    };
+
+                    let row_response = egui::Frame::group(ui.style())
+                        .fill(if is_selected {
+                            ui.visuals().selection.bg_fill.gamma_multiply(0.22)
+                        } else {
+                            ui.visuals().faint_bg_color
+                        })
+                        .stroke(if is_selected {
+                            ui.visuals().selection.stroke
+                        } else {
+                            ui.visuals().widgets.noninteractive.bg_stroke
+                        })
+                        .corner_radius(8.0)
+                        .inner_margin(egui::Margin::same(8))
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                let (dot_rect, _) = ui.allocate_exact_size(
+                                    egui::vec2(10.0, 10.0),
+                                    egui::Sense::hover(),
+                                );
+                                ui.painter()
+                                    .circle_filled(dot_rect.center(), 4.5, dot_color);
+
+                                if is_renaming {
+                                    let response = ui.add(
+                                        egui::TextEdit::singleline(&mut self.rename_buf)
+                                            .desired_width(f32::INFINITY),
+                                    );
+                                    if self.rename_needs_focus {
+                                        response.request_focus();
+                                        self.rename_needs_focus = false;
+                                    }
+                                    if response.lost_focus() && !escape_pressed {
+                                        apply_rename = Some(index);
+                                    }
+                                    if escape_pressed {
+                                        cancel_rename = true;
+                                    }
+                                } else {
+                                    let response = ui.add_sized(
+                                        [ui.available_width() - 56.0, 22.0],
+                                        egui::Button::new(label).selected(is_selected),
+                                    );
+                                    if response.clicked() {
+                                        self.documents[self.active_document_idx].selected_plot =
+                                            Some(index);
+                                    }
+                                    response.on_hover_text(plot_name);
+                                }
+
+                                let mut visible =
+                                    self.documents[self.active_document_idx].plots[index].visible;
+                                if ui.checkbox(&mut visible, "").changed() {
+                                    self.documents[self.active_document_idx].plots[index].visible =
+                                        visible;
+                                    self.mark_dirty();
+                                }
+
+                                ui.menu_button("⋯", |ui| {
+                                    self.plot_row_menu(ui, index, plot_count, &mut pending_action);
+                                });
+                            });
+                        });
+                    row_response.response.context_menu(|ui| {
+                        self.plot_row_menu(ui, index, plot_count, &mut pending_action);
+                    });
+
+                    ui.add_space(6.0);
+                }
+
+                if let Some(index) = apply_rename {
+                    let new_name = self.rename_buf.trim().to_string();
+                    if !new_name.is_empty() {
+                        self.documents[self.active_document_idx].plots[index].name = new_name;
+                        self.mark_dirty();
+                    }
+                    self.renaming_plot = None;
+                }
+
+                if cancel_rename {
+                    self.renaming_plot = None;
+                }
+
+                if let Some(action) = pending_action {
+                    match action {
+                        PlotAction::AddPlot => {
+                            self.open_add_plot_modal();
+                        }
+                        PlotAction::Rename(index) => {
+                            self.renaming_plot = Some(index);
+                            self.rename_buf = self.documents[self.active_document_idx].plots[index]
+                                .name
+                                .clone();
+                            self.rename_needs_focus = true;
+                            self.documents[self.active_document_idx].selected_plot = Some(index);
+                        }
+                        PlotAction::Duplicate(index) => {
+                            let mut cloned =
+                                self.documents[self.active_document_idx].plots[index].clone();
+                            cloned.name = format!("{} (copy)", cloned.name);
+                            self.documents[self.active_document_idx]
+                                .plots
+                                .insert(index + 1, cloned);
+                            self.documents[self.active_document_idx].selected_plot =
+                                Some(index + 1);
+                            self.renaming_plot = None;
+                            self.mark_dirty();
+                        }
+                        PlotAction::MoveUp(index) => {
+                            self.documents[self.active_document_idx]
+                                .plots
+                                .swap(index, index - 1);
+                            if self.documents[self.active_document_idx].selected_plot == Some(index)
+                            {
+                                self.documents[self.active_document_idx].selected_plot =
+                                    Some(index - 1);
+                            } else if self.documents[self.active_document_idx].selected_plot
+                                == Some(index - 1)
+                            {
+                                self.documents[self.active_document_idx].selected_plot =
+                                    Some(index);
+                            }
+                            self.mark_dirty();
+                        }
+                        PlotAction::MoveDown(index) => {
+                            self.documents[self.active_document_idx]
+                                .plots
+                                .swap(index, index + 1);
+                            if self.documents[self.active_document_idx].selected_plot == Some(index)
+                            {
+                                self.documents[self.active_document_idx].selected_plot =
+                                    Some(index + 1);
+                            } else if self.documents[self.active_document_idx].selected_plot
+                                == Some(index + 1)
+                            {
+                                self.documents[self.active_document_idx].selected_plot =
+                                    Some(index);
+                            }
+                            self.mark_dirty();
+                        }
+                        PlotAction::Remove(index) => {
+                            self.documents[self.active_document_idx].plots.remove(index);
+                            self.documents[self.active_document_idx].selected_plot =
+                                match self.documents[self.active_document_idx].selected_plot {
+                                    Some(_)
+                                        if self.documents[self.active_document_idx]
+                                            .plots
+                                            .is_empty() =>
+                                    {
+                                        None
+                                    }
+                                    Some(sel) if sel == index => Some(index.saturating_sub(1))
+                                        .filter(|_| {
+                                            !self.documents[self.active_document_idx]
+                                                .plots
+                                                .is_empty()
+                                        }),
+                                    Some(sel) if sel > index => Some(sel - 1),
+                                    other => other,
+                                };
+                            self.renaming_plot = match self.renaming_plot {
+                                Some(r) if r == index => None,
+                                Some(r) if r > index => Some(r - 1),
+                                other => other,
+                            };
+                            self.mark_dirty();
+                        }
+                    }
+                }
+            });
+    }
+
+    pub(crate) fn show_add_plot_modal(&mut self, ctx: &egui::Context) {
+        if !self.add_plot_open {
+            return;
+        }
+
+        let mut open = self.add_plot_open;
+        let mut close_after_submit = false;
+        egui::Window::new("Add Plot")
+            .open(&mut open)
+            .collapsible(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .default_width(520.0)
+            .default_height(440.0)
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    close_after_submit = self.render_add_plot_form(ui);
+                });
+            });
+        if close_after_submit {
+            open = false;
+        }
+        self.add_plot_open = open;
+    }
+
+    fn render_add_plot_form(&mut self, ui: &mut egui::Ui) -> bool {
         let mut plot_type = self.add_plot_type;
         egui::ComboBox::from_label("Plot Type")
             .selected_text(self.add_plot_type.label())
@@ -96,8 +383,8 @@ impl App {
             });
         if plot_type != self.add_plot_type {
             self.add_plot_type = plot_type;
-            for f in self.add_expr_fields.iter_mut() {
-                f.clear();
+            for field in &mut self.add_expr_fields {
+                field.clear();
             }
             self.add_csv_text.clear();
             self.add_iso_values_text = "1.0, 2.0, 3.0".to_string();
@@ -106,6 +393,7 @@ impl App {
 
         let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
         let mut submit_add = false;
+
         ui.group(|ui| {
             macro_rules! add_row {
                 ($ui:expr, $key:expr, $lhs:expr, $buf:expr, $ed:expr) => {{
@@ -114,9 +402,14 @@ impl App {
                         *$buf = committed;
                     }
                     let response = equation_row_ed($ui, id, $lhs, $buf, $ed, false);
+                    if self.add_plot_focus_pending {
+                        response.request_focus();
+                        self.add_plot_focus_pending = false;
+                    }
                     submit_add |= response.lost_focus() && enter_pressed;
                 }};
             }
+
             match self.add_plot_type {
                 SelectedPlotType::Auto => {
                     let id = egui::Id::new("add_auto");
@@ -131,6 +424,10 @@ impl App {
                         &mut self.eq_editor,
                         true,
                     );
+                    if self.add_plot_focus_pending {
+                        response.request_focus();
+                        self.add_plot_focus_pending = false;
+                    }
                     submit_add |= response.lost_focus() && enter_pressed;
 
                     let input = self.add_expr_fields[0].trim().to_string();
@@ -280,11 +577,15 @@ impl App {
                 }
                 SelectedPlotType::DataGridSurface => {
                     ui.label(egui::RichText::new("CSV grid").weak().small());
-                    ui.add(
+                    let response = ui.add(
                         egui::TextEdit::multiline(&mut self.add_csv_text)
                             .font(egui::TextStyle::Monospace)
                             .desired_rows(5),
                     );
+                    if self.add_plot_focus_pending {
+                        response.request_focus();
+                        self.add_plot_focus_pending = false;
+                    }
                 }
                 SelectedPlotType::ParametricCurve => {
                     add_row!(
@@ -311,11 +612,15 @@ impl App {
                 }
                 SelectedPlotType::CurvePoints => {
                     ui.label(egui::RichText::new("x,y,z per line").weak().small());
-                    ui.add(
+                    let response = ui.add(
                         egui::TextEdit::multiline(&mut self.add_csv_text)
                             .font(egui::TextStyle::Monospace)
                             .desired_rows(5),
                     );
+                    if self.add_plot_focus_pending {
+                        response.request_focus();
+                        self.add_plot_focus_pending = false;
+                    }
                 }
                 SelectedPlotType::Scatter => {
                     ui.label(
@@ -323,11 +628,15 @@ impl App {
                             .weak()
                             .small(),
                     );
-                    ui.add(
+                    let response = ui.add(
                         egui::TextEdit::multiline(&mut self.add_csv_text)
                             .font(egui::TextStyle::Monospace)
                             .desired_rows(5),
                     );
+                    if self.add_plot_focus_pending {
+                        response.request_focus();
+                        self.add_plot_focus_pending = false;
+                    }
                 }
                 SelectedPlotType::VectorField => {
                     add_row!(
@@ -405,399 +714,22 @@ impl App {
             );
         }
 
-        let add_button = ui.add_sized(
-            [ui.available_width().max(0.0), 32.0],
-            egui::Button::new(
-                egui::RichText::new("+ Add Plot")
-                    .strong()
-                    .color(egui::Color32::WHITE),
+        let mut close = false;
+        if ui
+            .add_sized(
+                [ui.available_width().max(0.0), 32.0],
+                egui::Button::new(egui::RichText::new("+ Add Plot").strong()),
             )
-            .fill(egui::Color32::from_rgb(54, 100, 172))
-            .stroke(egui::Stroke::new(
-                1.0,
-                egui::Color32::from_rgb(78, 130, 214),
-            ))
-            .corner_radius(6.0),
-        );
-        if add_button.clicked() || submit_add {
-            self.try_add_plot_from_inputs();
+            .clicked()
+            || submit_add
+        {
+            close = self.try_add_plot_from_inputs();
         }
 
-        ui.separator();
-
-        // ── Plot list ───────────────────────────────────────────────────
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            let mut remove_index = None;
-            let mut dup_index = None;
-            let mut swap_up = None;
-            let mut swap_down = None;
-            let mut toggled = false;
-            let mut start_rename: Option<usize> = None;
-            let mut apply_rename: Option<usize> = None;
-            let mut cancel_rename = false;
-            let n = self.documents[self.active_document_idx].plots.len();
-
-            let escape_pressed = ui.input(|i| i.key_pressed(egui::Key::Escape));
-
-            for index in 0..n {
-                let plot_name =
-                    self.documents[self.active_document_idx].plots[index].name.clone();
-                let display_name = truncate_str(&plot_name, 34);
-                let is_selected =
-                    self.documents[self.active_document_idx].selected_plot == Some(index);
-                let is_renaming = self.renaming_plot == Some(index);
-                let domain = &self.documents[self.active_document_idx].plots[index].domain;
-                let domain_summary = format!(
-                    "x[{:.1}, {:.1}]  y[{:.1}, {:.1}]  z[{:.1}, {:.1}]",
-                    *domain.x.start(),
-                    *domain.x.end(),
-                    *domain.y.start(),
-                    *domain.y.end(),
-                    *domain.z.start(),
-                    *domain.z.end()
-                );
-                let copy_text = match &self.documents[self.active_document_idx].plots[index].kind {
-                    PlotKind::ExprCartesian { expression, .. }
-                    | PlotKind::ExprCurve { expression, .. }
-                    | PlotKind::ExprSpherical { expression, .. }
-                    | PlotKind::ExprCylindrical { expression, .. }
-                    | PlotKind::ExprPolar { expression, .. }
-                    | PlotKind::ExprParametricSurface { expression, .. }
-                    | PlotKind::ExprVectorField { expression, .. }
-                    | PlotKind::ExprVolume { expression, .. }
-                    | PlotKind::ExprIsosurface { expression, .. }
-                    | PlotKind::ExprStreamlines { expression, .. } => expression.clone(),
-                    PlotKind::ExprCartesianLine { dep_var, ind_var, expression, .. } => {
-                        format!("{dep_var}({ind_var}) = {expression}")
-                    }
-                    other => other.short_description().to_string(),
-                };
-                let equation_like = expression_summary(
-                    &self.documents[self.active_document_idx].plots[index].kind,
-                )
-                .map(|summary| truncate_str(&summary, 42))
-                .unwrap_or(display_name.clone());
-
-                ui.group(|ui| {
-                    // Extra height: 106px = name row (16) + gap (2) + expr+domain (42) + gap (2) + actions (22) + padding (22)
-                    let card_size = egui::vec2(ui.available_width(), 106.0);
-                    let (card_rect, response) =
-                        ui.allocate_exact_size(card_size, egui::Sense::click());
-                    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
-
-                    if response.clicked() && !is_renaming {
-                        self.documents[self.active_document_idx].selected_plot = Some(index);
-                        self.focus_plot_tab();
-                    }
-
-                    let visuals = ui.visuals();
-                    let bg_fill = if is_selected {
-                        visuals.selection.bg_fill.gamma_multiply(0.35)
-                    } else if response.hovered() {
-                        visuals.widgets.hovered.bg_fill
-                    } else {
-                        visuals.widgets.noninteractive.bg_fill
-                    };
-                    let stroke = if is_selected {
-                        visuals.selection.stroke
-                    } else if response.hovered() {
-                        visuals.widgets.hovered.bg_stroke
-                    } else {
-                        visuals.widgets.noninteractive.bg_stroke
-                    };
-
-                    ui.painter().rect(
-                        card_rect,
-                        egui::CornerRadius::same(6),
-                        bg_fill,
-                        stroke,
-                        egui::StrokeKind::Outside,
-                    );
-
-                    let content_rect = card_rect.shrink2(egui::vec2(10.0, 8.0));
-
-                    // Name row: 16px at top (minus checkbox width on right)
-                    let name_rect = egui::Rect::from_min_size(
-                        content_rect.min,
-                        egui::vec2(content_rect.width() - 26.0, 16.0),
-                    );
-                    // Expression + domain: next 42px below name
-                    let summary_rect = egui::Rect::from_min_max(
-                        egui::pos2(content_rect.left(), content_rect.top() + 18.0),
-                        egui::pos2(content_rect.right() - 30.0, content_rect.top() + 60.0),
-                    );
-                    // Visibility checkbox: top-right corner
-                    let checkbox_rect = egui::Rect::from_min_size(
-                        egui::pos2(content_rect.right() - 22.0, content_rect.top() + 1.0),
-                        egui::vec2(18.0, 18.0),
-                    );
-                    // Action buttons: bottom 22px
-                    let actions_rect = egui::Rect::from_min_max(
-                        egui::pos2(content_rect.left(), content_rect.bottom() - 22.0),
-                        egui::pos2(content_rect.right(), content_rect.bottom()),
-                    );
-
-                    if is_renaming {
-                        // ── Rename mode ───────────────────────────────────────────
-                        let rename_rect = egui::Rect::from_min_max(
-                            content_rect.min,
-                            egui::pos2(content_rect.right() - 30.0, content_rect.top() + 60.0),
-                        );
-                        let mut rename_ui = ui.new_child(
-                            egui::UiBuilder::new()
-                                .max_rect(rename_rect)
-                                .layout(egui::Layout::top_down(egui::Align::Min)),
-                        );
-                        rename_ui.add_space(2.0);
-                        rename_ui
-                            .label(egui::RichText::new("Rename plot:").weak().size(10.0));
-                        let text_resp = rename_ui.add(
-                            egui::TextEdit::singleline(&mut self.rename_buf)
-                                .desired_width(rename_rect.width())
-                                .font(egui::TextStyle::Body),
-                        );
-                        if self.rename_needs_focus {
-                            text_resp.request_focus();
-                        }
-                        // Apply when focus leaves (unless Escape was pressed)
-                        if text_resp.lost_focus() {
-                            if !escape_pressed {
-                                apply_rename = Some(index);
-                            } else {
-                                cancel_rename = true;
-                            }
-                        }
-                        if escape_pressed && !text_resp.lost_focus() {
-                            cancel_rename = true;
-                        }
-
-                        let mut actions_ui = ui.new_child(
-                            egui::UiBuilder::new()
-                                .max_rect(actions_rect)
-                                .layout(egui::Layout::right_to_left(egui::Align::Center)),
-                        );
-                        actions_ui.with_layout(
-                            egui::Layout::right_to_left(egui::Align::Center),
-                            |ui| {
-                                if ui.small_button("✗ Cancel").clicked() {
-                                    cancel_rename = true;
-                                }
-                                if ui.small_button("✓ OK").clicked() {
-                                    apply_rename = Some(index);
-                                }
-                            },
-                        );
-                    } else {
-                        // ── Normal mode ───────────────────────────────────────────
-                        // Name label
-                        let mut name_ui = ui.new_child(
-                            egui::UiBuilder::new()
-                                .max_rect(name_rect)
-                                .layout(egui::Layout::left_to_right(egui::Align::Center)),
-                        );
-                        let name_resp = name_ui
-                            .add(
-                                egui::Label::new(
-                                    egui::RichText::new(&display_name)
-                                        .size(11.0)
-                                        .color(egui::Color32::from_rgb(180, 180, 200)),
-                                )
-                                .sense(egui::Sense::click()),
-                            )
-                            .on_hover_cursor(egui::CursorIcon::PointingHand)
-                            .on_hover_text("Double-click to rename");
-                        if name_resp.double_clicked() {
-                            start_rename = Some(index);
-                        } else if name_resp.clicked() {
-                            self.documents[self.active_document_idx].selected_plot = Some(index);
-                            self.focus_plot_tab();
-                        }
-
-                        // Expression + domain
-                        let mut summary_ui = ui.new_child(
-                            egui::UiBuilder::new()
-                                .max_rect(summary_rect)
-                                .layout(egui::Layout::top_down(egui::Align::Min)),
-                        );
-                        let equation_response = summary_ui
-                            .add(
-                                egui::Label::new(
-                                    egui::RichText::new(&equation_like)
-                                        .monospace()
-                                        .size(13.0)
-                                        .color(egui::Color32::WHITE),
-                                )
-                                .sense(egui::Sense::click()),
-                            )
-                            .on_hover_cursor(egui::CursorIcon::PointingHand);
-                        summary_ui.add_space(3.0);
-                        let domain_response = summary_ui
-                            .add(
-                                egui::Label::new(
-                                    egui::RichText::new(&domain_summary)
-                                        .small()
-                                        .color(egui::Color32::from_rgb(220, 220, 230)),
-                                )
-                                .sense(egui::Sense::click()),
-                            )
-                            .on_hover_cursor(egui::CursorIcon::PointingHand);
-                        if equation_response.clicked() || domain_response.clicked() {
-                            self.documents[self.active_document_idx].selected_plot = Some(index);
-                            self.focus_plot_tab();
-                        }
-
-                        // Action buttons
-                        let mut actions_ui = ui.new_child(
-                            egui::UiBuilder::new()
-                                .max_rect(actions_rect)
-                                .layout(egui::Layout::right_to_left(egui::Align::Center)),
-                        );
-                        actions_ui.with_layout(
-                            egui::Layout::right_to_left(egui::Align::Center),
-                            |ui| {
-                                if ui.small_button("Remove").clicked() {
-                                    remove_index = Some(index);
-                                }
-                                if ui.small_button("Copy").clicked() {
-                                    ui.ctx().copy_text(copy_text.clone());
-                                }
-                                if ui.small_button("Dup").clicked() {
-                                    dup_index = Some(index);
-                                }
-                                if index + 1 < n && ui.small_button("Dn").clicked() {
-                                    swap_down = Some(index);
-                                }
-                                if index > 0 && ui.small_button("Up").clicked() {
-                                    swap_up = Some(index);
-                                }
-                                if ui.small_button("Rename").clicked() {
-                                    start_rename = Some(index);
-                                }
-                            },
-                        );
-                    }
-
-                    let mut visible =
-                        self.documents[self.active_document_idx].plots[index].visible;
-                    let checkbox_response =
-                        ui.put(checkbox_rect, egui::Checkbox::without_text(&mut visible));
-                    if checkbox_response.changed() {
-                        self.documents[self.active_document_idx].plots[index].visible = visible;
-                        toggled = true;
-                    }
-
-                    if !is_renaming {
-                        response.on_hover_text(&plot_name);
-                    }
-                });
-                ui.add_space(6.0);
-            }
-
-            // ── Deferred mutations ───────────────────────────────────────
-            if let Some(index) = start_rename {
-                self.rename_buf =
-                    self.documents[self.active_document_idx].plots[index].name.clone();
-                self.renaming_plot = Some(index);
-                self.rename_needs_focus = true;
-                self.documents[self.active_document_idx].selected_plot = Some(index);
-            } else {
-                self.rename_needs_focus = false;
-            }
-
-            if let Some(index) = apply_rename {
-                let new_name = self.rename_buf.trim().to_string();
-                if !new_name.is_empty() {
-                    self.documents[self.active_document_idx].plots[index].name = new_name;
-                    self.mark_dirty();
-                }
-                self.renaming_plot = None;
-            }
-
-            if cancel_rename {
-                self.renaming_plot = None;
-            }
-
-            if toggled {
-                self.mark_dirty();
-            }
-
-            if let Some(index) = swap_up {
-                self.documents[self.active_document_idx]
-                    .plots
-                    .swap(index, index - 1);
-                if self.documents[self.active_document_idx].selected_plot == Some(index) {
-                    self.documents[self.active_document_idx].selected_plot = Some(index - 1);
-                } else if self.documents[self.active_document_idx].selected_plot
-                    == Some(index - 1)
-                {
-                    self.documents[self.active_document_idx].selected_plot = Some(index);
-                }
-                if self.renaming_plot == Some(index) {
-                    self.renaming_plot = Some(index - 1);
-                } else if self.renaming_plot == Some(index - 1) {
-                    self.renaming_plot = Some(index);
-                }
-                self.mark_dirty();
-            }
-
-            if let Some(index) = swap_down {
-                self.documents[self.active_document_idx]
-                    .plots
-                    .swap(index, index + 1);
-                if self.documents[self.active_document_idx].selected_plot == Some(index) {
-                    self.documents[self.active_document_idx].selected_plot = Some(index + 1);
-                } else if self.documents[self.active_document_idx].selected_plot
-                    == Some(index + 1)
-                {
-                    self.documents[self.active_document_idx].selected_plot = Some(index);
-                }
-                if self.renaming_plot == Some(index) {
-                    self.renaming_plot = Some(index + 1);
-                } else if self.renaming_plot == Some(index + 1) {
-                    self.renaming_plot = Some(index);
-                }
-                self.mark_dirty();
-            }
-
-            if let Some(index) = dup_index {
-                let mut cloned =
-                    self.documents[self.active_document_idx].plots[index].clone();
-                cloned.name = format!("{} (copy)", cloned.name);
-                self.documents[self.active_document_idx]
-                    .plots
-                    .insert(index + 1, cloned);
-                self.documents[self.active_document_idx].selected_plot = Some(index + 1);
-                self.renaming_plot = None;
-                self.focus_plot_tab();
-                self.mark_dirty();
-            }
-
-            if let Some(index) = remove_index {
-                self.documents[self.active_document_idx].plots.remove(index);
-                self.documents[self.active_document_idx].selected_plot =
-                    match self.documents[self.active_document_idx].selected_plot {
-                        Some(_)
-                            if self.documents[self.active_document_idx].plots.is_empty() =>
-                        {
-                            None
-                        }
-                        Some(sel) if sel == index => Some(index.saturating_sub(1)).filter(|_| {
-                            !self.documents[self.active_document_idx].plots.is_empty()
-                        }),
-                        Some(sel) if sel > index => Some(sel - 1),
-                        other => other,
-                    };
-                self.renaming_plot = match self.renaming_plot {
-                    Some(r) if r == index => None,
-                    Some(r) if r > index => Some(r - 1),
-                    other => other,
-                };
-                self.mark_dirty();
-            }
-        });
+        close
     }
 
-    fn try_add_plot_from_inputs(&mut self) {
+    fn try_add_plot_from_inputs(&mut self) -> bool {
         let result = build_plot_entry_from_inputs(
             self.add_plot_type,
             &self.add_expr_fields,
@@ -810,13 +742,29 @@ impl App {
                 self.documents[self.active_document_idx].plots.push(entry);
                 self.documents[self.active_document_idx].selected_plot =
                     Some(self.documents[self.active_document_idx].plots.len() - 1);
-                self.focus_plot_tab();
                 self.add_error.clear();
                 self.mark_dirty();
+                true
             }
             Err(err) => {
                 self.add_error = err;
+                false
             }
         }
+    }
+}
+
+fn builtin_colormap_color(preset: BuiltinColourmap) -> egui::Color32 {
+    match preset {
+        BuiltinColourmap::Viridis => egui::Color32::from_rgb(77, 190, 118),
+        BuiltinColourmap::Plasma => egui::Color32::from_rgb(230, 126, 73),
+        BuiltinColourmap::Greyscale => egui::Color32::from_rgb(168, 168, 168),
+        BuiltinColourmap::Coolwarm => egui::Color32::from_rgb(205, 114, 130),
+        BuiltinColourmap::Rainbow => egui::Color32::from_rgb(118, 180, 255),
+        BuiltinColourmap::Magma => egui::Color32::from_rgb(209, 109, 84),
+        BuiltinColourmap::Inferno => egui::Color32::from_rgb(245, 149, 62),
+        BuiltinColourmap::Turbo => egui::Color32::from_rgb(78, 206, 181),
+        BuiltinColourmap::Jet => egui::Color32::from_rgb(72, 155, 235),
+        BuiltinColourmap::RdBu => egui::Color32::from_rgb(178, 118, 206),
     }
 }

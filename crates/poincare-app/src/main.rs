@@ -17,10 +17,12 @@ use eframe::egui;
 use grimdock::{PanelStyle, PanelTree};
 use poincare_lib::{AxisConfig, ColormapSource, ColourMode};
 use viewport_lib::BuiltinColourmap;
-use viewport_lib::{GroundPlaneMode, OrbitCameraController, Projection, ViewPreset, ViewportRenderer};
+use viewport_lib::{
+    GroundPlaneMode, OrbitCameraController, Projection, ViewPreset, ViewportRenderer,
+};
 
-use dock::{DockTab, build_panel_tree};
-use document::{DEFAULT_VIEWPORT_BACKGROUND, Document, default_camera};
+use dock::{build_panel_tree, DockTab};
+use document::{default_camera, Document, DEFAULT_VIEWPORT_BACKGROUND};
 use plot::entry::PlotEntry;
 use plot::selected_type::SelectedPlotType;
 use ui::equation_editor::EquationEditor;
@@ -63,7 +65,6 @@ fn main() -> eframe::Result {
 struct App {
     documents: Vec<Document>,
     active_document_idx: usize,
-    pending_export: bool,
     pending_open: bool,
     pending_save: bool,
     pending_save_as: bool,
@@ -85,10 +86,25 @@ struct App {
     settings_open: bool,
     panel_tree: Option<PanelTree<DockTab>>,
     panel_style: PanelStyle,
+    add_plot_open: bool,
+    add_plot_focus_pending: bool,
+    export_open: bool,
+    command_palette_open: bool,
+    command_palette_focus_pending: bool,
+    command_palette_query: String,
+    command_palette_selected: usize,
+    inspector_tab: InspectorTab,
     pending_focus_tab: Option<DockTab>,
     renaming_plot: Option<usize>,
     rename_buf: String,
     rename_needs_focus: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InspectorTab {
+    Domain,
+    Style,
+    Surface,
 }
 
 impl App {
@@ -96,7 +112,6 @@ impl App {
         let mut app = Self {
             documents: vec![Document::new_default()],
             active_document_idx: 0,
-            pending_export: false,
             pending_open: false,
             pending_save: false,
             pending_save_as: false,
@@ -118,6 +133,14 @@ impl App {
             settings_open: false,
             panel_tree: Some(build_panel_tree()),
             panel_style: default_panel_style(),
+            add_plot_open: false,
+            add_plot_focus_pending: false,
+            export_open: false,
+            command_palette_open: false,
+            command_palette_focus_pending: false,
+            command_palette_query: String::new(),
+            command_palette_selected: 0,
+            inspector_tab: InspectorTab::Domain,
             pending_focus_tab: None,
             renaming_plot: None,
             rename_buf: String::new(),
@@ -157,7 +180,9 @@ impl App {
             (!self.documents[self.active_document_idx].plots.is_empty()).then_some(0);
         self.apply_preset_view_settings(preset);
         self.documents[self.active_document_idx].scene_dirty = true;
-        self.documents[self.active_document_idx].export_status.clear();
+        self.documents[self.active_document_idx]
+            .export_status
+            .clear();
     }
 
     pub(crate) fn mark_dirty(&mut self) {
@@ -247,7 +272,9 @@ impl App {
         let mut export_camera = self.documents[self.active_document_idx].camera.clone();
         export_camera.set_aspect_ratio(
             self.documents[self.active_document_idx].export_width.max(1) as f32,
-            self.documents[self.active_document_idx].export_height.max(1) as f32,
+            self.documents[self.active_document_idx]
+                .export_height
+                .max(1) as f32,
         );
         let mut frame_data = self.documents[self.active_document_idx]
             .scene
@@ -273,7 +300,9 @@ impl App {
             &render_state.queue,
             &frame_data,
             self.documents[self.active_document_idx].export_width.max(1),
-            self.documents[self.active_document_idx].export_height.max(1),
+            self.documents[self.active_document_idx]
+                .export_height
+                .max(1),
         );
 
         let path = PathBuf::from(self.documents[self.active_document_idx].export_path.trim());
@@ -289,7 +318,9 @@ impl App {
             &path,
             &pixels,
             self.documents[self.active_document_idx].export_width.max(1),
-            self.documents[self.active_document_idx].export_height.max(1),
+            self.documents[self.active_document_idx]
+                .export_height
+                .max(1),
             image::ColorType::Rgba8,
         ) {
             Ok(()) => {
@@ -307,18 +338,25 @@ impl App {
         // File shortcuts — consume before checking wants_keyboard_input so they
         // work even when a text field has focus.
         if ctx.input_mut(|i| {
-            i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::S)
+            i.consume_key(
+                egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+                egui::Key::S,
+            )
         }) {
             self.pending_save_as = true;
-        } else if ctx.input_mut(|i| {
-            i.consume_key(egui::Modifiers::COMMAND, egui::Key::S)
-        }) {
+        } else if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::S)) {
             self.pending_save = true;
         }
-        if ctx.input_mut(|i| {
-            i.consume_key(egui::Modifiers::COMMAND, egui::Key::O)
-        }) {
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::O)) {
             self.pending_open = true;
+        }
+        if ctx.input_mut(|i| {
+            i.consume_key(egui::Modifiers::COMMAND, egui::Key::K)
+                || i.consume_key(egui::Modifiers::CTRL, egui::Key::K)
+        }) {
+            self.command_palette_open = true;
+            self.command_palette_focus_pending = true;
+            self.command_palette_selected = 0;
         }
 
         if ctx.wants_keyboard_input() {
@@ -357,7 +395,9 @@ impl App {
             match persistence::save_document_to_path(doc, &path) {
                 Ok(()) => {
                     self.documents[self.active_document_idx].dirty = false;
-                    self.documents[self.active_document_idx].export_status.clear();
+                    self.documents[self.active_document_idx]
+                        .export_status
+                        .clear();
                 }
                 Err(e) => {
                     self.documents[self.active_document_idx].export_status =
@@ -454,7 +494,9 @@ impl eframe::App for App {
                             .unwrap_or("Untitled")
                             .to_string();
                         let mut doc = snapshot.into_document();
-                        if doc.title.is_empty() { doc.title = stem; }
+                        if doc.title.is_empty() {
+                            doc.title = stem;
+                        }
                         doc.path = Some(path);
                         doc.dirty = false;
                         self.documents.push(doc);
@@ -518,11 +560,6 @@ impl eframe::App for App {
         }
 
         self.rebuild_scene(frame);
-        if self.pending_export {
-            self.pending_export = false;
-            self.export_png(frame);
-        }
-
         egui::CentralPanel::default()
             .frame(egui::Frame::default().fill(color32_from_rgba(
                 self.documents[self.active_document_idx].viewport_background,
@@ -532,6 +569,9 @@ impl eframe::App for App {
             });
 
         ui::equation_editor::show_eq_editor_window(ctx, &mut self.eq_editor);
+        self.show_add_plot_modal(ctx);
+        self.show_export_modal(ctx, frame);
+        self.show_command_palette(ctx);
         if self.settings_open {
             let mut open = self.settings_open;
             settings::show_settings_window(ctx, &mut open, self, frame);
@@ -551,8 +591,12 @@ impl eframe::App for App {
                     ui.label(format!("\"{title}\" has unsaved changes. Close anyway?"));
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
-                        if ui.button("Close Without Saving").clicked() { confirmed = true; }
-                        if ui.button("Cancel").clicked() { cancelled = true; }
+                        if ui.button("Close Without Saving").clicked() {
+                            confirmed = true;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            cancelled = true;
+                        }
                     });
                 });
             if confirmed {
@@ -573,11 +617,17 @@ impl eframe::App for App {
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                 .show(ctx, |ui| {
-                    ui.label(format!("{n} document(s) have unsaved changes. Quit anyway?"));
+                    ui.label(format!(
+                        "{n} document(s) have unsaved changes. Quit anyway?"
+                    ));
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
-                        if ui.button("Quit Without Saving").clicked() { confirmed = true; }
-                        if ui.button("Cancel").clicked() { cancelled = true; }
+                        if ui.button("Quit Without Saving").clicked() {
+                            confirmed = true;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            cancelled = true;
+                        }
                     });
                 });
             if confirmed {

@@ -1,93 +1,105 @@
 use eframe::egui;
 
-use crate::App;
-use crate::plot::kind::{PlotKind, StyleCaps, evenly_spaced_isovalues};
+use crate::plot::kind::{evenly_spaced_isovalues, PlotKind, StyleCaps};
 use crate::ui::domain_editor::{edit_domain, edit_resolution};
 use crate::ui::expr_params::show_expression_params;
-use crate::ui::style_editor::{align_surface_colour_for_lic, edit_plot_style};
+use crate::ui::style_editor::{
+    align_surface_colour_for_lic, edit_plot_style_basic, edit_plot_surface_settings,
+};
+use crate::App;
+use crate::InspectorTab;
 
 impl App {
-    pub(crate) fn plot_properties_panel(&mut self, ui: &mut egui::Ui) {
-        let mut selected_dirty = false;
+    pub(crate) fn bottom_inspector(&mut self, ui: &mut egui::Ui) {
         let doc_idx = self.active_document_idx;
+        let selected_plot = self.documents[doc_idx].selected_plot;
 
-        let Some(index) = self.documents[doc_idx].selected_plot else {
-            ui.label("Select a plot to edit its domain, resolution, and style.");
+        ui.horizontal(|ui| {
+            if let Some(index) = selected_plot {
+                if let Some(plot) = self.documents[doc_idx].plots.get(index) {
+                    let color = self.representative_plot_color(plot);
+                    let (dot_rect, _) =
+                        ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
+                    ui.painter().circle_filled(dot_rect.center(), 5.0, color);
+                    ui.label(egui::RichText::new(&plot.name).strong());
+                }
+            } else {
+                ui.label(egui::RichText::new("No plot selected").weak());
+            }
+
+            ui.separator();
+            ui.selectable_value(&mut self.inspector_tab, InspectorTab::Domain, "Domain");
+            ui.selectable_value(&mut self.inspector_tab, InspectorTab::Style, "Style");
+            ui.selectable_value(&mut self.inspector_tab, InspectorTab::Surface, "Surface");
+        });
+        ui.separator();
+
+        let Some(index) = selected_plot else {
+            ui.label("Select a plot to edit its domain, style, and surface settings.");
             return;
         };
 
-        // Ensure sweep_config has an entry for every plot (grown lazily).
         {
-            let n = self.documents[doc_idx].plots.len();
-            self.documents[doc_idx].sweep_config.resize_with(n, Default::default);
+            let plot_count = self.documents[doc_idx].plots.len();
+            self.documents[doc_idx]
+                .sweep_config
+                .resize_with(plot_count, Default::default);
         }
 
         let slider_dragging = &mut self.slider_dragging;
         let eq_editor = &mut self.eq_editor;
+        let inspector_tab = self.inspector_tab;
         let doc = &mut self.documents[doc_idx];
+        let mut selected_dirty = false;
 
-        let plots = &mut doc.plots;
-        let sweep_config = &mut doc.sweep_config;
+        egui::ScrollArea::both()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                let plot = &mut doc.plots[index];
+                let sweep_map = &mut doc.sweep_config[index];
 
-        if let Some(plot) = plots.get_mut(index) {
-            let sweep_map = &mut sweep_config[index];
-
-            ui.label(format!("Selected: {}", plot.name));
-
-            let wide = ui.available_width() > 600.0;
-
-            if wide {
-                // Wide layout (e.g. bottom-docked): split into two columns.
-                // Left  → domain / resolution / expressions & parameters
-                // Right → style / contours
-                ui.add_space(4.0);
-
-                let col_dirty = ui.columns(2, |cols| {
-                    let mut dirty = false;
-
-                    // ── Left column ──────────────────────────────────────────
-                    {
-                        let ui = &mut cols[0];
-                        dirty |= edit_domain(ui, &mut plot.domain, plot.kind.domain_labels());
-                        ui.add_space(6.0);
-                        let resolution_label = if plot.kind.uses_seed_resolution() {
-                            "Seed Resolution"
-                        } else {
-                            "Resolution"
-                        };
-                        ui.label(resolution_label);
-                        dirty |= edit_resolution(
-                            ui,
-                            &mut plot.resolution,
-                            plot.kind.uses_resolution(),
-                        );
-                        ui.add_space(6.0);
-                        dirty |= show_expression_params(
-                            ui,
-                            &mut plot.kind,
-                            slider_dragging,
-                            eq_editor,
-                            sweep_map,
-                        );
+                match inspector_tab {
+                    InspectorTab::Domain => {
+                        ui.horizontal_top(|ui| {
+                            ui.vertical(|ui| {
+                                selected_dirty |=
+                                    edit_domain(ui, &mut plot.domain, plot.kind.domain_labels());
+                                ui.add_space(8.0);
+                                let resolution_label = if plot.kind.uses_seed_resolution() {
+                                    "Seed Resolution"
+                                } else {
+                                    "Resolution"
+                                };
+                                ui.label(resolution_label);
+                                selected_dirty |= edit_resolution(
+                                    ui,
+                                    &mut plot.resolution,
+                                    plot.kind.uses_resolution(),
+                                );
+                            });
+                            ui.separator();
+                            ui.vertical(|ui| {
+                                selected_dirty |= show_expression_params(
+                                    ui,
+                                    &mut plot.kind,
+                                    slider_dragging,
+                                    eq_editor,
+                                    sweep_map,
+                                );
+                            });
+                        });
                     }
-
-                    // ── Right column ─────────────────────────────────────────
-                    {
-                        let ui = &mut cols[1];
-                        ui.label("Style");
-                        dirty |= ui
-                            .push_id("plot_style", |ui| {
-                                edit_plot_style(ui, &mut plot.style, plot.kind.style_caps())
-                            })
-                            .inner;
-                        dirty |= align_surface_colour_for_lic(&mut plot.style);
+                    InspectorTab::Style => {
+                        selected_dirty |=
+                            edit_plot_style_basic(ui, &mut plot.style, plot.kind.style_caps());
 
                         if let PlotKind::ContouredSurface {
                             contour_values,
                             contour_style,
                         } = &mut plot.kind
                         {
-                            ui.add_space(6.0);
+                            ui.add_space(10.0);
+                            ui.separator();
                             ui.label("Contours");
                             let mut contour_count = contour_values.len() as u32;
                             if ui
@@ -97,74 +109,10 @@ impl App {
                                 )
                                 .changed()
                             {
-                                *contour_values =
-                                    evenly_spaced_isovalues(contour_count as usize);
-                                dirty = true;
+                                *contour_values = evenly_spaced_isovalues(contour_count as usize);
+                                selected_dirty = true;
                             }
-                            dirty |= ui
-                                .push_id("contour_style", |ui| {
-                                    edit_plot_style(
-                                        ui,
-                                        contour_style,
-                                        StyleCaps {
-                                            mesh: false,
-                                            line: true,
-                                            point: false,
-                                            glyph: false,
-                                        },
-                                    )
-                                })
-                                .inner;
-                        }
-                    }
-
-                    dirty
-                });
-
-                selected_dirty |= col_dirty;
-            } else {
-                // Narrow layout (side-docked): original single-column flow.
-                ui.add_space(6.0);
-
-                selected_dirty |= edit_domain(ui, &mut plot.domain, plot.kind.domain_labels());
-
-                ui.add_space(6.0);
-                let resolution_label = if plot.kind.uses_seed_resolution() {
-                    "Seed Resolution"
-                } else {
-                    "Resolution"
-                };
-                ui.label(resolution_label);
-                selected_dirty |=
-                    edit_resolution(ui, &mut plot.resolution, plot.kind.uses_resolution());
-
-                ui.add_space(6.0);
-                ui.label("Style");
-                selected_dirty |= ui
-                    .push_id("plot_style", |ui| {
-                        edit_plot_style(ui, &mut plot.style, plot.kind.style_caps())
-                    })
-                    .inner;
-                selected_dirty |= align_surface_colour_for_lic(&mut plot.style);
-
-                if let PlotKind::ContouredSurface {
-                    contour_values,
-                    contour_style,
-                } = &mut plot.kind
-                {
-                    ui.add_space(6.0);
-                    ui.label("Contours");
-                    let mut contour_count = contour_values.len() as u32;
-                    if ui
-                        .add(egui::Slider::new(&mut contour_count, 1..=20).text("Line Count"))
-                        .changed()
-                    {
-                        *contour_values = evenly_spaced_isovalues(contour_count as usize);
-                        selected_dirty = true;
-                    }
-                    selected_dirty |= ui
-                        .push_id("contour_style", |ui| {
-                            edit_plot_style(
+                            selected_dirty |= edit_plot_style_basic(
                                 ui,
                                 contour_style,
                                 StyleCaps {
@@ -173,33 +121,42 @@ impl App {
                                     point: false,
                                     glyph: false,
                                 },
-                            )
-                        })
-                        .inner;
+                            );
+                        }
+                    }
+                    InspectorTab::Surface => {
+                        selected_dirty |=
+                            edit_plot_surface_settings(ui, &mut plot.style, plot.kind.style_caps());
+                        selected_dirty |= align_surface_colour_for_lic(&mut plot.style);
+                    }
                 }
+            });
 
-                let param_section_dirty = show_expression_params(
-                    ui,
-                    &mut plot.kind,
-                    slider_dragging,
-                    eq_editor,
-                    sweep_map,
-                );
-                selected_dirty |= param_section_dirty;
-                // Last use of plot and sweep_map — NLL ends those borrows here.
-            }
-
-            if selected_dirty {
-                // plot/sweep_map borrows have ended; doc is still in scope but
-                // plots/sweep_config sub-borrows are gone, so mark_dirty is valid.
-                doc.mark_dirty();
-                ui.colored_label(egui::Color32::YELLOW, "Pending scene rebuild");
-            }
+        if selected_dirty {
+            doc.mark_dirty();
+            ui.add_space(6.0);
+            ui.colored_label(egui::Color32::YELLOW, "Pending scene rebuild");
         }
     }
 
-    pub(crate) fn export_panel(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
-        ui.heading("Export PNG");
+    pub(crate) fn show_export_modal(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        if !self.export_open {
+            return;
+        }
+
+        let mut open = self.export_open;
+        egui::Window::new("Export PNG")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .default_width(420.0)
+            .show(ctx, |ui| {
+                self.export_controls(ui, frame);
+            });
+        self.export_open = open;
+    }
+
+    fn export_controls(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         ui.text_edit_singleline(&mut self.documents[self.active_document_idx].export_path);
         ui.horizontal(|ui| {
             ui.add(
@@ -219,12 +176,11 @@ impl App {
             self.rebuild_scene(frame);
             self.export_png(frame);
         }
-        if !self.documents[self.active_document_idx].export_status.is_empty() {
+        if !self.documents[self.active_document_idx]
+            .export_status
+            .is_empty()
+        {
             ui.label(&self.documents[self.active_document_idx].export_status);
         }
-
-        ui.add_space(10.0);
-        ui.separator();
-        ui.label("Shortcuts: F front, T top, I isometric, O projection toggle");
     }
 }

@@ -4,8 +4,8 @@ use viewport_lib::{
     ViewportContext, ViewportEvent,
 };
 
+use crate::picking::{pick_probe, world_to_screen, ProbeHit};
 use crate::App;
-use crate::picking::{ProbeHit, pick_probe, world_to_screen};
 
 impl App {
     pub(crate) fn viewport(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
@@ -87,7 +87,9 @@ impl App {
             .build_frame(&self.documents[self.active_document_idx].camera);
         frame_data.camera.viewport_size = [rect.width(), rect.height()];
         frame_data.camera.pixels_per_point = ctx.pixels_per_point();
-        frame_data.viewport.show_grid = self.documents[self.active_document_idx].axis_config.show_grid;
+        frame_data.viewport.show_grid = self.documents[self.active_document_idx]
+            .axis_config
+            .show_grid;
         frame_data.viewport.background_colour =
             Some(self.documents[self.active_document_idx].viewport_background);
         frame_data.effects.ground_plane = viewport_lib::GroundPlane {
@@ -107,8 +109,12 @@ impl App {
 
         // Draw probe coordinate overlay.
         if let Some(hit) = &self.documents[self.active_document_idx].probe_hit {
-            let view_proj = self.documents[self.active_document_idx].camera.proj_matrix()
-                * self.documents[self.active_document_idx].camera.view_matrix();
+            let view_proj = self.documents[self.active_document_idx]
+                .camera
+                .proj_matrix()
+                * self.documents[self.active_document_idx]
+                    .camera
+                    .view_matrix();
             let viewport_size = glam::Vec2::new(rect.width(), rect.height());
 
             if let Some(hit_screen_local) = world_to_screen(hit.world_pos, view_proj, viewport_size)
@@ -254,11 +260,13 @@ impl App {
         );
         let probe_btn = ui.put(
             btn_rect,
-            egui::Button::new("Probe").selected(self.documents[self.active_document_idx].probe_mode),
+            egui::Button::new("Probe")
+                .selected(self.documents[self.active_document_idx].probe_mode),
         );
         if probe_btn.clicked() {
             release_orbit_mouse_buttons(&mut self.orbit_controller);
-            self.documents[self.active_document_idx].probe_mode = !self.documents[self.active_document_idx].probe_mode;
+            self.documents[self.active_document_idx].probe_mode =
+                !self.documents[self.active_document_idx].probe_mode;
             if !self.documents[self.active_document_idx].probe_mode {
                 self.documents[self.active_document_idx].probe_hit = None;
                 self.documents[self.active_document_idx].probe_snap_locked = false;
@@ -294,8 +302,12 @@ impl App {
 
         let local = glam::Vec2::new(cursor.x - rect.left(), cursor.y - rect.top());
         let viewport_size = glam::Vec2::new(rect.width(), rect.height());
-        let view_proj = self.documents[self.active_document_idx].camera.proj_matrix()
-            * self.documents[self.active_document_idx].camera.view_matrix();
+        let view_proj = self.documents[self.active_document_idx]
+            .camera
+            .proj_matrix()
+            * self.documents[self.active_document_idx]
+                .camera
+                .view_matrix();
         let view_proj_inv = view_proj.inverse();
 
         let (ray_orig, ray_dir) =
@@ -378,16 +390,17 @@ impl App {
 
         let world_pos = live_pos.unwrap_or_else(|| nearest_candidate.unwrap_or(glam::Vec3::ZERO));
         let normal = live_normal.unwrap_or(glam::Vec3::Z);
-        self.documents[self.active_document_idx].probe_hit = if live_pos.is_some() || nearest_candidate.is_some() {
-            Some(ProbeHit {
-                world_pos,
-                normal,
-                near_snap: nearest_candidate.is_some(),
-                snapped: false,
-            })
-        } else {
-            None
-        };
+        self.documents[self.active_document_idx].probe_hit =
+            if live_pos.is_some() || nearest_candidate.is_some() {
+                Some(ProbeHit {
+                    world_pos,
+                    normal,
+                    near_snap: nearest_candidate.is_some(),
+                    snapped: false,
+                })
+            } else {
+                None
+            };
         let _ = ui;
     }
 

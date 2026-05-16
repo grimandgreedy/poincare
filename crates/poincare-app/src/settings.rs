@@ -160,22 +160,38 @@ fn show_graph_settings(ui: &mut egui::Ui, app: &mut App) {
     let mut axis_changed = false;
     field_row(ui, "Show axes", |ui| {
         axis_changed |= ui
-            .checkbox(&mut app.documents[app.active_document_idx].axis_config.show_box, "")
+            .checkbox(
+                &mut app.documents[app.active_document_idx].axis_config.show_box,
+                "",
+            )
             .changed();
     });
     field_row(ui, "Show grid", |ui| {
         axis_changed |= ui
-            .checkbox(&mut app.documents[app.active_document_idx].axis_config.show_grid, "")
+            .checkbox(
+                &mut app.documents[app.active_document_idx].axis_config.show_grid,
+                "",
+            )
             .changed();
     });
     field_row(ui, "Show labels", |ui| {
         axis_changed |= ui
-            .checkbox(&mut app.documents[app.active_document_idx].axis_config.show_labels, "")
+            .checkbox(
+                &mut app.documents[app.active_document_idx]
+                    .axis_config
+                    .show_labels,
+                "",
+            )
             .changed();
     });
     field_row(ui, "Show ticks", |ui| {
         axis_changed |= ui
-            .checkbox(&mut app.documents[app.active_document_idx].axis_config.show_ticks, "")
+            .checkbox(
+                &mut app.documents[app.active_document_idx]
+                    .axis_config
+                    .show_ticks,
+                "",
+            )
             .changed();
     });
 
@@ -183,23 +199,35 @@ fn show_graph_settings(ui: &mut egui::Ui, app: &mut App) {
     field_row(ui, "Tick count", |ui| {
         axis_changed |= ui
             .add(
-                egui::DragValue::new(&mut app.documents[app.active_document_idx].axis_config.tick_count[0])
-                    .range(2..=20)
-                    .prefix("X "),
+                egui::DragValue::new(
+                    &mut app.documents[app.active_document_idx]
+                        .axis_config
+                        .tick_count[0],
+                )
+                .range(2..=20)
+                .prefix("X "),
             )
             .changed();
         axis_changed |= ui
             .add(
-                egui::DragValue::new(&mut app.documents[app.active_document_idx].axis_config.tick_count[1])
-                    .range(2..=20)
-                    .prefix("Y "),
+                egui::DragValue::new(
+                    &mut app.documents[app.active_document_idx]
+                        .axis_config
+                        .tick_count[1],
+                )
+                .range(2..=20)
+                .prefix("Y "),
             )
             .changed();
         axis_changed |= ui
             .add(
-                egui::DragValue::new(&mut app.documents[app.active_document_idx].axis_config.tick_count[2])
-                    .range(2..=20)
-                    .prefix("Z "),
+                egui::DragValue::new(
+                    &mut app.documents[app.active_document_idx]
+                        .axis_config
+                        .tick_count[2],
+                )
+                .range(2..=20)
+                .prefix("Z "),
             )
             .changed();
     });
@@ -251,12 +279,14 @@ fn show_graph_settings(ui: &mut egui::Ui, app: &mut App) {
     ui.add_space(6.0);
     field_row(ui, "Ground plane", |ui| {
         egui::ComboBox::from_id_salt("poincare_settings_ground_plane")
-            .selected_text(match app.documents[app.active_document_idx].ground_plane_mode {
-                GroundPlaneMode::None => "Off",
-                GroundPlaneMode::ShadowOnly => "Shadow Only",
-                GroundPlaneMode::Tile => "Tile",
-                GroundPlaneMode::SolidColour => "Solid",
-            })
+            .selected_text(
+                match app.documents[app.active_document_idx].ground_plane_mode {
+                    GroundPlaneMode::None => "Off",
+                    GroundPlaneMode::ShadowOnly => "Shadow Only",
+                    GroundPlaneMode::Tile => "Tile",
+                    GroundPlaneMode::SolidColour => "Solid",
+                },
+            )
             .show_ui(ui, |ui| {
                 ui.selectable_value(
                     &mut app.documents[app.active_document_idx].ground_plane_mode,

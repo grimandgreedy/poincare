@@ -9,63 +9,16 @@ use crate::plot::kind::StyleCaps;
 
 const LIC_SHOWCASE_BASE_COLOUR: [f32; 4] = [0.35, 0.55, 0.75, 1.0];
 
-pub(crate) fn edit_plot_style(ui: &mut egui::Ui, style: &mut PlotStyle, caps: StyleCaps) -> bool {
+pub(crate) fn edit_plot_style_basic(
+    ui: &mut egui::Ui,
+    style: &mut PlotStyle,
+    caps: StyleCaps,
+) -> bool {
     let mut changed = false;
     changed |= edit_colour_mode(ui, &mut style.colour_mode, caps);
     changed |= ui
         .add(egui::Slider::new(&mut style.opacity, 0.05..=1.0).text("Opacity"))
         .changed();
-
-    if caps.mesh {
-        changed |= ui.checkbox(&mut style.two_sided, "Two-sided").changed();
-
-        let mut shading_mode = style.matcap;
-        egui::ComboBox::from_label("Surface Look")
-            .selected_text(surface_look_label(style.matcap))
-            .show_ui(ui, |ui| {
-                ui.selectable_value(&mut shading_mode, None, "Standard");
-                for preset in MATCAP_PRESETS {
-                    ui.selectable_value(
-                        &mut shading_mode,
-                        Some(MatcapSource::Builtin(preset)),
-                        matcap_label(preset),
-                    );
-                }
-            });
-        if shading_mode != style.matcap {
-            style.matcap = shading_mode;
-            changed = true;
-        }
-
-        let mut shading = style.shading;
-        egui::ComboBox::from_label("Shading")
-            .selected_text(match shading {
-                ShadingMode::Flat => "Flat",
-                ShadingMode::Smooth => "Smooth",
-                ShadingMode::Unlit => "Unlit",
-            })
-            .show_ui(ui, |ui| {
-                ui.selectable_value(&mut shading, ShadingMode::Smooth, "Smooth");
-                ui.selectable_value(&mut shading, ShadingMode::Flat, "Flat");
-                ui.selectable_value(&mut shading, ShadingMode::Unlit, "Unlit");
-            });
-        if shading != style.shading {
-            style.shading = shading;
-            changed = true;
-        }
-
-        ui.separator();
-        ui.label("UV Visualization");
-        changed |= edit_param_vis(ui, &mut style.param_vis);
-
-        ui.separator();
-        ui.label("Surface Scalar");
-        changed |= edit_surface_quantity(ui, style);
-
-        ui.separator();
-        ui.label("Surface LIC");
-        changed |= edit_surface_lic(ui, &mut style.surface_lic);
-    }
 
     if caps.line {
         changed |= ui
@@ -82,6 +35,74 @@ pub(crate) fn edit_plot_style(ui: &mut egui::Ui, style: &mut PlotStyle, caps: St
             .add(egui::Slider::new(&mut style.glyph_scale, 0.1..=3.0).text("Glyph Scale"))
             .changed();
     }
+
+    changed
+}
+
+pub(crate) fn edit_plot_surface_settings(
+    ui: &mut egui::Ui,
+    style: &mut PlotStyle,
+    caps: StyleCaps,
+) -> bool {
+    if !caps.mesh {
+        ui.label(
+            egui::RichText::new("No surface-specific settings for this plot type.")
+                .weak()
+                .small(),
+        );
+        return false;
+    }
+
+    let mut changed = false;
+    changed |= ui.checkbox(&mut style.two_sided, "Two-sided").changed();
+
+    let mut shading_mode = style.matcap;
+    egui::ComboBox::from_label("Surface Look")
+        .selected_text(surface_look_label(style.matcap))
+        .show_ui(ui, |ui| {
+            ui.selectable_value(&mut shading_mode, None, "Standard");
+            for preset in MATCAP_PRESETS {
+                ui.selectable_value(
+                    &mut shading_mode,
+                    Some(MatcapSource::Builtin(preset)),
+                    matcap_label(preset),
+                );
+            }
+        });
+    if shading_mode != style.matcap {
+        style.matcap = shading_mode;
+        changed = true;
+    }
+
+    let mut shading = style.shading;
+    egui::ComboBox::from_label("Shading")
+        .selected_text(match shading {
+            ShadingMode::Flat => "Flat",
+            ShadingMode::Smooth => "Smooth",
+            ShadingMode::Unlit => "Unlit",
+        })
+        .show_ui(ui, |ui| {
+            ui.selectable_value(&mut shading, ShadingMode::Smooth, "Smooth");
+            ui.selectable_value(&mut shading, ShadingMode::Flat, "Flat");
+            ui.selectable_value(&mut shading, ShadingMode::Unlit, "Unlit");
+        });
+    if shading != style.shading {
+        style.shading = shading;
+        changed = true;
+    }
+
+    ui.separator();
+    ui.label("UV Visualization");
+    changed |= edit_param_vis(ui, &mut style.param_vis);
+
+    ui.separator();
+    ui.label("Surface Scalar");
+    changed |= edit_surface_quantity(ui, style);
+
+    ui.separator();
+    ui.label("Surface LIC");
+    changed |= edit_surface_lic(ui, &mut style.surface_lic);
+
     changed
 }
 
@@ -304,7 +325,11 @@ fn edit_surface_lic(ui: &mut egui::Ui, surface_lic: &mut Option<SurfaceLicSettin
             .show_ui(ui, |ui| {
                 ui.selectable_value(&mut field, SurfaceLicVectorField::TangentU, "Tangent U");
                 ui.selectable_value(&mut field, SurfaceLicVectorField::TangentV, "Tangent V");
-                ui.selectable_value(&mut field, SurfaceLicVectorField::Diagonal, "Diagonal (U+V)");
+                ui.selectable_value(
+                    &mut field,
+                    SurfaceLicVectorField::Diagonal,
+                    "Diagonal (U+V)",
+                );
                 ui.selectable_value(&mut field, SurfaceLicVectorField::Saddle, "Saddle (U−V)");
             });
         if field != lic.vector_field {
@@ -389,7 +414,11 @@ fn edit_surface_quantity(ui: &mut egui::Ui, style: &mut PlotStyle) -> bool {
 }
 
 fn default_attribute_name(caps: StyleCaps) -> &'static str {
-    if caps.glyph { "magnitude" } else { "z" }
+    if caps.glyph {
+        "magnitude"
+    } else {
+        "z"
+    }
 }
 
 fn attribute_options(caps: StyleCaps) -> &'static [&'static str] {

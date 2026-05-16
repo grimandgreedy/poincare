@@ -5,7 +5,7 @@ use poincare_lib::{
 use viewport_lib::{AttributeKind, BuiltinColourmap, BuiltinMatcap, ParamVisMode};
 
 use crate::plot::entry::PlotEntry;
-use crate::plot::kind::{PlotKind, evenly_spaced_isovalues};
+use crate::plot::kind::{evenly_spaced_isovalues, PlotKind};
 
 #[derive(Clone, Copy)]
 pub(crate) enum ExamplePlot {

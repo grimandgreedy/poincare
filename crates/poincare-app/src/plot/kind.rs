@@ -175,34 +175,6 @@ pub(crate) enum PlotKind {
 }
 
 impl PlotKind {
-    pub(crate) fn short_description(&self) -> &'static str {
-        match self {
-            Self::ContouredSurface { .. } => "Surface with contour overlay",
-            Self::SphericalHarmonic => "Translucent spherical harmonic surface",
-            Self::HelixCurve => "Parametric curve",
-            Self::ScatterCloud => "Deterministic point cloud",
-            Self::VectorField => "Sampled 3D arrow field",
-            Self::GridSurface => "Data-driven surface grid",
-            Self::Streamlines { .. } => "RK4 streamlines (ABC chaotic flow)",
-            Self::VolumeRender { .. } => "Direct volume rendering (Gaussian density)",
-            Self::Isosurface { .. } => "Marching-cubes isosurfaces (concentric spheres)",
-            Self::ExprCartesian { .. } => "Expr: Cartesian surface f(x,y)",
-            Self::ExprCurve { .. } => "Expr: parametric curve (x,y,z)(t)",
-            Self::ExprCartesianLine { .. } => "Expr: Cartesian line",
-            Self::ExprSpherical { .. } => "Expr: spherical surface r(theta,phi)",
-            Self::ExprCylindrical { .. } => "Expr: cylindrical surface r(theta,z)",
-            Self::ExprPolar { .. } => "Expr: polar surface r(theta)",
-            Self::ExprParametricSurface { .. } => "Expr: parametric surface (x,y,z)(u,v)",
-            Self::ExprDataGrid { .. } => "CSV: data grid surface",
-            Self::ExprCurvePoints { .. } => "CSV: curve from points",
-            Self::ExprScatter { .. } => "CSV: scatter point cloud",
-            Self::ExprVectorField { .. } => "Expr: vector field (vx,vy,vz)(x,y,z)",
-            Self::ExprVolume { .. } => "Expr: volume density f(x,y,z)",
-            Self::ExprIsosurface { .. } => "Expr: isosurface f(x,y,z) = levels",
-            Self::ExprStreamlines { .. } => "Expr: streamlines (vx,vy,vz)(x,y,z)",
-        }
-    }
-
     pub(crate) fn style_caps(&self) -> StyleCaps {
         match self {
             Self::ContouredSurface { .. }
@@ -268,9 +240,7 @@ impl PlotKind {
             Self::ExprPolar { .. } => DomainLabels::Theta,
             Self::ExprParametricSurface { .. } => DomainLabels::Uv,
             Self::ExprCurve { .. } => DomainLabels::T,
-            Self::ExprCartesianLine { ind_var, .. } => {
-                DomainLabels::SingleVar(ind_var.clone())
-            }
+            Self::ExprCartesianLine { ind_var, .. } => DomainLabels::SingleVar(ind_var.clone()),
             Self::VectorField
             | Self::Streamlines { .. }
             | Self::VolumeRender { .. }

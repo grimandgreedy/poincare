@@ -8,8 +8,7 @@ use crate::picking::ProbeHit;
 use crate::plot::entry::PlotEntry;
 use crate::plot::sweep::ParameterSweep;
 
-pub(crate) const VIEWPORT_BACKGROUND: [f32; 4] =
-    [18.0 / 255.0, 18.0 / 255.0, 18.0 / 255.0, 1.0];
+pub(crate) const VIEWPORT_BACKGROUND: [f32; 4] = [18.0 / 255.0, 18.0 / 255.0, 18.0 / 255.0, 1.0];
 pub(crate) const DEFAULT_VIEWPORT_BACKGROUND: [f32; 4] = VIEWPORT_BACKGROUND;
 
 pub(crate) struct Document {
@@ -78,7 +77,11 @@ impl Document {
     }
 
     pub(crate) fn title_or_untitled(&self) -> &str {
-        if self.title.is_empty() { "Untitled" } else { &self.title }
+        if self.title.is_empty() {
+            "Untitled"
+        } else {
+            &self.title
+        }
     }
 
     pub(crate) fn mark_dirty(&mut self) {
@@ -123,7 +126,11 @@ impl Document {
                 any = true;
             }
         }
-        if any { (max - min).length() * 0.5 } else { 1.0 }
+        if any {
+            (max - min).length() * 0.5
+        } else {
+            1.0
+        }
     }
 
     /// Rebuild the cache of curve-curve intersection points from the current scene.

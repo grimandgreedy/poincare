@@ -12,11 +12,11 @@ use viewport_lib::{
     AttributeKind, BuiltinColourmap, BuiltinMatcap, GroundPlaneMode, ParamVisMode, Projection,
 };
 
-use crate::App;
 use crate::document::Document;
 use crate::plot::entry::PlotEntry;
 use crate::plot::kind::{PlotKind, SeedMode};
 use crate::plot::sweep::ParameterSweep;
+use crate::App;
 
 const APP_STATE_KEY: &str = "poincare_app_v2_state";
 
@@ -409,7 +409,11 @@ impl DocumentSnapshot {
         Self {
             version: 1,
             title: doc.title.clone(),
-            plots: doc.plots.iter().map(PersistedPlotEntry::from_plot_entry).collect(),
+            plots: doc
+                .plots
+                .iter()
+                .map(PersistedPlotEntry::from_plot_entry)
+                .collect(),
             selected_plot: doc.selected_plot,
             axis_config: PersistedAxisConfig::from_axis_config(&doc.axis_config),
             ground_plane_mode: ground_plane_to_u8(doc.ground_plane_mode),
@@ -436,7 +440,11 @@ impl DocumentSnapshot {
     /// Reconstruct a Document from a snapshot (used for file open).
     pub(crate) fn into_document(self) -> Document {
         let mut doc = Document::new_default();
-        doc.plots = self.plots.iter().map(PersistedPlotEntry::to_plot_entry).collect();
+        doc.plots = self
+            .plots
+            .iter()
+            .map(PersistedPlotEntry::to_plot_entry)
+            .collect();
         doc.selected_plot = self.selected_plot.filter(|&i| i < doc.plots.len());
         doc.axis_config = self.axis_config.to_axis_config();
         doc.ground_plane_mode = u8_to_ground_plane(self.ground_plane_mode);
@@ -445,10 +453,18 @@ impl DocumentSnapshot {
         doc.ground_plane_tile_size = self.ground_plane_tile_size;
         doc.viewport_background = self.viewport_background;
         doc.camera.projection = u8_to_projection(self.projection);
-        if !self.title.is_empty() { doc.title = self.title; }
-        if !self.export_path.is_empty() { doc.export_path = self.export_path; }
-        if self.export_width > 0 { doc.export_width = self.export_width; }
-        if self.export_height > 0 { doc.export_height = self.export_height; }
+        if !self.title.is_empty() {
+            doc.title = self.title;
+        }
+        if !self.export_path.is_empty() {
+            doc.export_path = self.export_path;
+        }
+        if self.export_width > 0 {
+            doc.export_width = self.export_width;
+        }
+        if self.export_height > 0 {
+            doc.export_height = self.export_height;
+        }
         doc.sweep_config = self
             .sweep_config
             .into_iter()
@@ -466,7 +482,11 @@ impl DocumentSnapshot {
     /// Apply this snapshot to the active document in App (used for session restore).
     fn apply_to_app(&self, app: &mut App) {
         let doc = &mut app.documents[app.active_document_idx];
-        doc.plots = self.plots.iter().map(PersistedPlotEntry::to_plot_entry).collect();
+        doc.plots = self
+            .plots
+            .iter()
+            .map(PersistedPlotEntry::to_plot_entry)
+            .collect();
         doc.selected_plot = self.selected_plot.filter(|&i| i < doc.plots.len());
         doc.axis_config = self.axis_config.to_axis_config();
         doc.ground_plane_mode = u8_to_ground_plane(self.ground_plane_mode);
@@ -475,10 +495,18 @@ impl DocumentSnapshot {
         doc.ground_plane_tile_size = self.ground_plane_tile_size;
         doc.viewport_background = self.viewport_background;
         doc.camera.projection = u8_to_projection(self.projection);
-        if !self.title.is_empty() { doc.title = self.title.clone(); }
-        if !self.export_path.is_empty() { doc.export_path = self.export_path.clone(); }
-        if self.export_width > 0 { doc.export_width = self.export_width; }
-        if self.export_height > 0 { doc.export_height = self.export_height; }
+        if !self.title.is_empty() {
+            doc.title = self.title.clone();
+        }
+        if !self.export_path.is_empty() {
+            doc.export_path = self.export_path.clone();
+        }
+        if self.export_width > 0 {
+            doc.export_width = self.export_width;
+        }
+        if self.export_height > 0 {
+            doc.export_height = self.export_height;
+        }
         doc.sweep_config = self
             .sweep_config
             .iter()
@@ -645,7 +673,9 @@ impl PersistedColourMode {
             } => Self::Colormap {
                 colormap: match colormap {
                     ColormapSource::Builtin(preset) => builtin_colormap_to_u8(*preset),
-                    ColormapSource::Uploaded(_) => builtin_colormap_to_u8(BuiltinColourmap::Viridis),
+                    ColormapSource::Uploaded(_) => {
+                        builtin_colormap_to_u8(BuiltinColourmap::Viridis)
+                    }
                 },
                 scalar_range: *scalar_range,
             },
