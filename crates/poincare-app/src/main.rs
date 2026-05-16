@@ -37,7 +37,7 @@ fn default_panel_style() -> PanelStyle {
 }
 
 fn app_icon() -> Arc<egui::IconData> {
-    let image = image::load_from_memory(include_bytes!("../../../assets/icon.png"))
+    let image = image::load_from_memory(include_bytes!("../assets/icon.png"))
         .expect("embedded app icon png should decode")
         .into_rgba8();
     let (width, height) = image.dimensions();
