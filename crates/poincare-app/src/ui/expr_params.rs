@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use eframe::egui;
 use poincare_lib::{parse_csv_grid, parse_csv_points, parse_curve_expr, parse_expr_with_vars};
 
-use crate::plot::kind::{PlotKind, SeedMode, DEFAULT_ISO_PALETTE};
+use crate::plot::kind::{DEFAULT_ISO_PALETTE, PlotKind, SeedMode};
 use crate::plot::sweep::ParameterSweep;
-use crate::ui::equation_editor::{equation_row_ed, EquationEditor};
+use crate::ui::equation_editor::{EquationEditor, equation_row_ed};
 
 /// Show parameter sliders (and sweep controls) for expression-type plots.
 /// Returns `true` if any value changed that requires a scene rebuild.

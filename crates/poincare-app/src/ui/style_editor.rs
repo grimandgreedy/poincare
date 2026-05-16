@@ -414,11 +414,7 @@ fn edit_surface_quantity(ui: &mut egui::Ui, style: &mut PlotStyle) -> bool {
 }
 
 fn default_attribute_name(caps: StyleCaps) -> &'static str {
-    if caps.glyph {
-        "magnitude"
-    } else {
-        "z"
-    }
+    if caps.glyph { "magnitude" } else { "z" }
 }
 
 fn attribute_options(caps: StyleCaps) -> &'static [&'static str] {

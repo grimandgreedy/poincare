@@ -12,11 +12,11 @@ use viewport_lib::{
     AttributeKind, BuiltinColourmap, BuiltinMatcap, GroundPlaneMode, ParamVisMode, Projection,
 };
 
+use crate::App;
 use crate::document::Document;
 use crate::plot::entry::PlotEntry;
 use crate::plot::kind::{PlotKind, SeedMode};
 use crate::plot::sweep::ParameterSweep;
-use crate::App;
 
 const APP_STATE_KEY: &str = "poincare_app_v2_state";
 

@@ -3,11 +3,11 @@ use glam::Vec3;
 use viewport_lib::{
     AppearanceSettings, AttributeKind, AttributeRef, Camera, ColourmapId, FrameData, GlyphItem,
     LabelItem, LightKind, LightSource, LightingSettings, Material, MeshId, PointCloudItem,
-    PolylineItem, RenderCamera, SceneRenderItem, StreamtubeItem, SurfaceLICConfig,
-    SurfaceLICItem, SurfaceSubmission, ViewportError, ViewportGpuResources,
-    VolumeId, VolumeItem,
+    PolylineItem, RenderCamera, SceneRenderItem, StreamtubeItem, SurfaceLICConfig, SurfaceLICItem,
+    SurfaceSubmission, ViewportError, ViewportGpuResources, VolumeId, VolumeItem,
 };
 
+use crate::axis::Axis3;
 use crate::axis::AxisConfig;
 use crate::domain::Domain;
 use crate::plot_object::{GlyphInstance, PlotComponent, PlotGeometry, PlotObject};
@@ -15,7 +15,6 @@ use crate::style::{
     ColormapSource, ColourMode, MatcapSource, PlotStyle, ShadingMode, SurfaceLicSettings,
 };
 use crate::{axis, ticks};
-use crate::axis::Axis3;
 
 struct CachedSurface {
     mesh_index: MeshId,
@@ -271,7 +270,8 @@ impl GraphScene {
                     item.scale = 1.0;
                     item.scale_by_magnitude = false;
                     item.default_colour = default_colour_rgba(&glyphs.style);
-                    item.use_default_colour = matches!(glyphs.style.colour_mode, ColourMode::Solid(_));
+                    item.use_default_colour =
+                        matches!(glyphs.style.colour_mode, ColourMode::Solid(_));
                     item.appearance = appearance_from_style(&glyphs.style);
                     apply_glyph_colour_mode(
                         &mut item,
@@ -351,12 +351,27 @@ impl GraphScene {
         };
 
         // Build axis box + tick polylines and annotation labels.
-        let tick_x =
-            screen_spaced_axis_ticks(&vp, Axis3::X, x_lo as f64, x_hi as f64, self.axis_config.tick_count[0]);
-        let tick_y =
-            screen_spaced_axis_ticks(&vp, Axis3::Y, y_lo as f64, y_hi as f64, self.axis_config.tick_count[1]);
-        let tick_z =
-            screen_spaced_axis_ticks(&vp, Axis3::Z, z_lo as f64, z_hi as f64, self.axis_config.tick_count[2]);
+        let tick_x = screen_spaced_axis_ticks(
+            &vp,
+            Axis3::X,
+            x_lo as f64,
+            x_hi as f64,
+            self.axis_config.tick_count[0],
+        );
+        let tick_y = screen_spaced_axis_ticks(
+            &vp,
+            Axis3::Y,
+            y_lo as f64,
+            y_hi as f64,
+            self.axis_config.tick_count[1],
+        );
+        let tick_z = screen_spaced_axis_ticks(
+            &vp,
+            Axis3::Z,
+            z_lo as f64,
+            z_hi as f64,
+            self.axis_config.tick_count[2],
+        );
         let ticks_per_axis = [tick_x, tick_y, tick_z];
 
         let lic_active = !lic_items.is_empty();
@@ -375,8 +390,12 @@ impl GraphScene {
             polylines.clear();
         }
 
-        let axis_labels: Vec<LabelItem> =
-            axis::build_axis_labels_projected(&axis_domain, &self.axis_config, &ticks_per_axis, Some(&vp));
+        let axis_labels: Vec<LabelItem> = axis::build_axis_labels_projected(
+            &axis_domain,
+            &self.axis_config,
+            &ticks_per_axis,
+            Some(&vp),
+        );
 
         let mut frame = FrameData::default();
         frame.camera.render_camera = RenderCamera::from_camera(camera);
@@ -522,7 +541,10 @@ fn cache_geometry(
     Ok(())
 }
 
-fn resolve_colourmap_id(style: &PlotStyle, resources: &ViewportGpuResources) -> Option<ColourmapId> {
+fn resolve_colourmap_id(
+    style: &PlotStyle,
+    resources: &ViewportGpuResources,
+) -> Option<ColourmapId> {
     match &style.colour_mode {
         ColourMode::Solid(_) => None,
         ColourMode::Colormap { colormap, .. } => match colormap {
@@ -911,11 +933,7 @@ fn screen_spaced_axis_ticks(
             i as f32 / (count - 1) as f32
         };
         raw_values.push(invert_projected_axis_fraction(
-            vp,
-            axis_kind,
-            lo as f32,
-            hi as f32,
-            fraction,
+            vp, axis_kind, lo as f32, hi as f32, fraction,
         ) as f64);
     }
     if lo <= 0.0 && 0.0 <= hi {
@@ -924,9 +942,8 @@ fn screen_spaced_axis_ticks(
     raw_values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     dedup_close_values(&mut raw_values);
 
-    let estimate = estimated_tick_step(&raw_values).unwrap_or_else(|| {
-        ((hi - lo).abs() / target_count.max(1) as f64).max(1e-6)
-    });
+    let estimate = estimated_tick_step(&raw_values)
+        .unwrap_or_else(|| ((hi - lo).abs() / target_count.max(1) as f64).max(1e-6));
     let steps = nice_step_candidates(estimate);
 
     let mut best: Option<(f32, Vec<(f64, String)>)> = None;
@@ -953,7 +970,8 @@ fn screen_spaced_axis_ticks(
         }
     }
 
-    best.map(|(_, ticks)| ticks).unwrap_or_else(|| format_axis_tick_values(&raw_values))
+    best.map(|(_, ticks)| ticks)
+        .unwrap_or_else(|| format_axis_tick_values(&raw_values))
 }
 
 fn invert_projected_axis_fraction(
@@ -989,11 +1007,23 @@ fn projected_axis_fraction(
     let anchor_ticks = [(lo as f64, String::new()), (hi as f64, String::new())];
     let p_lo = project_to_ndc_xy(
         vp,
-        axis::tick_label_anchor(&anchor_domain, Some(vp), axis_kind, &anchor_ticks, lo as f64),
+        axis::tick_label_anchor(
+            &anchor_domain,
+            Some(vp),
+            axis_kind,
+            &anchor_ticks,
+            lo as f64,
+        ),
     )?;
     let p_hi = project_to_ndc_xy(
         vp,
-        axis::tick_label_anchor(&anchor_domain, Some(vp), axis_kind, &anchor_ticks, hi as f64),
+        axis::tick_label_anchor(
+            &anchor_domain,
+            Some(vp),
+            axis_kind,
+            &anchor_ticks,
+            hi as f64,
+        ),
     )?;
     let p = project_to_ndc_xy(
         vp,
@@ -1131,7 +1161,9 @@ fn tick_selection_score(
 ) -> f32 {
     let projected: Vec<f32> = values
         .iter()
-        .filter_map(|&value| projected_axis_fraction(vp, axis_kind, lo as f32, hi as f32, value as f32))
+        .filter_map(|&value| {
+            projected_axis_fraction(vp, axis_kind, lo as f32, hi as f32, value as f32)
+        })
         .collect();
     if projected.is_empty() {
         return f32::INFINITY;

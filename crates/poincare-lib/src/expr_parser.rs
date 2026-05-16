@@ -800,17 +800,11 @@ pub fn parse_csv_grid(csv: &str) -> Result<(Vec<f64>, Vec<f64>, Vec<f64>), Strin
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DetectedPlotType {
     /// `y = f(x)`, `z = f(x)`, etc. — single independent variable → curve
-    CartesianLine {
-        dep: String,
-        ind: String,
-    },
+    CartesianLine { dep: String, ind: String },
     /// `z = f(x, y)` — standard Cartesian surface
     CartesianSurface,
     /// `y = f(x, z)` or `x = f(y, z)` — dep/ind stored as strings
-    PermutedCartesian {
-        dep: String,
-        ind: (String, String),
-    },
+    PermutedCartesian { dep: String, ind: (String, String) },
     /// `r = f(theta, phi)` — spherical surface
     SphericalSurface,
     /// `r = f(theta, z)` — cylindrical surface
@@ -902,9 +896,7 @@ pub fn auto_detect_plot_type(src: &str) -> AutoDetectResult {
         let mut vars: Vec<String> = rhs_idents
             .into_iter()
             .filter(|id| {
-                id != &dep_var
-                    && !fns.contains(id.as_str())
-                    && !consts.contains(id.as_str())
+                id != &dep_var && !fns.contains(id.as_str()) && !consts.contains(id.as_str())
             })
             .collect();
         // Deduplicate while preserving order
@@ -914,8 +906,7 @@ pub fn auto_detect_plot_type(src: &str) -> AutoDetectResult {
     };
 
     // --- match dep_var + ind_var set → DetectedPlotType ---
-    let ind_set: std::collections::HashSet<&str> =
-        ind_vars.iter().map(|s| s.as_str()).collect();
+    let ind_set: std::collections::HashSet<&str> = ind_vars.iter().map(|s| s.as_str()).collect();
 
     let detected = match dep_var.as_str() {
         "z" => {

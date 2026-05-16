@@ -1,13 +1,15 @@
 use eframe::egui;
+use viewport_lib::{Easing, Projection, ViewPreset};
 
-use crate::plot::kind::{evenly_spaced_isovalues, PlotKind, StyleCaps};
+use crate::App;
+use crate::CameraCommand;
+use crate::InspectorTab;
+use crate::plot::kind::{PlotKind, StyleCaps, evenly_spaced_isovalues};
 use crate::ui::domain_editor::{edit_domain, edit_resolution};
 use crate::ui::expr_params::show_expression_params;
 use crate::ui::style_editor::{
     align_surface_colour_for_lic, edit_plot_style_basic, edit_plot_surface_settings,
 };
-use crate::App;
-use crate::InspectorTab;
 
 impl App {
     pub(crate) fn bottom_inspector(&mut self, ui: &mut egui::Ui) {
@@ -136,6 +138,141 @@ impl App {
             doc.mark_dirty();
             ui.add_space(6.0);
             ui.colored_label(egui::Color32::YELLOW, "Pending scene rebuild");
+        }
+    }
+
+    pub(crate) fn camera_inspector(&mut self, ui: &mut egui::Ui) {
+        let camera = &self.documents[self.active_document_idx].camera;
+        ui.label(egui::RichText::new("Viewport Camera").strong());
+        ui.label(
+            egui::RichText::new(format!(
+                "Center ({:.2}, {:.2}, {:.2})  Distance {:.2}",
+                camera.center.x, camera.center.y, camera.center.z, camera.distance
+            ))
+            .small()
+            .weak(),
+        );
+        ui.separator();
+
+        ui.label("Views");
+        egui::Grid::new("camera_view_presets")
+            .num_columns(4)
+            .spacing([8.0, 8.0])
+            .show(ui, |ui| {
+                for (label, preset) in [
+                    ("Front", ViewPreset::Front),
+                    ("Back", ViewPreset::Back),
+                    ("Left", ViewPreset::Left),
+                    ("Right", ViewPreset::Right),
+                    ("Top", ViewPreset::Top),
+                    ("Bottom", ViewPreset::Bottom),
+                    ("Iso", ViewPreset::Isometric),
+                ] {
+                    if ui.button(label).clicked() {
+                        self.run_camera_command(CameraCommand::ViewPreset(preset));
+                    }
+                }
+            });
+
+        ui.add_space(10.0);
+        ui.separator();
+        ui.label("Frame");
+        ui.horizontal(|ui| {
+            if ui.button("Frame All").clicked() {
+                self.run_camera_command(CameraCommand::FrameAll);
+            }
+            if ui.button("Frame Selected").clicked() {
+                self.run_camera_command(CameraCommand::FrameSelected);
+            }
+            if ui.button("Reset View").clicked() {
+                self.run_camera_command(CameraCommand::ResetView);
+            }
+        });
+
+        ui.add_space(10.0);
+        ui.separator();
+        ui.label("Projection");
+        let current_projection = self.documents[self.active_document_idx].camera.projection;
+        ui.horizontal(|ui| {
+            if ui
+                .radio(current_projection == Projection::Perspective, "Perspective")
+                .clicked()
+            {
+                self.run_camera_command(CameraCommand::SetProjection(Projection::Perspective));
+            }
+            if ui
+                .radio(
+                    current_projection == Projection::Orthographic,
+                    "Orthographic",
+                )
+                .clicked()
+            {
+                self.run_camera_command(CameraCommand::SetProjection(Projection::Orthographic));
+            }
+        });
+        if current_projection == Projection::Perspective {
+            let mut fov_deg = self.documents[self.active_document_idx]
+                .camera
+                .fov_y
+                .to_degrees();
+            if ui
+                .add(egui::Slider::new(&mut fov_deg, 20.0_f32..=120.0_f32).text("FOV"))
+                .changed()
+            {
+                self.cancel_camera_animation();
+                self.documents[self.active_document_idx]
+                    .camera
+                    .set_fov_y(fov_deg.to_radians());
+            }
+        }
+
+        ui.add_space(10.0);
+        ui.separator();
+        ui.label("Animation");
+        ui.checkbox(&mut self.camera_animations_enabled, "Animate Camera");
+        ui.add(
+            egui::Slider::new(&mut self.camera_animation_duration, 0.1_f32..=2.0_f32)
+                .text("Duration"),
+        );
+        egui::ComboBox::from_label("Easing")
+            .selected_text(match self.camera_animation_easing {
+                Easing::Linear => "Linear",
+                Easing::EaseOutCubic => "Ease Out",
+                Easing::EaseInOutCubic => "Ease In Out",
+                _ => "Custom",
+            })
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut self.camera_animation_easing, Easing::Linear, "Linear");
+                ui.selectable_value(
+                    &mut self.camera_animation_easing,
+                    Easing::EaseOutCubic,
+                    "Ease Out",
+                );
+                ui.selectable_value(
+                    &mut self.camera_animation_easing,
+                    Easing::EaseInOutCubic,
+                    "Ease In Out",
+                );
+            });
+
+        ui.add_space(10.0);
+        ui.separator();
+        ui.label("Saved Views");
+        for slot in 0..5 {
+            let has_slot = self.documents[self.active_document_idx].camera_slots[slot].is_some();
+            ui.horizontal(|ui| {
+                ui.label(format!("Slot {}", slot + 1));
+                if ui
+                    .add_enabled(has_slot, egui::Button::new("Recall"))
+                    .clicked()
+                {
+                    self.run_camera_command(CameraCommand::RecallSlot(slot));
+                }
+                let label = if has_slot { "Overwrite" } else { "Save" };
+                if ui.button(label).clicked() {
+                    self.run_camera_command(CameraCommand::SaveSlot(slot));
+                }
+            });
         }
     }
 

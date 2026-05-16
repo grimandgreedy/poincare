@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 
 use poincare_lib::{AxisConfig, GraphScene};
-use viewport_lib::{Camera, GroundPlaneMode};
+use viewport_lib::{Aabb, Camera, GroundPlaneMode};
 
-use crate::picking::segment_segment_closest;
 use crate::picking::ProbeHit;
+use crate::picking::segment_segment_closest;
 use crate::plot::entry::PlotEntry;
+use crate::plot::kind::DomainLabels;
 use crate::plot::sweep::ParameterSweep;
 
 pub(crate) const VIEWPORT_BACKGROUND: [f32; 4] = [18.0 / 255.0, 18.0 / 255.0, 18.0 / 255.0, 1.0];
@@ -41,6 +42,7 @@ pub(crate) struct Document {
     pub ground_plane_color: [f32; 4],
     pub ground_plane_tile_size: f32,
     pub viewport_background: [f32; 4],
+    pub camera_slots: [Option<Camera>; 5],
 
     /// Per-plot parameter sweep config.  Parallel to `plots`; grown lazily.
     pub sweep_config: Vec<HashMap<String, ParameterSweep>>,
@@ -72,6 +74,7 @@ impl Document {
             ground_plane_color: [0.3, 0.3, 0.3, 1.0],
             ground_plane_tile_size: 1.0,
             viewport_background: DEFAULT_VIEWPORT_BACKGROUND,
+            camera_slots: std::array::from_fn(|_| None),
             sweep_config: Vec::new(),
         }
     }
@@ -126,11 +129,7 @@ impl Document {
                 any = true;
             }
         }
-        if any {
-            (max - min).length() * 0.5
-        } else {
-            1.0
-        }
+        if any { (max - min).length() * 0.5 } else { 1.0 }
     }
 
     /// Rebuild the cache of curve-curve intersection points from the current scene.
@@ -179,6 +178,28 @@ impl Document {
             }
         }
     }
+
+    pub(crate) fn visible_scene_bounds(&self) -> Option<Aabb> {
+        scene_bounds(&self.scene).or_else(|| {
+            let mut min = glam::Vec3::splat(f32::INFINITY);
+            let mut max = glam::Vec3::splat(f32::NEG_INFINITY);
+            let mut any = false;
+            for plot in self.plots.iter().filter(|plot| plot.visible) {
+                if let Some(bounds) = plot_bounds(plot) {
+                    min = min.min(bounds.min);
+                    max = max.max(bounds.max);
+                    any = true;
+                }
+            }
+            any.then_some(Aabb { min, max })
+        })
+    }
+
+    pub(crate) fn selected_plot_bounds(&self) -> Option<Aabb> {
+        let idx = self.selected_plot?;
+        let plot = self.plots.get(idx)?;
+        plot.visible.then(|| plot_bounds(plot)).flatten()
+    }
 }
 
 pub(crate) fn default_camera() -> Camera {
@@ -191,4 +212,77 @@ pub(crate) fn default_camera() -> Camera {
             * glam::Quat::from_rotation_x(1.1),
         ..Camera::default()
     }
+}
+
+fn scene_bounds(scene: &GraphScene) -> Option<Aabb> {
+    let data = scene.probe_data();
+    let mut min = glam::Vec3::splat(f32::INFINITY);
+    let mut max = glam::Vec3::splat(f32::NEG_INFINITY);
+    let mut any = false;
+
+    for surface in &data.surfaces {
+        for &pos in surface.positions {
+            let pos = glam::Vec3::from(pos);
+            min = min.min(pos);
+            max = max.max(pos);
+            any = true;
+        }
+    }
+    for polyline in &data.polylines {
+        for &pos in polyline.positions {
+            let pos = glam::Vec3::from(pos);
+            min = min.min(pos);
+            max = max.max(pos);
+            any = true;
+        }
+    }
+    for points in &data.points {
+        for &pos in points.positions {
+            min = min.min(pos);
+            max = max.max(pos);
+            any = true;
+        }
+    }
+
+    if !any {
+        return None;
+    }
+
+    if (max - min).length_squared() < 1.0e-8 {
+        let pad = glam::Vec3::splat(0.5);
+        min -= pad;
+        max += pad;
+    }
+
+    Some(Aabb { min, max })
+}
+
+fn plot_bounds(plot: &PlotEntry) -> Option<Aabb> {
+    let x0 = *plot.domain.x.start() as f32;
+    let x1 = *plot.domain.x.end() as f32;
+    let y0 = *plot.domain.y.start() as f32;
+    let y1 = *plot.domain.y.end() as f32;
+    let z0 = *plot.domain.z.start() as f32;
+    let z1 = *plot.domain.z.end() as f32;
+
+    let (mut min, mut max) = match plot.kind.domain_labels() {
+        DomainLabels::None => return None,
+        DomainLabels::Xy | DomainLabels::Xyz | DomainLabels::Uv => {
+            (glam::vec3(x0, y0, z0), glam::vec3(x1, y1, z1))
+        }
+        DomainLabels::ThetaPhi => (glam::vec3(-6.0, -6.0, -6.0), glam::vec3(6.0, 6.0, 6.0)),
+        DomainLabels::ThetaZ => (glam::vec3(-6.0, -6.0, z0), glam::vec3(6.0, 6.0, z1)),
+        DomainLabels::Theta => (glam::vec3(-6.0, -6.0, -1.0), glam::vec3(6.0, 6.0, 1.0)),
+        DomainLabels::T | DomainLabels::SingleVar(_) => {
+            (glam::vec3(x0, x0, x0), glam::vec3(x1, x1, x1))
+        }
+    };
+
+    if (max - min).length_squared() < 1.0e-8 {
+        let pad = glam::Vec3::splat(0.5);
+        min -= pad;
+        max += pad;
+    }
+
+    Some(Aabb { min, max })
 }

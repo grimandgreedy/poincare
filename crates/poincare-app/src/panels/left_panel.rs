@@ -1,7 +1,8 @@
 use eframe::egui;
-use poincare_lib::{auto_detect_plot_type, ColormapSource, ColourMode, DetectedPlotType};
+use poincare_lib::{ColormapSource, ColourMode, DetectedPlotType, auto_detect_plot_type};
 use viewport_lib::BuiltinColourmap;
 
+use crate::App;
 use crate::color32_from_rgba;
 use crate::plot::builder::build_plot_entry_from_inputs;
 use crate::plot::entry::PlotEntry;
@@ -9,7 +10,6 @@ use crate::plot::kind::PlotKind;
 use crate::plot::selected_type::SelectedPlotType;
 use crate::ui::domain_editor::truncate_str;
 use crate::ui::equation_editor::{equation_row, equation_row_ed, filter_auto_templates};
-use crate::App;
 
 fn expression_summary(kind: &PlotKind) -> Option<String> {
     match kind {

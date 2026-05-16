@@ -33,9 +33,9 @@ pub use axis::AxisConfig;
 pub use coordinate::{CoordinateSystem, ParametricDomain};
 pub use domain::{DataBounds, Domain};
 pub use expr_parser::{
-    auto_detect_plot_type, eval_curve_point, eval_surface, eval_with_vars, parse_csv_grid,
-    parse_csv_points, parse_curve_expr, parse_expr_with_vars, parse_surface_expr,
-    parse_triple_expr, AutoDetectResult, DetectedPlotType, ParsedExpr,
+    AutoDetectResult, DetectedPlotType, ParsedExpr, auto_detect_plot_type, eval_curve_point,
+    eval_surface, eval_with_vars, parse_csv_grid, parse_csv_points, parse_curve_expr,
+    parse_expr_with_vars, parse_surface_expr, parse_triple_expr,
 };
 pub use label::WorldLabel;
 pub use plot_object::{GlyphInstance, PlotComponent, PlotGeometry, PlotObject};
