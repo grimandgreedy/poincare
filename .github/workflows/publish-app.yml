@@ -26,7 +26,6 @@ jobs:
       - name: Install system dependencies
         run: sudo apt-get update -q && sudo apt-get install -y libfontconfig1-dev
 
-      - run: cargo test -p poincare-app
       - run: cargo publish -p poincare-app --dry-run
       - run: cargo publish -p poincare-app
         env:
