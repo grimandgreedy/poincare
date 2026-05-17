@@ -51,12 +51,12 @@ impl App {
         let slider_dragging = &mut self.slider_dragging;
         let eq_editor = &mut self.eq_editor;
         let inspector_tab = self.inspector_tab;
-        let doc = &mut self.documents[doc_idx];
         let mut selected_dirty = false;
 
         egui::ScrollArea::both()
             .auto_shrink([false, false])
             .show(ui, |ui| {
+                let doc = &mut self.documents[doc_idx];
                 let plot = &mut doc.plots[index];
                 let sweep_map = &mut doc.sweep_config[index];
 
@@ -135,7 +135,7 @@ impl App {
             });
 
         if selected_dirty {
-            doc.mark_dirty();
+            self.mark_dirty();
             ui.add_space(6.0);
             ui.colored_label(egui::Color32::YELLOW, "Pending scene rebuild");
         }

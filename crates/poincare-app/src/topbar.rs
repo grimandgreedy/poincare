@@ -18,6 +18,8 @@ enum PaletteCommand {
     Settings,
     ShowShortcuts,
     Quit,
+    Undo,
+    Redo,
     DuplicatePlot,
     DeletePlot,
     Camera(CameraCommand),
@@ -94,6 +96,23 @@ impl App {
 
     fn menu_edit(&mut self, ui: &mut egui::Ui) {
         ui.menu_button("Edit", |ui| {
+            let can_undo = self.documents[self.active_document_idx].can_undo();
+            let can_redo = self.documents[self.active_document_idx].can_redo();
+            if ui
+                .add_enabled(can_undo, egui::Button::new("Undo"))
+                .clicked()
+            {
+                self.execute_palette_command(PaletteCommand::Undo, ui.ctx());
+                ui.close();
+            }
+            if ui
+                .add_enabled(can_redo, egui::Button::new("Redo"))
+                .clicked()
+            {
+                self.execute_palette_command(PaletteCommand::Redo, ui.ctx());
+                ui.close();
+            }
+            ui.separator();
             let selected = self.documents[self.active_document_idx].selected_plot;
             ui.add_enabled_ui(selected.is_some(), |ui| {
                 if ui.button("Duplicate Plot").clicked() {
@@ -222,6 +241,7 @@ impl App {
     }
 
     fn load_example_plot(&mut self, example: ExamplePlot) {
+        self.record_undo_point();
         let doc = &mut self.documents[self.active_document_idx];
         doc.plots = vec![example.build()];
         doc.sweep_config.clear();
@@ -249,6 +269,8 @@ impl App {
             PaletteCommand::Settings => self.settings_open = true,
             PaletteCommand::ShowShortcuts => self.shortcuts_open = true,
             PaletteCommand::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+            PaletteCommand::Undo => self.undo_active_document(),
+            PaletteCommand::Redo => self.redo_active_document(),
             PaletteCommand::DuplicatePlot => self.duplicate_selected_plot(),
             PaletteCommand::DeletePlot => self.delete_selected_plot(),
             PaletteCommand::Camera(command) => self.run_camera_command(command),
@@ -261,6 +283,8 @@ impl App {
         let has_selected_plot = self.documents[self.active_document_idx]
             .selected_plot
             .is_some();
+        let can_undo = self.documents[self.active_document_idx].can_undo();
+        let can_redo = self.documents[self.active_document_idx].can_redo();
         let mut items = vec![
             PaletteItem {
                 label: "File: Add Plot".to_string(),
@@ -301,6 +325,16 @@ impl App {
                 label: "Help: Keyboard Shortcuts".to_string(),
                 command: PaletteCommand::ShowShortcuts,
                 enabled: true,
+            },
+            PaletteItem {
+                label: "Edit: Undo".to_string(),
+                command: PaletteCommand::Undo,
+                enabled: can_undo,
+            },
+            PaletteItem {
+                label: "Edit: Redo".to_string(),
+                command: PaletteCommand::Redo,
+                enabled: can_redo,
             },
             PaletteItem {
                 label: "File: Quit".to_string(),
@@ -527,7 +561,15 @@ impl App {
                     ],
                 );
                 ui.separator();
-                shortcut_section(ui, "Command", &[("Cmd/Ctrl+K", "Open command palette")]);
+                shortcut_section(
+                    ui,
+                    "Command",
+                    &[
+                        ("Cmd/Ctrl+K", "Open command palette"),
+                        ("Cmd/Ctrl+Z", "Undo"),
+                        ("Cmd/Ctrl+Shift+Z", "Redo"),
+                    ],
+                );
                 ui.separator();
                 shortcut_section(
                     ui,

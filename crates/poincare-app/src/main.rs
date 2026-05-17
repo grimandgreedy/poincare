@@ -185,11 +185,16 @@ impl App {
             rename_needs_focus: false,
         };
         persistence::load_persisted_state(cc.storage, &mut app);
+        for doc in &mut app.documents {
+            doc.initialize_history();
+        }
         app
     }
 
     pub(crate) fn new_document(&mut self) {
-        self.documents.push(Document::new_default());
+        let mut doc = Document::new_default();
+        doc.initialize_history();
+        self.documents.push(doc);
         self.active_document_idx = self.documents.len() - 1;
     }
 
@@ -212,6 +217,7 @@ impl App {
     }
 
     pub(crate) fn load_preset(&mut self, preset: PlotPreset) {
+        self.record_undo_point();
         self.documents[self.active_document_idx].plots = preset.build();
         self.documents[self.active_document_idx].sweep_config = Vec::new();
         self.documents[self.active_document_idx].selected_plot =
@@ -224,7 +230,28 @@ impl App {
     }
 
     pub(crate) fn mark_dirty(&mut self) {
+        self.record_undo_point();
         self.documents[self.active_document_idx].mark_dirty();
+    }
+
+    pub(crate) fn record_undo_point(&mut self) {
+        self.documents[self.active_document_idx].record_undo_point();
+    }
+
+    pub(crate) fn finalize_undo_point(&mut self) {
+        self.documents[self.active_document_idx].finalize_history_point();
+    }
+
+    pub(crate) fn undo_active_document(&mut self) {
+        let doc = &mut self.documents[self.active_document_idx];
+        doc.finalize_history_point();
+        let _ = doc.undo();
+    }
+
+    pub(crate) fn redo_active_document(&mut self) {
+        let doc = &mut self.documents[self.active_document_idx];
+        doc.finalize_history_point();
+        let _ = doc.redo();
     }
 
     pub(crate) fn reset_settings_to_defaults(&mut self) {
@@ -387,6 +414,19 @@ impl App {
         }
         if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::O)) {
             self.pending_open = true;
+        }
+        if ctx.input_mut(|i| {
+            i.consume_key(
+                egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+                egui::Key::Z,
+            ) || i.consume_key(egui::Modifiers::CTRL | egui::Modifiers::SHIFT, egui::Key::Z)
+        }) {
+            self.redo_active_document();
+        } else if ctx.input_mut(|i| {
+            i.consume_key(egui::Modifiers::COMMAND, egui::Key::Z)
+                || i.consume_key(egui::Modifiers::CTRL, egui::Key::Z)
+        }) {
+            self.undo_active_document();
         }
         if ctx.input_mut(|i| {
             i.consume_key(egui::Modifiers::COMMAND, egui::Key::K)
@@ -661,6 +701,7 @@ impl eframe::App for App {
                         }
                         doc.path = Some(path);
                         doc.dirty = false;
+                        doc.initialize_history();
                         self.documents.push(doc);
                         self.active_document_idx = self.documents.len() - 1;
                     }
@@ -806,6 +847,8 @@ impl eframe::App for App {
                 self.confirm_quit = false;
             }
         }
+
+        self.finalize_undo_point();
     }
 }
 
