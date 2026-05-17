@@ -133,6 +133,7 @@ impl ExamplePlot {
                         kind: AttributeKind::Vertex,
                     },
                     glyph_scale: 0.8,
+                    shading: ShadingMode::Unlit,
                     ..PlotStyle::default()
                 },
                 kind: PlotKind::VectorField,

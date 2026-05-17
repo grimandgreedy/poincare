@@ -6,7 +6,7 @@ use crate::coordinate::CoordinateSystem;
 use crate::domain::{DataBounds, Domain};
 use crate::plot_object::{GlyphInstance, PlotGeometry, PlotObject};
 use crate::resolution::Resolution;
-use crate::style::PlotStyle;
+use crate::style::{PlotStyle, ShadingMode};
 
 /// A 3D vector field rendered as arrow glyphs.
 ///
@@ -34,7 +34,10 @@ impl VectorField3D {
         Self {
             field_fn: Box::new(f),
             seed_resolution,
-            style: PlotStyle::default(),
+            style: PlotStyle {
+                shading: ShadingMode::Unlit,
+                ..PlotStyle::default()
+            },
             resolution: Resolution::default(),
             domain_override: None,
         }
@@ -106,12 +109,13 @@ impl PlotObject for VectorField3D {
                     let z = z0 + tz * (z1 - z0);
 
                     let raw = (self.field_fn)(x, y, z);
-                    // Normalize to unit length, then scale by glyph_scale for uniform arrow sizes.
-                    let normalized = raw.normalize_or_zero() * self.style.glyph_scale;
+                    // Normalize to unit length, then scale by glyph_scale for uniform glyph sizes.
+                    let display = raw.normalize_or_zero() * self.style.glyph_scale;
 
                     instances.push(GlyphInstance {
                         position: Vec3::new(x as f32, y as f32, z as f32),
-                        vector: normalized,
+                        vector: display,
+                        raw_vector: raw,
                     });
                 }
             }

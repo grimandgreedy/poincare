@@ -49,3 +49,4 @@ pub use style::{
     ColormapSource, ColourMode, MatcapSource, ParamVisSettings, PlotStyle, ShadingMode,
     SurfaceFaceQuantity, SurfaceLicSettings, SurfaceLicVectorField, TransferFunction,
 };
+pub use viewport_lib::GlyphType;

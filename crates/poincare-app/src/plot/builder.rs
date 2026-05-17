@@ -1,6 +1,7 @@
 use poincare_lib::{
-    ColormapSource, ColourMode, DetectedPlotType, Domain, PlotStyle, Resolution, TransferFunction,
-    auto_detect_plot_type, parse_csv_grid, parse_csv_points, parse_expr_with_vars,
+    ColormapSource, ColourMode, DetectedPlotType, Domain, PlotStyle, Resolution, ShadingMode,
+    TransferFunction, auto_detect_plot_type, parse_csv_grid, parse_csv_points,
+    parse_expr_with_vars,
 };
 use viewport_lib::{AttributeKind, BuiltinColourmap};
 
@@ -505,6 +506,7 @@ pub(crate) fn build_plot_entry_from_inputs(
                         kind: AttributeKind::Vertex,
                     },
                     glyph_scale: 0.8,
+                    shading: ShadingMode::Unlit,
                     ..PlotStyle::default()
                 },
                 kind: PlotKind::ExprVectorField {
