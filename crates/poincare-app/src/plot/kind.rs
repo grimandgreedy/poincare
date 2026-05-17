@@ -1,5 +1,7 @@
 use poincare_lib::PlotStyle;
 
+use crate::plot::table::{TableImportDefinition, TablePlotTarget};
+
 /// Default palette for isosurface per-level colours.
 pub(crate) const DEFAULT_ISO_PALETTE: [[f32; 4]; 6] = [
     [0.2, 0.6, 1.0, 0.7],
@@ -130,20 +132,9 @@ pub(crate) enum PlotKind {
         expression: String,
         parameters: Vec<(String, f64)>,
     },
-    /// Surface from pasted CSV grid data.
-    ExprDataGrid {
-        csv_text: String,
-        parse_error: String,
-    },
-    /// Curve from pasted CSV point list.
-    ExprCurvePoints {
-        csv_text: String,
-        parse_error: String,
-    },
-    /// Scatter plot from pasted CSV point list (optional w scalar column).
-    ExprScatter {
-        csv_text: String,
-        parse_error: String,
+    /// Imported table-backed plot.
+    ImportedTable {
+        definition: TableImportDefinition,
     },
     /// Vector field (vx(x,y,z), vy(x,y,z), vz(x,y,z)).
     ExprVectorField {
@@ -185,8 +176,7 @@ impl PlotKind {
             | Self::ExprSpherical { .. }
             | Self::ExprCylindrical { .. }
             | Self::ExprPolar { .. }
-            | Self::ExprParametricSurface { .. }
-            | Self::ExprDataGrid { .. } => StyleCaps {
+            | Self::ExprParametricSurface { .. } => StyleCaps {
                 mesh: true,
                 line: false,
                 point: false,
@@ -196,14 +186,13 @@ impl PlotKind {
             | Self::Streamlines { .. }
             | Self::ExprCurve { .. }
             | Self::ExprCartesianLine { .. }
-            | Self::ExprCurvePoints { .. }
             | Self::ExprStreamlines { .. } => StyleCaps {
                 mesh: false,
                 line: true,
                 point: false,
                 glyph: false,
             },
-            Self::ScatterCloud | Self::ExprScatter { .. } => StyleCaps {
+            Self::ScatterCloud => StyleCaps {
                 mesh: false,
                 line: false,
                 point: true,
@@ -227,6 +216,32 @@ impl PlotKind {
                 point: false,
                 glyph: false,
             },
+            Self::ImportedTable { definition } => match definition.target {
+                TablePlotTarget::SurfaceGrid => StyleCaps {
+                    mesh: true,
+                    line: false,
+                    point: false,
+                    glyph: false,
+                },
+                TablePlotTarget::Curve => StyleCaps {
+                    mesh: false,
+                    line: true,
+                    point: false,
+                    glyph: false,
+                },
+                TablePlotTarget::Scatter => StyleCaps {
+                    mesh: false,
+                    line: false,
+                    point: true,
+                    glyph: false,
+                },
+                TablePlotTarget::VectorField => StyleCaps {
+                    mesh: false,
+                    line: false,
+                    point: false,
+                    glyph: true,
+                },
+            },
         }
     }
 
@@ -241,6 +256,7 @@ impl PlotKind {
             Self::ExprParametricSurface { .. } => DomainLabels::Uv,
             Self::ExprCurve { .. } => DomainLabels::T,
             Self::ExprCartesianLine { ind_var, .. } => DomainLabels::SingleVar(ind_var.clone()),
+            Self::ImportedTable { .. } => DomainLabels::None,
             Self::VectorField
             | Self::Streamlines { .. }
             | Self::VolumeRender { .. }
@@ -258,9 +274,7 @@ impl PlotKind {
             self,
             Self::ScatterCloud
                 | Self::Streamlines { .. }
-                | Self::ExprScatter { .. }
-                | Self::ExprCurvePoints { .. }
-                | Self::ExprDataGrid { .. }
+                | Self::ImportedTable { .. }
         )
     }
 

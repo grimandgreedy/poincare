@@ -17,6 +17,7 @@ use crate::document::{Document, ExportFormat, SavedCameraView};
 use crate::plot::entry::PlotEntry;
 use crate::plot::kind::{PlotKind, SeedMode};
 use crate::plot::sweep::ParameterSweep;
+use crate::plot::table::TableImportDefinition;
 
 const APP_STATE_KEY: &str = "poincare_app_v2_state";
 
@@ -322,14 +323,8 @@ enum PersistedPlotKind {
         expression: String,
         parameters: Vec<(String, f64)>,
     },
-    ExprDataGrid {
-        csv_text: String,
-    },
-    ExprCurvePoints {
-        csv_text: String,
-    },
-    ExprScatter {
-        csv_text: String,
+    ImportedTable {
+        definition: TableImportDefinition,
     },
     ExprVectorField {
         expression: String,
@@ -956,14 +951,8 @@ impl PersistedPlotKind {
                 expression: expression.clone(),
                 parameters: parameters.clone(),
             },
-            PlotKind::ExprDataGrid { csv_text, .. } => Self::ExprDataGrid {
-                csv_text: csv_text.clone(),
-            },
-            PlotKind::ExprCurvePoints { csv_text, .. } => Self::ExprCurvePoints {
-                csv_text: csv_text.clone(),
-            },
-            PlotKind::ExprScatter { csv_text, .. } => Self::ExprScatter {
-                csv_text: csv_text.clone(),
+            PlotKind::ImportedTable { definition } => Self::ImportedTable {
+                definition: definition.clone(),
             },
             PlotKind::ExprVectorField {
                 expression,
@@ -1092,17 +1081,8 @@ impl PersistedPlotKind {
                 expression: expression.clone(),
                 parameters: parameters.clone(),
             },
-            Self::ExprDataGrid { csv_text } => PlotKind::ExprDataGrid {
-                csv_text: csv_text.clone(),
-                parse_error: String::new(),
-            },
-            Self::ExprCurvePoints { csv_text } => PlotKind::ExprCurvePoints {
-                csv_text: csv_text.clone(),
-                parse_error: String::new(),
-            },
-            Self::ExprScatter { csv_text } => PlotKind::ExprScatter {
-                csv_text: csv_text.clone(),
-                parse_error: String::new(),
+            Self::ImportedTable { definition } => PlotKind::ImportedTable {
+                definition: definition.clone(),
             },
             Self::ExprVectorField {
                 expression,

@@ -3,11 +3,12 @@ use std::sync::Arc;
 use poincare_lib::{
     ColourMode, ContourPlot3D, Curve3D, DensityPlot3D, Domain, GraphScene, LevelSet3D, PlotStyle,
     Resolution, Scatter3D, StreamPlot3D, Surface3D, VectorField3D, eval_curve_point, eval_surface,
-    eval_with_vars, parse_csv_grid, parse_csv_points, parse_curve_expr, parse_expr_with_vars,
+    eval_with_vars, parse_curve_expr, parse_expr_with_vars,
     parse_surface_expr,
 };
 
 use crate::plot::kind::PlotKind;
+use crate::plot::table::{TableDataSet, TableVectorFieldPlot, build_curve_piecewise};
 
 #[derive(Clone)]
 pub(crate) struct PlotEntry {
@@ -344,50 +345,50 @@ impl PlotEntry {
                     }
                 }
             }
-            PlotKind::ExprDataGrid { csv_text, .. } => {
-                if let Ok((xs, ys, zs)) = parse_csv_grid(csv_text) {
-                    if xs.len() * ys.len() == zs.len() {
-                        scene.add_with_pick_id(
-                            pick_id,
-                            Surface3D::from_grid(&xs, &ys, &zs).with_style(self.surface_style()),
-                        );
-                    }
-                }
-            }
-            PlotKind::ExprCurvePoints { csv_text, .. } => {
-                if let Ok(pts) = parse_csv_points(csv_text) {
-                    let points: Vec<glam::Vec3> = pts
-                        .iter()
-                        .map(|p| glam::Vec3::new(p[0] as f32, p[1] as f32, p[2] as f32))
-                        .collect();
-                    if !points.is_empty() {
-                        scene.add_with_pick_id(
-                            pick_id,
-                            Curve3D::from_points(&points).with_style(self.style.clone()),
-                        );
-                    }
-                }
-            }
-            PlotKind::ExprScatter { csv_text, .. } => {
-                if let Ok(pts) = parse_csv_points(csv_text) {
-                    let points: Vec<glam::Vec3> = pts
-                        .iter()
-                        .map(|p| glam::Vec3::new(p[0] as f32, p[1] as f32, p[2] as f32))
-                        .collect();
-                    let has_w = pts.iter().any(|p| p[3] != 0.0);
-                    if !points.is_empty() {
-                        if has_w {
-                            let scalars: Vec<f32> = pts.iter().map(|p| p[3] as f32).collect();
+            PlotKind::ImportedTable { definition } => {
+                if let Ok(dataset) = definition.validate() {
+                    match dataset {
+                        TableDataSet::SurfaceGrid { xs, ys, zs } => {
                             scene.add_with_pick_id(
                                 pick_id,
-                                Scatter3D::from_points_with_scalars(&points, &scalars)
-                                    .with_style(self.style.clone()),
+                                Surface3D::from_grid(&xs, &ys, &zs)
+                                    .with_style(self.surface_style()),
                             );
-                        } else {
-                            scene.add_with_pick_id(
-                                pick_id,
-                                Scatter3D::from_points(&points).with_style(self.style.clone()),
-                            );
+                        }
+                        TableDataSet::Curve { groups, .. } => {
+                            if !groups.is_empty() {
+                                scene.add_with_pick_id(
+                                    pick_id,
+                                    build_curve_piecewise(&groups, self.style.clone()),
+                                );
+                            }
+                        }
+                        TableDataSet::Scatter {
+                            points, scalars, ..
+                        } => {
+                            if !points.is_empty() {
+                                if let Some(scalars) = scalars {
+                                    scene.add_with_pick_id(
+                                        pick_id,
+                                        Scatter3D::from_points_with_scalars(&points, &scalars)
+                                            .with_style(self.style.clone()),
+                                    );
+                                } else {
+                                    scene.add_with_pick_id(
+                                        pick_id,
+                                        Scatter3D::from_points(&points)
+                                            .with_style(self.style.clone()),
+                                    );
+                                }
+                            }
+                        }
+                        TableDataSet::VectorField { samples, bounds } => {
+                            if !samples.is_empty() {
+                                scene.add_with_pick_id(
+                                    pick_id,
+                                    TableVectorFieldPlot::new(samples, bounds, self.style.clone()),
+                                );
+                            }
                         }
                     }
                 }
