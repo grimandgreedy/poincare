@@ -12,6 +12,8 @@ This project uses internal pre-release versioning. Until `1.0.0`, breaking chang
 - Added a growable saved-view list in the camera tab, with track playback built from those saved views using `viewport-lib` camera interpolation.
 - Added a dedicated bottom `Export` tab with PNG export plus GIF/MP4 animation export driven by the saved-view track.
 - Updated the export tab to use image/video modes, home-directory defaults, and directory selection for export destinations.
+- Added canvas-based plot picking using `viewport-lib`'s unified picker, including click-to-select, hover highlight, and double-click frame-to-selection.
+- Added probe pinning with persistent pinned points, distance measurement between pinned points, and `Cmd+Click` pinning in the viewport.
 
 ### Fixes
 - Focus on plot properties tab by default.
@@ -21,6 +23,10 @@ This project uses internal pre-release versioning. Until `1.0.0`, breaking chang
 - Fixed animated export output naming so GIF/MP4 exports use the correct file extension automatically.
 - Added export progress reporting: determinate progress while rendering animation frames, and pending status while `ffmpeg` encodes the final file.
 - Fixed a crash during parameter sweeps and camera playback by releasing old GPU scene meshes before rebuilt meshes are uploaded.
+- Fixed volume plots so they participate in viewport selection.
+- Fixed probe pinning so the pin action still works after moving from the plotted point to the button.
+- Fixed quit confirmation so `Quit Without Saving` actually closes the app after confirmation.
+- Removed the temporary `Solo` viewport control.
 
 ## [0.3.0]
 

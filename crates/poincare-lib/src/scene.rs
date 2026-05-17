@@ -2,9 +2,10 @@ use glam::Vec3;
 
 use viewport_lib::{
     AppearanceSettings, AttributeKind, AttributeRef, Camera, ColourmapId, FrameData, GlyphItem,
-    LabelItem, LightKind, LightSource, LightingSettings, Material, MeshId, PointCloudItem,
-    PolylineItem, RenderCamera, SceneRenderItem, StreamtubeItem, SurfaceLICConfig, SurfaceLICItem,
-    SurfaceSubmission, ViewportError, ViewportGpuResources, VolumeId, VolumeItem,
+    LabelItem, LightKind, LightSource, LightingSettings, Material, MeshId, PickId,
+    PointCloudItem, PolylineItem, RenderCamera, SceneRenderItem, StreamtubeItem,
+    SurfaceLICConfig, SurfaceLICItem, SurfaceSubmission, ViewportError, ViewportGpuResources,
+    VolumeData, VolumeId, VolumeItem,
 };
 
 use crate::axis::Axis3;
@@ -57,6 +58,7 @@ struct CachedStreamtube {
 
 struct CachedVolume {
     volume_id: VolumeId,
+    volume_data: std::sync::Arc<VolumeData>,
     dims: [u32; 3],
     origin: [f32; 3],
     spacing: [f32; 3],
@@ -88,6 +90,7 @@ pub struct GraphScene {
     /// Configuration for the labelled axis box rendered around the scene.
     pub axis_config: AxisConfig,
     plots: Vec<Box<dyn PlotObject>>,
+    plot_pick_ids: Vec<u64>,
     /// Cached renderable geometry per root plot.
     cached_plots: Vec<CachedPlot>,
 }
@@ -98,6 +101,7 @@ impl GraphScene {
             domain: Domain::default(),
             axis_config: AxisConfig::default(),
             plots: Vec::new(),
+            plot_pick_ids: Vec::new(),
             cached_plots: Vec::new(),
         }
     }
@@ -107,13 +111,20 @@ impl GraphScene {
             domain,
             axis_config: AxisConfig::default(),
             plots: Vec::new(),
+            plot_pick_ids: Vec::new(),
             cached_plots: Vec::new(),
         }
     }
 
     /// Add a plot object to the scene. Call `upload_meshes` after adding plots.
     pub fn add(&mut self, plot: impl PlotObject + 'static) {
+        self.add_with_pick_id(0, plot);
+    }
+
+    /// Add a plot object with a stable application-owned pick identifier.
+    pub fn add_with_pick_id(&mut self, pick_id: u64, plot: impl PlotObject + 'static) {
         self.plots.push(Box::new(plot));
+        self.plot_pick_ids.push(pick_id);
         self.cached_plots.push(CachedPlot::default());
     }
 
@@ -152,22 +163,36 @@ impl GraphScene {
     /// The caller should set `frame.viewport_size` after this call, since the
     /// scene does not know the physical pixel dimensions.
     pub fn build_frame(&self, camera: &Camera) -> FrameData {
+        self.build_frame_with_selection(camera, None, None)
+    }
+
+    pub fn build_frame_with_selection(
+        &self,
+        camera: &Camera,
+        selected_pick_id: Option<u64>,
+        _solo_pick_id: Option<u64>,
+    ) -> FrameData {
         let view = camera.view_matrix();
         let proj = camera.proj_matrix();
 
         let scene_items: Vec<SceneRenderItem> = self
             .cached_plots
             .iter()
+            .zip(self.plot_pick_ids.iter().copied())
             .flat_map(|plot| {
-                plot.surfaces.iter().map(|surface| {
+                let (plot, pick_id) = plot;
+                let is_selected = selected_pick_id == Some(pick_id) && pick_id != 0;
+                plot.surfaces.iter().map(move |surface| {
                     let mut item = SceneRenderItem::default();
                     item.mesh_id = surface.mesh_index;
+                    item.selected = is_selected;
                     item.material = material_from_style(&surface.style, surface.matcap_id);
                     item.appearance = appearance_from_style(&surface.style);
                     if surface.style.two_sided {
                         item.material.backface_policy = viewport_lib::BackfacePolicy::Identical;
                     }
                     apply_surface_colour_mode(&mut item, &surface.style, surface.colourmap_id);
+                    item.pick_id = PickId(pick_id);
                     item
                 })
             })
@@ -200,12 +225,17 @@ impl GraphScene {
         let mut polylines: Vec<PolylineItem> = self
             .cached_plots
             .iter()
+            .zip(self.plot_pick_ids.iter().copied())
             .flat_map(|plot| {
-                plot.polylines.iter().filter_map(|polyline| {
+                let (plot, pick_id) = plot;
+                let is_selected = selected_pick_id == Some(pick_id) && pick_id != 0;
+                plot.polylines.iter().filter_map(move |polyline| {
                     if polyline.positions.is_empty() || polyline.strip_lengths.is_empty() {
                         return None;
                     }
                     let mut item = PolylineItem::default();
+                    item.id = pick_id;
+                    item.selected = is_selected;
                     item.positions = polyline.positions.iter().map(|p| p.to_array()).collect();
                     item.strip_lengths = polyline.strip_lengths.clone();
                     item.default_colour = default_colour_rgba(&polyline.style);
@@ -226,12 +256,17 @@ impl GraphScene {
         let point_clouds: Vec<PointCloudItem> = self
             .cached_plots
             .iter()
+            .zip(self.plot_pick_ids.iter().copied())
             .flat_map(|plot| {
-                plot.point_clouds.iter().filter_map(|points| {
+                let (plot, pick_id) = plot;
+                let is_selected = selected_pick_id == Some(pick_id) && pick_id != 0;
+                plot.point_clouds.iter().filter_map(move |points| {
                     if points.positions.is_empty() {
                         return None;
                     }
                     let mut item = PointCloudItem::default();
+                    item.id = pick_id;
+                    item.selected = is_selected;
                     item.positions = points.positions.iter().map(|p| p.to_array()).collect();
                     item.point_size = points.style.point_size;
                     item.default_colour = default_colour_rgba(&points.style);
@@ -251,12 +286,17 @@ impl GraphScene {
         let glyphs: Vec<GlyphItem> = self
             .cached_plots
             .iter()
+            .zip(self.plot_pick_ids.iter().copied())
             .flat_map(|plot| {
-                plot.glyphs.iter().filter_map(|glyphs| {
+                let (plot, pick_id) = plot;
+                let is_selected = selected_pick_id == Some(pick_id) && pick_id != 0;
+                plot.glyphs.iter().filter_map(move |glyphs| {
                     if glyphs.instances.is_empty() {
                         return None;
                     }
                     let mut item = GlyphItem::default();
+                    item.id = pick_id;
+                    item.selected = is_selected;
                     item.positions = glyphs
                         .instances
                         .iter()
@@ -290,12 +330,17 @@ impl GraphScene {
         let streamtube_items: Vec<StreamtubeItem> = self
             .cached_plots
             .iter()
+            .zip(self.plot_pick_ids.iter().copied())
             .flat_map(|plot| {
-                plot.streamtubes.iter().filter_map(|st| {
+                let (plot, pick_id) = plot;
+                let is_selected = selected_pick_id == Some(pick_id) && pick_id != 0;
+                plot.streamtubes.iter().filter_map(move |st| {
                     if st.positions.is_empty() || st.strip_lengths.is_empty() {
                         return None;
                     }
                     let mut item = StreamtubeItem::default();
+                    item.id = pick_id;
+                    item.selected = is_selected;
                     item.positions = st.positions.iter().map(|p| p.to_array()).collect();
                     item.strip_lengths = st.strip_lengths.clone();
                     item.radius = st.radius;
@@ -310,8 +355,11 @@ impl GraphScene {
         let volumes: Vec<VolumeItem> = self
             .cached_plots
             .iter()
+            .zip(self.plot_pick_ids.iter().copied())
             .flat_map(|plot| {
-                plot.volumes.iter().map(|vol| {
+                let (plot, pick_id) = plot;
+                let is_selected = selected_pick_id == Some(pick_id) && pick_id != 0;
+                plot.volumes.iter().map(move |vol| {
                     let tf = vol.style.transfer_function.as_ref();
                     let opacity_scale = tf.map_or(0.5, |t| t.opacity_scale);
                     let (threshold_min, threshold_max) =
@@ -325,6 +373,9 @@ impl GraphScene {
 
                     let mut item = VolumeItem::default();
                     item.volume_id = vol.volume_id;
+                    item.pick_id = pick_id;
+                    item.volume_data = Some(vol.volume_data.clone());
+                    item.selected = is_selected;
                     item.bbox_min = vol.origin;
                     item.bbox_max = bbox_max;
                     item.scalar_range = vol.scalar_range;
@@ -412,6 +463,9 @@ impl GraphScene {
         frame.scene.glyphs = glyphs;
         frame.scene.streamtube_items = streamtube_items;
         frame.scene.volumes = volumes;
+        frame.interaction.outline_selected = selected_pick_id.is_some();
+        frame.interaction.outline_colour = [0.48, 0.72, 1.0, 1.0];
+        frame.interaction.outline_width_px = 2.5;
         frame.viewport.show_axes_indicator = true;
         frame.overlays.labels = axis_labels;
 
@@ -533,8 +587,15 @@ fn cache_geometry(
             let scalar_range = (min_val, max_val);
 
             let volume_id = resources.upload_volume(device, queue, &data, dims);
+            let volume_data = std::sync::Arc::new(VolumeData {
+                data,
+                dims,
+                origin,
+                spacing,
+            });
             cache.volumes.push(CachedVolume {
                 volume_id,
+                volume_data,
                 dims,
                 origin,
                 spacing,

@@ -26,7 +26,7 @@ impl PlotEntry {
         style
     }
 
-    pub(crate) fn add_to_scene(&self, scene: &mut GraphScene) {
+    pub(crate) fn add_to_scene_with_pick_id(&self, scene: &mut GraphScene, pick_id: u64) {
         match &self.kind {
             PlotKind::ContouredSurface {
                 contour_values,
@@ -38,13 +38,15 @@ impl PlotEntry {
                         .with_style(self.surface_style())
                         .with_resolution(self.resolution),
                 );
-                scene.add(
+                scene.add_with_pick_id(
+                    pick_id,
                     LevelSet3D::new(surface, contour_values.clone())
                         .with_contour_style(contour_style.clone()),
                 );
             }
             PlotKind::SphericalHarmonic => {
-                scene.add(
+                scene.add_with_pick_id(
+                    pick_id,
                     Surface3D::spherical(|theta, phi| {
                         5.0 * (1.0 + 0.3 * (3.0 * theta).sin() * (2.0 * phi).cos())
                     })
@@ -54,7 +56,8 @@ impl PlotEntry {
             }
             PlotKind::HelixCurve => {
                 use std::f64::consts::PI;
-                scene.add(
+                scene.add_with_pick_id(
+                    pick_id,
                     Curve3D::parametric(0.0..=20.0 * PI, |t| {
                         glam::DVec3::new(t.cos() * 3.0, t.sin() * 3.0, t * 0.15)
                     })
@@ -72,7 +75,10 @@ impl PlotEntry {
                         )
                     })
                     .collect();
-                scene.add(Scatter3D::from_points(&points).with_style(self.style.clone()));
+                scene.add_with_pick_id(
+                    pick_id,
+                    Scatter3D::from_points(&points).with_style(self.style.clone()),
+                );
             }
             PlotKind::VectorField => {
                 let seeds = [
@@ -80,7 +86,8 @@ impl PlotEntry {
                     self.resolution.v.clamp(2, 12),
                     ((self.resolution.u + self.resolution.v) / 4).clamp(2, 8),
                 ];
-                scene.add(
+                scene.add_with_pick_id(
+                    pick_id,
                     VectorField3D::from_fn(
                         |x, y, _z| glam::Vec3::new(-y as f32, x as f32, 0.3),
                         seeds,
@@ -110,10 +117,14 @@ impl PlotEntry {
                         (xs[i] * 0.5).sin() * (ys[j] * 0.5).cos() * 3.0
                     })
                     .collect();
-                scene.add(Surface3D::from_grid(&xs, &ys, &zs).with_style(self.surface_style()));
+                scene.add_with_pick_id(
+                    pick_id,
+                    Surface3D::from_grid(&xs, &ys, &zs).with_style(self.surface_style()),
+                );
             }
             PlotKind::Streamlines { seeds } => {
-                scene.add(
+                scene.add_with_pick_id(
+                    pick_id,
                     StreamPlot3D::from_field(
                         |p: glam::Vec3| {
                             glam::Vec3::new(
@@ -131,7 +142,8 @@ impl PlotEntry {
                 );
             }
             PlotKind::VolumeRender { resolution } => {
-                scene.add(
+                scene.add_with_pick_id(
+                    pick_id,
                     DensityPlot3D::from_fn(|x, y, z| (-(x * x + y * y + z * z)).exp(), *resolution)
                         .with_domain(self.domain.clone())
                         .with_style(self.style.clone()),
@@ -161,7 +173,8 @@ impl PlotEntry {
                         ..PlotStyle::default()
                     },
                 ];
-                scene.add(
+                scene.add_with_pick_id(
+                    pick_id,
                     ContourPlot3D::from_fn(|x, y, z| x * x + y * y + z * z, isovalues, *resolution)
                         .with_domain(self.domain.clone())
                         .with_per_iso_styles(iso_styles),
@@ -173,7 +186,8 @@ impl PlotEntry {
             } => {
                 if let Ok(parsed) = parse_surface_expr(expression) {
                     let params = parameters.clone();
-                    scene.add(
+                    scene.add_with_pick_id(
+                        pick_id,
                         Surface3D::from_fn(move |x, y| eval_surface(&parsed, x, y, &params))
                             .with_domain(self.domain.clone())
                             .with_style(self.surface_style())
@@ -189,7 +203,8 @@ impl PlotEntry {
                 if let Ok(parsed_triple) = parse_curve_expr(expression) {
                     let params = parameters.clone();
                     let (t0, t1) = *t_range;
-                    scene.add(
+                    scene.add_with_pick_id(
+                        pick_id,
                         Curve3D::parametric(t0..=t1, move |t| {
                             eval_curve_point(&parsed_triple, t, &params)
                         })
@@ -209,7 +224,8 @@ impl PlotEntry {
                     let dep = dep_var.clone();
                     let ind = ind_var.clone();
                     let (t0, t1) = (*self.domain.x.start(), *self.domain.x.end());
-                    scene.add(
+                    scene.add_with_pick_id(
+                        pick_id,
                         Curve3D::parametric(t0..=t1, move |t| {
                             let vars: Vec<(&str, f64)> = params
                                 .iter()
@@ -238,7 +254,8 @@ impl PlotEntry {
             } => {
                 if let Ok(parsed) = parse_expr_with_vars(expression, &["theta", "phi"]) {
                     let params = parameters.clone();
-                    scene.add(
+                    scene.add_with_pick_id(
+                        pick_id,
                         Surface3D::spherical(move |theta, phi| {
                             let mut vars: Vec<(&str, f64)> = vec![("theta", theta), ("phi", phi)];
                             for (name, val) in &params {
@@ -258,7 +275,8 @@ impl PlotEntry {
             } => {
                 if let Ok(parsed) = parse_expr_with_vars(expression, &["theta", "z"]) {
                     let params = parameters.clone();
-                    scene.add(
+                    scene.add_with_pick_id(
+                        pick_id,
                         Surface3D::cylindrical(move |theta, z| {
                             let mut vars: Vec<(&str, f64)> = vec![("theta", theta), ("z", z)];
                             for (name, val) in &params {
@@ -278,7 +296,8 @@ impl PlotEntry {
             } => {
                 if let Ok(parsed) = parse_expr_with_vars(expression, &["theta"]) {
                     let params = parameters.clone();
-                    scene.add(
+                    scene.add_with_pick_id(
+                        pick_id,
                         Surface3D::polar(move |theta| {
                             let mut vars: Vec<(&str, f64)> = vec![("theta", theta)];
                             for (name, val) in &params {
@@ -306,7 +325,8 @@ impl PlotEntry {
                         let params = parameters.clone();
                         let u_range = self.domain.x.clone();
                         let v_range = self.domain.y.clone();
-                        scene.add(
+                        scene.add_with_pick_id(
+                            pick_id,
                             Surface3D::parametric(u_range, v_range, move |u, v| {
                                 let mut vars: Vec<(&str, f64)> = vec![("u", u), ("v", v)];
                                 for (name, val) in &params {
@@ -327,7 +347,8 @@ impl PlotEntry {
             PlotKind::ExprDataGrid { csv_text, .. } => {
                 if let Ok((xs, ys, zs)) = parse_csv_grid(csv_text) {
                     if xs.len() * ys.len() == zs.len() {
-                        scene.add(
+                        scene.add_with_pick_id(
+                            pick_id,
                             Surface3D::from_grid(&xs, &ys, &zs).with_style(self.surface_style()),
                         );
                     }
@@ -340,7 +361,10 @@ impl PlotEntry {
                         .map(|p| glam::Vec3::new(p[0] as f32, p[1] as f32, p[2] as f32))
                         .collect();
                     if !points.is_empty() {
-                        scene.add(Curve3D::from_points(&points).with_style(self.style.clone()));
+                        scene.add_with_pick_id(
+                            pick_id,
+                            Curve3D::from_points(&points).with_style(self.style.clone()),
+                        );
                     }
                 }
             }
@@ -354,12 +378,14 @@ impl PlotEntry {
                     if !points.is_empty() {
                         if has_w {
                             let scalars: Vec<f32> = pts.iter().map(|p| p[3] as f32).collect();
-                            scene.add(
+                            scene.add_with_pick_id(
+                                pick_id,
                                 Scatter3D::from_points_with_scalars(&points, &scalars)
                                     .with_style(self.style.clone()),
                             );
                         } else {
-                            scene.add(
+                            scene.add_with_pick_id(
+                                pick_id,
                                 Scatter3D::from_points(&points).with_style(self.style.clone()),
                             );
                         }
@@ -383,7 +409,8 @@ impl PlotEntry {
                             self.resolution.v.clamp(2, 12),
                             ((self.resolution.u + self.resolution.v) / 4).clamp(2, 8),
                         ];
-                        scene.add(
+                        scene.add_with_pick_id(
+                            pick_id,
                             VectorField3D::from_fn(
                                 move |x, y, z| {
                                     let mut vars: Vec<(&str, f64)> =
@@ -414,7 +441,8 @@ impl PlotEntry {
                 if let Ok(parsed) = parse_expr_with_vars(expression, &["x", "y", "z"]) {
                     let params = parameters.clone();
                     let res = *vol_resolution;
-                    scene.add(
+                    scene.add_with_pick_id(
+                        pick_id,
                         DensityPlot3D::from_fn(
                             move |x, y, z| {
                                 let mut vars: Vec<(&str, f64)> = vec![("x", x), ("y", y), ("z", z)];
@@ -449,7 +477,8 @@ impl PlotEntry {
                             ..PlotStyle::default()
                         })
                         .collect();
-                    scene.add(
+                    scene.add_with_pick_id(
+                        pick_id,
                         ContourPlot3D::from_fn(
                             move |x, y, z| {
                                 let mut vars: Vec<(&str, f64)> = vec![("x", x), ("y", y), ("z", z)];
@@ -484,7 +513,8 @@ impl PlotEntry {
                         let seeds = crate::plot::builder::generate_seeds(seed_mode, &self.domain);
                         let ss = *step_size;
                         let ms = *max_steps;
-                        scene.add(
+                        scene.add_with_pick_id(
+                            pick_id,
                             StreamPlot3D::from_field(
                                 move |p: glam::Vec3| {
                                     let mut vars: Vec<(&str, f64)> = vec![

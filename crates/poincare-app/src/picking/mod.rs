@@ -1,5 +1,6 @@
 use poincare_lib::ProbePickData;
 
+#[derive(Clone)]
 /// A point picked by the coordinate probe tool.
 pub(crate) struct ProbeHit {
     /// The position shown (live probe or locked snap point).
