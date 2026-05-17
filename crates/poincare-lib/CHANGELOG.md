@@ -9,6 +9,7 @@ This project uses internal pre-release versioning. Until `1.0.0`, breaking chang
 - Added `PlotStyle::glyph_type` so vector-field plots can choose between supported glyph meshes.
 - Added selected-item-aware frame building so applications can mark picked plots for viewport highlighting.
 - Added scene support for plot-owned world-space labels via `PlotGeometry::Labels`, allowing applications to persist annotations as normal plots instead of special overlay state.
+- Exposed owning plot pick identifiers through probe surface data so applications can map cached CPU surface meshes back to plot entries for derived analysis tools.
 - Fixed glyph appearance opacity to use `PlotStyle::opacity`.
 - Fixed vector-field scalar colouring to use raw field vectors instead of display-scaled glyph vectors.
 - Made vector-field glyph rendering unlit for consistent readability.

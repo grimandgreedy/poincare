@@ -815,6 +815,7 @@ fn default_scalars_for_positions(points: &[Vec3]) -> Vec<f32> {
 
 /// CPU-side mesh geometry for one surface, usable for ray-triangle picking.
 pub struct SurfacePickData<'a> {
+    pub pick_id: u64,
     pub positions: &'a [[f32; 3]],
     pub indices: &'a [u32],
 }
@@ -844,10 +845,11 @@ impl GraphScene {
         let mut polylines = Vec::new();
         let mut points = Vec::new();
 
-        for plot in &self.cached_plots {
+        for (plot, pick_id) in self.cached_plots.iter().zip(self.plot_pick_ids.iter().copied()) {
             for s in &plot.surfaces {
                 if !s.cpu_positions.is_empty() && !s.cpu_indices.is_empty() {
                     surfaces.push(SurfacePickData {
+                        pick_id,
                         positions: &s.cpu_positions,
                         indices: &s.cpu_indices,
                     });

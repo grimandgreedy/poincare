@@ -573,6 +573,18 @@ impl PlotEntry {
                     );
                 }
             }
+            PlotKind::DerivedPolylineGroups { groups } => {
+                if !groups.is_empty() {
+                    let converted: Vec<Vec<glam::Vec3>> = groups
+                        .iter()
+                        .map(|group| group.iter().map(|point| glam::Vec3::from_array(*point)).collect())
+                        .collect();
+                    scene.add_with_pick_id(
+                        pick_id,
+                        build_curve_piecewise(&converted, self.style.clone()),
+                    );
+                }
+            }
             PlotKind::ImportedTable { definition } => {
                 if let Ok(dataset) = definition.validate() {
                     match dataset {

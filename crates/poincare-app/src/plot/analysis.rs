@@ -65,6 +65,11 @@ pub(crate) struct AnnotatedArrowsPlot {
     pub(crate) style: PlotStyle,
 }
 
+pub(crate) struct SurfaceIntersectionResult {
+    pub(crate) curves: Vec<Vec<glam::Vec3>>,
+    pub(crate) isolated_points: Vec<glam::Vec3>,
+}
+
 impl PlotObject for ScalarSlicePlot {
     fn coordinate_system(&self) -> CoordinateSystem {
         CoordinateSystem::Cartesian
@@ -435,4 +440,282 @@ pub(crate) fn make_arrow_annotation(
         vector: vector.to_array(),
         label: label.into(),
     }
+}
+
+pub(crate) fn intersect_surface_meshes(
+    positions_a: &[[f32; 3]],
+    indices_a: &[u32],
+    positions_b: &[[f32; 3]],
+    indices_b: &[u32],
+    tolerance: f32,
+    stitch_distance: f32,
+) -> SurfaceIntersectionResult {
+    let triangles_a = triangle_bounds(positions_a, indices_a, tolerance);
+    let triangles_b = triangle_bounds(positions_b, indices_b, tolerance);
+    let mut segments = Vec::new();
+    let mut isolated_points = Vec::new();
+
+    for (tri_a, bounds_a) in indices_a.chunks_exact(3).zip(triangles_a.iter()) {
+        let a = [
+            glam::Vec3::from(positions_a[tri_a[0] as usize]),
+            glam::Vec3::from(positions_a[tri_a[1] as usize]),
+            glam::Vec3::from(positions_a[tri_a[2] as usize]),
+        ];
+        for (tri_b, bounds_b) in indices_b.chunks_exact(3).zip(triangles_b.iter()) {
+            if !aabb_overlap(bounds_a, bounds_b, tolerance) {
+                continue;
+            }
+            let b = [
+                glam::Vec3::from(positions_b[tri_b[0] as usize]),
+                glam::Vec3::from(positions_b[tri_b[1] as usize]),
+                glam::Vec3::from(positions_b[tri_b[2] as usize]),
+            ];
+            match intersect_triangles(a, b, tolerance) {
+                TriangleIntersection::Segment(start, end) => segments.push((start, end)),
+                TriangleIntersection::Point(point) => isolated_points.push(point),
+                TriangleIntersection::None => {}
+            }
+        }
+    }
+
+    let curves = stitch_segments(&segments, stitch_distance.max(tolerance * 2.0));
+    let isolated_points = dedup_points(&isolated_points, stitch_distance.max(tolerance * 2.0));
+    SurfaceIntersectionResult {
+        curves,
+        isolated_points,
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Bounds3 {
+    min: glam::Vec3,
+    max: glam::Vec3,
+}
+
+#[derive(Clone, Copy)]
+enum TriangleIntersection {
+    None,
+    Point(glam::Vec3),
+    Segment(glam::Vec3, glam::Vec3),
+}
+
+fn triangle_bounds(positions: &[[f32; 3]], indices: &[u32], tolerance: f32) -> Vec<Bounds3> {
+    indices
+        .chunks_exact(3)
+        .map(|tri| {
+            let mut min = glam::Vec3::splat(f32::INFINITY);
+            let mut max = glam::Vec3::splat(f32::NEG_INFINITY);
+            for &index in tri {
+                let point = glam::Vec3::from(positions[index as usize]);
+                min = min.min(point);
+                max = max.max(point);
+            }
+            let pad = glam::Vec3::splat(tolerance);
+            Bounds3 {
+                min: min - pad,
+                max: max + pad,
+            }
+        })
+        .collect()
+}
+
+fn aabb_overlap(a: &Bounds3, b: &Bounds3, tolerance: f32) -> bool {
+    a.min.x <= b.max.x + tolerance
+        && a.max.x + tolerance >= b.min.x
+        && a.min.y <= b.max.y + tolerance
+        && a.max.y + tolerance >= b.min.y
+        && a.min.z <= b.max.z + tolerance
+        && a.max.z + tolerance >= b.min.z
+}
+
+fn intersect_triangles(a: [glam::Vec3; 3], b: [glam::Vec3; 3], tolerance: f32) -> TriangleIntersection {
+    let plane_a = triangle_plane(a);
+    let plane_b = triangle_plane(b);
+    let dir = plane_a.0.cross(plane_b.0);
+    if dir.length_squared() <= tolerance * tolerance {
+        return TriangleIntersection::None;
+    }
+
+    let seg_a = triangle_plane_clip_segment(a, plane_b.0, plane_b.1, tolerance);
+    let seg_b = triangle_plane_clip_segment(b, plane_a.0, plane_a.1, tolerance);
+    let (seg_a0, seg_a1) = match seg_a {
+        Some(segment) => segment,
+        None => return TriangleIntersection::None,
+    };
+    let (seg_b0, seg_b1) = match seg_b {
+        Some(segment) => segment,
+        None => return TriangleIntersection::None,
+    };
+
+    let dir_n = dir.normalize_or_zero();
+    if dir_n.length_squared() <= 1.0e-12 {
+        return TriangleIntersection::None;
+    }
+    let reference = seg_a0;
+    let a0 = dir_n.dot(seg_a0 - reference);
+    let a1 = dir_n.dot(seg_a1 - reference);
+    let b0 = dir_n.dot(seg_b0 - reference);
+    let b1 = dir_n.dot(seg_b1 - reference);
+    let a_min = a0.min(a1);
+    let a_max = a0.max(a1);
+    let b_min = b0.min(b1);
+    let b_max = b0.max(b1);
+    let overlap_min = a_min.max(b_min);
+    let overlap_max = a_max.min(b_max);
+    if overlap_max < overlap_min - tolerance {
+        return TriangleIntersection::None;
+    }
+    if (overlap_max - overlap_min).abs() <= tolerance {
+        let point = reference + dir_n * ((overlap_min + overlap_max) * 0.5);
+        return TriangleIntersection::Point(point);
+    }
+    TriangleIntersection::Segment(
+        reference + dir_n * overlap_min,
+        reference + dir_n * overlap_max,
+    )
+}
+
+fn triangle_plane(tri: [glam::Vec3; 3]) -> (glam::Vec3, f32) {
+    let normal = (tri[1] - tri[0]).cross(tri[2] - tri[0]).normalize_or_zero();
+    (normal, -normal.dot(tri[0]))
+}
+
+fn triangle_plane_clip_segment(
+    tri: [glam::Vec3; 3],
+    plane_normal: glam::Vec3,
+    plane_offset: f32,
+    tolerance: f32,
+) -> Option<(glam::Vec3, glam::Vec3)> {
+    let mut hits = Vec::new();
+    let signed = tri.map(|point| plane_normal.dot(point) + plane_offset);
+    for i in 0..3 {
+        if signed[i].abs() <= tolerance {
+            hits.push(tri[i]);
+        }
+    }
+    for (i0, i1) in [(0, 1), (1, 2), (2, 0)] {
+        let d0 = signed[i0];
+        let d1 = signed[i1];
+        if (d0 > tolerance && d1 > tolerance) || (d0 < -tolerance && d1 < -tolerance) {
+            continue;
+        }
+        if (d0 - d1).abs() <= tolerance {
+            continue;
+        }
+        if d0.abs() <= tolerance || d1.abs() <= tolerance || d0.signum() == d1.signum() {
+            continue;
+        }
+        let t = d0 / (d0 - d1);
+        hits.push(tri[i0].lerp(tri[i1], t));
+    }
+    let hits = dedup_points(&hits, tolerance * 2.0);
+    match hits.as_slice() {
+        [single] => Some((*single, *single)),
+        [first, second, ..] => Some((*first, *second)),
+        _ => None,
+    }
+}
+
+fn dedup_points(points: &[glam::Vec3], tolerance: f32) -> Vec<glam::Vec3> {
+    let mut unique: Vec<glam::Vec3> = Vec::new();
+    'outer: for &point in points {
+        for &existing in &unique {
+            if existing.distance(point) <= tolerance {
+                continue 'outer;
+            }
+        }
+        unique.push(point);
+    }
+    unique
+}
+
+fn stitch_segments(segments: &[(glam::Vec3, glam::Vec3)], tolerance: f32) -> Vec<Vec<glam::Vec3>> {
+    if segments.is_empty() {
+        return Vec::new();
+    }
+    let mut nodes = Vec::<glam::Vec3>::new();
+    let mut edges = Vec::<(usize, usize)>::new();
+    for &(start, end) in segments {
+        let a = find_or_insert_node(&mut nodes, start, tolerance);
+        let b = find_or_insert_node(&mut nodes, end, tolerance);
+        if a != b {
+            edges.push((a, b));
+        }
+    }
+    let mut adjacency = vec![Vec::<usize>::new(); nodes.len()];
+    for (edge_index, &(a, b)) in edges.iter().enumerate() {
+        adjacency[a].push(edge_index);
+        adjacency[b].push(edge_index);
+    }
+    let mut visited = vec![false; edges.len()];
+    let mut curves = Vec::new();
+
+    for start in 0..nodes.len() {
+        if adjacency[start].len() == 2 {
+            continue;
+        }
+        for &edge_index in &adjacency[start] {
+            if visited[edge_index] {
+                continue;
+            }
+            curves.push(trace_curve(start, edge_index, &nodes, &edges, &adjacency, &mut visited));
+        }
+    }
+
+    for edge_index in 0..edges.len() {
+        if visited[edge_index] {
+            continue;
+        }
+        let start = edges[edge_index].0;
+        curves.push(trace_curve(start, edge_index, &nodes, &edges, &adjacency, &mut visited));
+    }
+
+    curves
+        .into_iter()
+        .filter(|curve| curve.len() >= 2)
+        .collect()
+}
+
+fn trace_curve(
+    start_node: usize,
+    start_edge: usize,
+    nodes: &[glam::Vec3],
+    edges: &[(usize, usize)],
+    adjacency: &[Vec<usize>],
+    visited: &mut [bool],
+) -> Vec<glam::Vec3> {
+    let mut curve = vec![nodes[start_node]];
+    let mut current_node = start_node;
+    let mut current_edge = start_edge;
+    loop {
+        if visited[current_edge] {
+            break;
+        }
+        visited[current_edge] = true;
+        let (a, b) = edges[current_edge];
+        let next_node = if a == current_node { b } else { a };
+        curve.push(nodes[next_node]);
+        let next_edge = adjacency[next_node]
+            .iter()
+            .copied()
+            .find(|&edge| !visited[edge] && edge != current_edge);
+        match next_edge {
+            Some(edge) => {
+                current_node = next_node;
+                current_edge = edge;
+            }
+            None => break,
+        }
+    }
+    curve
+}
+
+fn find_or_insert_node(nodes: &mut Vec<glam::Vec3>, point: glam::Vec3, tolerance: f32) -> usize {
+    for (index, existing) in nodes.iter().enumerate() {
+        if existing.distance(point) <= tolerance {
+            return index;
+        }
+    }
+    nodes.push(point);
+    nodes.len() - 1
 }

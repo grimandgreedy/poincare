@@ -594,6 +594,11 @@ pub(crate) fn plot_bounds(plot: &PlotEntry) -> Option<Aabb> {
                 [origin, tip]
             }));
         }
+        crate::plot::kind::PlotKind::DerivedPolylineGroups { groups } => {
+            return bounds_from_positions(groups.iter().flat_map(|group| {
+                group.iter().map(|point| glam::Vec3::from_array(*point))
+            }));
+        }
         _ => {}
     }
 

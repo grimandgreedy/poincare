@@ -341,6 +341,15 @@ pub(crate) fn show_expression_params(
                     }
                 });
         }
+        PlotKind::DerivedPolylineGroups { groups } => {
+            ui.label(format!("{} derived intersection curve(s)", groups.len()));
+            let total_points: usize = groups.iter().map(Vec::len).sum();
+            ui.label(
+                egui::RichText::new(format!("{total_points} sampled vertices across all curves"))
+                    .small()
+                    .weak(),
+            );
+        }
         PlotKind::ExprVectorField {
             expression,
             parameters,
