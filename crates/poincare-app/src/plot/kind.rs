@@ -172,6 +172,9 @@ pub(crate) enum PlotKind {
         arrows: Vec<ArrowAnnotation>,
         show_labels: bool,
     },
+    DerivedPolylineGroups {
+        groups: Vec<Vec<[f32; 3]>>,
+    },
     /// Vector field (vx(x,y,z), vy(x,y,z), vz(x,y,z)).
     ExprVectorField {
         expression: String,
@@ -223,6 +226,7 @@ impl PlotKind {
             | Self::Streamlines { .. }
             | Self::ExprCurve { .. }
             | Self::ExprCartesianLine { .. }
+            | Self::DerivedPolylineGroups { .. }
             | Self::ExprStreamlines { .. } => StyleCaps {
                 mesh: false,
                 line: true,
@@ -302,7 +306,8 @@ impl PlotKind {
             | Self::ScalarSlice { .. }
             | Self::VectorSlice { .. }
             | Self::PointAnnotations { .. }
-            | Self::ArrowAnnotations { .. } => DomainLabels::None,
+            | Self::ArrowAnnotations { .. }
+            | Self::DerivedPolylineGroups { .. } => DomainLabels::None,
             Self::VectorField
             | Self::Streamlines { .. }
             | Self::VolumeRender { .. }
@@ -326,6 +331,7 @@ impl PlotKind {
                 | Self::ImportedTable { .. }
                 | Self::PointAnnotations { .. }
                 | Self::ArrowAnnotations { .. }
+                | Self::DerivedPolylineGroups { .. }
         )
     }
 
@@ -337,6 +343,29 @@ impl PlotKind {
                 | Self::VectorSlice { .. }
                 | Self::GradientField { .. }
                 | Self::CurlField { .. }
+        )
+    }
+
+    pub(crate) fn supports_surface_intersection(&self) -> bool {
+        matches!(
+            self,
+            Self::ContouredSurface { .. }
+                | Self::SphericalHarmonic
+                | Self::GridSurface
+                | Self::Isosurface { .. }
+                | Self::ExprCartesian { .. }
+                | Self::ExprSpherical { .. }
+                | Self::ExprCylindrical { .. }
+                | Self::ExprPolar { .. }
+                | Self::ExprParametricSurface { .. }
+                | Self::ExprIsosurface { .. }
+                | Self::ImportedTable {
+                    definition: TableImportDefinition {
+                        target: TablePlotTarget::SurfaceGrid,
+                        ..
+                    },
+                }
+                | Self::ScalarSlice { .. }
         )
     }
 

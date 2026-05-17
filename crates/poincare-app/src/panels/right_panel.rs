@@ -7,8 +7,8 @@ use crate::InspectorTab;
 use crate::dock::DockTab;
 use crate::document::{ExportFormat, ExportMode, default_export_dir, ensure_export_dir_exists, export_mode_for_format};
 use crate::plot::analysis::{
-    PointAnnotation, SliceAxis, default_slice_position, make_arrow_annotation,
-    make_point_annotations,
+    PointAnnotation, SliceAxis, default_slice_position, intersect_surface_meshes,
+    make_arrow_annotation, make_point_annotations,
 };
 use crate::plot::entry::PlotEntry;
 use crate::plot::kind::{PlotKind, StyleCaps, evenly_spaced_isovalues};
@@ -690,6 +690,7 @@ impl App {
         ui.add_space(8.0);
         ui.separator();
         ui.label("Intersections");
+        ui.label("Curves");
         if self.documents[doc_idx].intersection_cache.is_empty() {
             ui.label(egui::RichText::new("No cached curve intersections in the current scene.").small().weak());
         } else if ui.button("Create Intersection Markers").clicked() {
@@ -716,6 +717,85 @@ impl App {
                     },
                 },
             );
+        }
+
+        ui.add_space(6.0);
+        ui.label("Surfaces");
+        if !selected.kind.supports_surface_intersection() {
+            ui.label(egui::RichText::new("Select a surface-like plot to compute surface intersections.").small().weak());
+            return;
+        }
+
+        let candidates = self.surface_intersection_candidates(doc_idx, plot_idx);
+        if candidates.is_empty() {
+            ui.label(egui::RichText::new("No other compatible surface plots are available in this document.").small().weak());
+            return;
+        }
+
+        if self.surface_intersection_target == Some(plot_idx) {
+            self.surface_intersection_target = None;
+        }
+        if self
+            .surface_intersection_target
+            .is_none_or(|target| !candidates.iter().any(|(index, _)| *index == target))
+        {
+            self.surface_intersection_target = Some(candidates[0].0);
+        }
+
+        egui::ComboBox::from_label("Target Surface")
+            .selected_text(
+                self.surface_intersection_target
+                    .and_then(|target| {
+                        candidates
+                            .iter()
+                            .find(|(index, _)| *index == target)
+                            .map(|(_, label)| label.clone())
+                    })
+                    .unwrap_or_else(|| "Select target".to_string()),
+            )
+            .show_ui(ui, |ui| {
+                for (index, label) in &candidates {
+                    ui.selectable_value(&mut self.surface_intersection_target, Some(*index), label);
+                }
+            });
+
+        ui.horizontal(|ui| {
+            ui.label("Tolerance");
+            ui.add(
+                egui::DragValue::new(&mut self.surface_intersection_tolerance)
+                    .speed(0.001)
+                    .range(0.0001..=1.0),
+            );
+            ui.label("Stitch");
+            ui.add(
+                egui::DragValue::new(&mut self.surface_intersection_stitch_distance)
+                    .speed(0.001)
+                    .range(0.0001..=2.0),
+            );
+        });
+        ui.checkbox(
+            &mut self.surface_intersection_make_points,
+            "Create point markers for isolated contacts",
+        );
+        ui.add_enabled_ui(self.surface_intersection_make_points, |ui| {
+            ui.checkbox(
+                &mut self.surface_intersection_show_point_labels,
+                "Show point labels",
+            );
+        });
+        if self.documents[doc_idx].scene_dirty {
+            ui.label(
+                egui::RichText::new(
+                    "Scene has pending changes; intersection uses the last rebuilt mesh state.",
+                )
+                .small()
+                .weak(),
+            );
+        }
+        if ui.button("Extract Surface Intersection").clicked()
+            && let Some(target_idx) = self.surface_intersection_target
+        {
+            self.create_surface_intersection_plots(doc_idx, plot_idx, target_idx);
         }
     }
 
@@ -866,5 +946,108 @@ impl App {
                 parameters,
             },
         })
+    }
+
+    fn surface_intersection_candidates(&self, doc_idx: usize, source_idx: usize) -> Vec<(usize, String)> {
+        self.documents[doc_idx]
+            .plots
+            .iter()
+            .enumerate()
+            .filter(|(index, plot)| *index != source_idx && plot.kind.supports_surface_intersection())
+            .map(|(index, plot)| (index, plot.name.clone()))
+            .collect()
+    }
+
+    fn create_surface_intersection_plots(&mut self, doc_idx: usize, source_idx: usize, target_idx: usize) {
+        let source_pick_id = (source_idx + 1) as u64;
+        let target_pick_id = (target_idx + 1) as u64;
+        let probe_data = self.documents[doc_idx].scene.probe_data();
+        let source_surfaces: Vec<_> = probe_data
+            .surfaces
+            .iter()
+            .filter(|surface| surface.pick_id == source_pick_id)
+            .collect();
+        let target_surfaces: Vec<_> = probe_data
+            .surfaces
+            .iter()
+            .filter(|surface| surface.pick_id == target_pick_id)
+            .collect();
+        if source_surfaces.is_empty() || target_surfaces.is_empty() {
+            self.documents[doc_idx].export_status =
+                "Surface intersection failed: one or both plots have no cached surface mesh."
+                    .to_string();
+            return;
+        }
+
+        let mut all_curves = Vec::new();
+        let mut all_points = Vec::new();
+        for source in &source_surfaces {
+            for target in &target_surfaces {
+                let result = intersect_surface_meshes(
+                    source.positions,
+                    source.indices,
+                    target.positions,
+                    target.indices,
+                    self.surface_intersection_tolerance,
+                    self.surface_intersection_stitch_distance,
+                );
+                all_curves.extend(result.curves);
+                all_points.extend(result.isolated_points);
+            }
+        }
+
+        if all_curves.is_empty() && all_points.is_empty() {
+            self.documents[doc_idx].export_status =
+                "No surface-surface intersections were found with the current tolerance."
+                    .to_string();
+            return;
+        }
+
+        let source = self.documents[doc_idx].plots[source_idx].clone();
+        let target = self.documents[doc_idx].plots[target_idx].clone();
+        if !all_curves.is_empty() {
+            self.push_analysis_plot(
+                doc_idx,
+                PlotEntry {
+                    name: format!("{} intersect {}", source.name, target.name),
+                    visible: true,
+                    domain: source.domain.clone(),
+                    resolution: source.resolution,
+                    style: poincare_lib::PlotStyle {
+                        colour_mode: poincare_lib::ColourMode::Solid([0.98, 0.85, 0.2, 1.0]),
+                        line_width: 2.5,
+                        ..poincare_lib::PlotStyle::default()
+                    },
+                    kind: PlotKind::DerivedPolylineGroups {
+                        groups: all_curves
+                            .iter()
+                            .map(|curve| curve.iter().map(|point| point.to_array()).collect())
+                            .collect(),
+                    },
+                },
+            );
+        }
+        if self.surface_intersection_make_points && !all_points.is_empty() {
+            let points = all_points.iter().map(|point| point.to_array()).collect::<Vec<_>>();
+            self.push_analysis_plot(
+                doc_idx,
+                PlotEntry {
+                    name: format!("{} intersect {} Points", source.name, target.name),
+                    visible: true,
+                    domain: source.domain.clone(),
+                    resolution: source.resolution,
+                    style: poincare_lib::PlotStyle {
+                        colour_mode: poincare_lib::ColourMode::Solid([1.0, 0.35, 0.35, 1.0]),
+                        point_size: 9.0,
+                        ..poincare_lib::PlotStyle::default()
+                    },
+                    kind: PlotKind::PointAnnotations {
+                        points: make_point_annotations(&points, "Surface Contact"),
+                        show_labels: self.surface_intersection_show_point_labels,
+                    },
+                },
+            );
+        }
+        self.documents[doc_idx].export_status.clear();
     }
 }

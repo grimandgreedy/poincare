@@ -201,6 +201,11 @@ struct App {
     renaming_plot: Option<usize>,
     rename_buf: String,
     rename_needs_focus: bool,
+    surface_intersection_target: Option<usize>,
+    surface_intersection_tolerance: f32,
+    surface_intersection_stitch_distance: f32,
+    surface_intersection_make_points: bool,
+    surface_intersection_show_point_labels: bool,
     export_job: Option<ExportJob>,
 }
 
@@ -293,6 +298,11 @@ impl App {
             renaming_plot: None,
             rename_buf: String::new(),
             rename_needs_focus: false,
+            surface_intersection_target: None,
+            surface_intersection_tolerance: 0.01,
+            surface_intersection_stitch_distance: 0.05,
+            surface_intersection_make_points: true,
+            surface_intersection_show_point_labels: true,
             export_job: None,
         };
         persistence::load_persisted_state(cc.storage, &mut app);

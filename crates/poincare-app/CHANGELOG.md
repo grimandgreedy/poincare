@@ -16,6 +16,7 @@ This project uses internal pre-release versioning. Until `1.0.0`, breaking chang
 - Added probe pinning with persistent pinned points, distance measurement between pinned points, and `Cmd+Click` pinning in the viewport.
 - Added table-backed import editing for surface grids, curves, scatter plots, and sampled vector fields, including preview, delimiter/header detection, explicit column mapping, validation, and refresh-from-file support.
 - Added an `Analysis` inspector tab for generating slice plots, contour cross-sections, gradient/divergence/curl derived plots, probe annotations, pinned-probe sample plots, and cached curve-intersection marker plots as normal persisted plot entries.
+- Added surface-surface intersection extraction in the `Analysis` tab, including target-surface selection, tolerance/stitch controls, derived intersection curve plots, and optional isolated-contact point markers.
 
 ### Fixes
 - Focus on plot properties tab by default.

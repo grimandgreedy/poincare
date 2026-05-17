@@ -384,6 +384,9 @@ enum PersistedPlotKind {
         #[serde(default = "default_true")]
         show_labels: bool,
     },
+    DerivedPolylineGroups {
+        groups: Vec<Vec<[f32; 3]>>,
+    },
     ExprVectorField {
         expression: String,
         parameters: Vec<(String, f64)>,
@@ -1075,6 +1078,9 @@ impl PersistedPlotKind {
                 arrows: arrows.clone(),
                 show_labels: *show_labels,
             },
+            PlotKind::DerivedPolylineGroups { groups } => Self::DerivedPolylineGroups {
+                groups: groups.clone(),
+            },
             PlotKind::ExprVectorField {
                 expression,
                 parameters,
@@ -1267,6 +1273,9 @@ impl PersistedPlotKind {
             } => PlotKind::ArrowAnnotations {
                 arrows: arrows.clone(),
                 show_labels: *show_labels,
+            },
+            Self::DerivedPolylineGroups { groups } => PlotKind::DerivedPolylineGroups {
+                groups: groups.clone(),
             },
             Self::ExprVectorField {
                 expression,
