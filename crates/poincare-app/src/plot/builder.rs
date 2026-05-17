@@ -1,7 +1,6 @@
 use poincare_lib::{
     ColormapSource, ColourMode, DetectedPlotType, Domain, PlotStyle, Resolution, ShadingMode,
-    TransferFunction, auto_detect_plot_type, parse_csv_grid, parse_csv_points,
-    parse_expr_with_vars,
+    TransferFunction, auto_detect_plot_type, parse_csv_points, parse_expr_with_vars,
 };
 use viewport_lib::{AttributeKind, BuiltinColourmap};
 
@@ -39,12 +38,13 @@ fn replace_var(expr: &str, from: &str, to: &str) -> String {
 use crate::plot::entry::PlotEntry;
 use crate::plot::kind::{DEFAULT_ISO_PALETTE, PlotKind, SeedMode};
 use crate::plot::selected_type::SelectedPlotType;
+use crate::plot::table::TableImportDefinition;
 
 /// Build a PlotEntry from the current "Add Plot" input state.
 pub(crate) fn build_plot_entry_from_inputs(
     plot_type: SelectedPlotType,
     expr_fields: &[String; 3],
-    csv_text: &str,
+    table_import: &TableImportDefinition,
     iso_values_text: &str,
 ) -> Result<PlotEntry, String> {
     let default_domain = Domain {
@@ -375,12 +375,9 @@ pub(crate) fn build_plot_entry_from_inputs(
             }
         }
         SelectedPlotType::DataGridSurface => {
-            let (xs, ys, zs) = parse_csv_grid(csv_text).map_err(|e| format!("Grid CSV: {e}"))?;
-            if xs.len() * ys.len() != zs.len() {
-                return Err("Grid CSV: row/column mismatch".to_string());
-            }
+            table_import.validate().map_err(|errs| errs[0].display())?;
             PlotEntry {
-                name: "Data Grid Surface".to_string(),
+                name: "Imported Surface Grid".to_string(),
                 visible: true,
                 domain: Domain::default(),
                 resolution: Resolution::default(),
@@ -392,9 +389,8 @@ pub(crate) fn build_plot_entry_from_inputs(
                     two_sided: true,
                     ..PlotStyle::default()
                 },
-                kind: PlotKind::ExprDataGrid {
-                    csv_text: csv_text.to_string(),
-                    parse_error: String::new(),
+                kind: PlotKind::ImportedTable {
+                    definition: table_import.clone(),
                 },
             }
         }
@@ -437,9 +433,9 @@ pub(crate) fn build_plot_entry_from_inputs(
             }
         }
         SelectedPlotType::CurvePoints => {
-            parse_csv_points(csv_text).map_err(|errs| format!("{} parse error(s)", errs.len()))?;
+            table_import.validate().map_err(|errs| errs[0].display())?;
             PlotEntry {
-                name: "Curve from points".to_string(),
+                name: "Imported Curve".to_string(),
                 visible: true,
                 domain: Domain::default(),
                 resolution: Resolution::default(),
@@ -448,30 +444,49 @@ pub(crate) fn build_plot_entry_from_inputs(
                     line_width: 2.0,
                     ..PlotStyle::default()
                 },
-                kind: PlotKind::ExprCurvePoints {
-                    csv_text: csv_text.to_string(),
-                    parse_error: String::new(),
+                kind: PlotKind::ImportedTable {
+                    definition: table_import.clone(),
                 },
             }
         }
         SelectedPlotType::Scatter => {
-            parse_csv_points(csv_text).map_err(|errs| format!("{} parse error(s)", errs.len()))?;
+            table_import.validate().map_err(|errs| errs[0].display())?;
             PlotEntry {
-                name: "Scatter".to_string(),
+                name: "Imported Scatter".to_string(),
                 visible: true,
                 domain: Domain::default(),
                 resolution: Resolution::default(),
                 style: PlotStyle {
                     colour_mode: ColourMode::ByAttribute {
-                        name: "z".to_string(),
+                        name: "scalar".to_string(),
                         kind: AttributeKind::Vertex,
                     },
                     point_size: 6.0,
                     ..PlotStyle::default()
                 },
-                kind: PlotKind::ExprScatter {
-                    csv_text: csv_text.to_string(),
-                    parse_error: String::new(),
+                kind: PlotKind::ImportedTable {
+                    definition: table_import.clone(),
+                },
+            }
+        }
+        SelectedPlotType::TableVectorField => {
+            table_import.validate().map_err(|errs| errs[0].display())?;
+            PlotEntry {
+                name: "Imported Vector Field".to_string(),
+                visible: true,
+                domain: default_domain,
+                resolution: Resolution::default(),
+                style: PlotStyle {
+                    colour_mode: ColourMode::ByAttribute {
+                        name: "magnitude".to_string(),
+                        kind: AttributeKind::Vertex,
+                    },
+                    glyph_scale: 0.8,
+                    shading: ShadingMode::Unlit,
+                    ..PlotStyle::default()
+                },
+                kind: PlotKind::ImportedTable {
+                    definition: table_import.clone(),
                 },
             }
         }

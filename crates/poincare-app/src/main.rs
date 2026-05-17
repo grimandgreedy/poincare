@@ -32,6 +32,7 @@ use document::{
 };
 use plot::entry::PlotEntry;
 use plot::selected_type::SelectedPlotType;
+use plot::table::{TableImportDefinition, TablePlotTarget};
 use ui::equation_editor::EquationEditor;
 
 static DEBUG_LOG_FILE: OnceLock<Mutex<std::fs::File>> = OnceLock::new();
@@ -173,7 +174,7 @@ struct App {
     last_viewport_size: [u32; 2],
     add_plot_type: SelectedPlotType,
     add_expr_fields: [String; 3],
-    add_csv_text: String,
+    add_table_import: TableImportDefinition,
     add_iso_values_text: String,
     add_error: String,
     slider_dragging: bool,
@@ -264,7 +265,7 @@ impl App {
             last_viewport_size: [1000, 700],
             add_plot_type: SelectedPlotType::Auto,
             add_expr_fields: [String::new(), String::new(), String::new()],
-            add_csv_text: String::new(),
+            add_table_import: TableImportDefinition::empty(TablePlotTarget::Scatter),
             add_iso_values_text: "1.0, 2.0, 3.0".to_string(),
             add_error: String::new(),
             slider_dragging: false,

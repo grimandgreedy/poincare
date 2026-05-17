@@ -5,6 +5,7 @@ use viewport_lib::{AttributeKind, BuiltinColourmap};
 
 use crate::plot::entry::PlotEntry;
 use crate::plot::kind::PlotKind;
+use crate::plot::table::{TableColumnMapping, TableImportDefinition, TablePlotTarget};
 
 pub fn build() -> Vec<PlotEntry> {
     // Sample CSV scatter data: 50 pseudo-random points
@@ -62,15 +63,28 @@ pub fn build() -> Vec<PlotEntry> {
             resolution: Resolution::default(),
             style: PlotStyle {
                 colour_mode: ColourMode::ByAttribute {
-                    name: "z".to_string(),
+                    name: "scalar".to_string(),
                     kind: AttributeKind::Vertex,
                 },
                 point_size: 6.0,
                 ..PlotStyle::default()
             },
-            kind: PlotKind::ExprScatter {
-                csv_text: scatter_csv,
-                parse_error: String::new(),
+            kind: PlotKind::ImportedTable {
+                definition: TableImportDefinition {
+                    source_path: None,
+                    raw_text: scatter_csv,
+                    delimiter: crate::plot::table::TableDelimiter::Comma,
+                    header_row: false,
+                    target: TablePlotTarget::Scatter,
+                    mapping: TableColumnMapping::Scatter {
+                        x: 0,
+                        y: 1,
+                        z: crate::plot::table::OptionalColumn::Column(2),
+                        scalar: crate::plot::table::OptionalColumn::None,
+                        label: crate::plot::table::OptionalColumn::None,
+                        group: crate::plot::table::OptionalColumn::None,
+                    },
+                },
             },
         },
         PlotEntry {

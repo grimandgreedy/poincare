@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 
 use eframe::egui;
-use poincare_lib::{parse_csv_grid, parse_csv_points, parse_curve_expr, parse_expr_with_vars};
+use poincare_lib::{parse_curve_expr, parse_expr_with_vars};
 
 use crate::plot::kind::{DEFAULT_ISO_PALETTE, PlotKind, SeedMode};
 use crate::plot::sweep::ParameterSweep;
 use crate::ui::equation_editor::{EquationEditor, equation_row_ed};
 use crate::ui::scalar_control::{ScalarControl, edit_scalar_control};
+use crate::ui::table_editor::edit_table_import;
 
 /// Show parameter sliders (and sweep controls) for expression-type plots.
 /// Returns `true` if any value changed that requires a scene rebuild.
@@ -206,70 +207,9 @@ pub(crate) fn show_expression_params(
             });
             dirty |= show_param_sliders(ui, parameters, slider_dragging, sweep_map);
         }
-        PlotKind::ExprDataGrid {
-            csv_text,
-            parse_error,
-        } => {
+        PlotKind::ImportedTable { definition } => {
             ui.add_space(6.0);
-            ui.label("Grid CSV (first row: ,x1,x2,… / each row: y,z1,z2,…)");
-            let before = csv_text.clone();
-            ui.add(egui::TextEdit::multiline(csv_text).desired_rows(5));
-            if *csv_text != before {
-                *parse_error = match parse_csv_grid(csv_text) {
-                    Ok(_) => String::new(),
-                    Err(e) => e,
-                };
-                dirty = true;
-            }
-            if !parse_error.is_empty() {
-                ui.colored_label(egui::Color32::RED, parse_error.as_str());
-            } else if !csv_text.is_empty() {
-                if let Ok((xs, ys, _)) = parse_csv_grid(csv_text) {
-                    ui.label(format!("Grid {}x{} loaded", xs.len(), ys.len()));
-                }
-            }
-        }
-        PlotKind::ExprCurvePoints {
-            csv_text,
-            parse_error,
-        } => {
-            ui.add_space(6.0);
-            ui.label("Points CSV (x,y,z per line)");
-            let before = csv_text.clone();
-            ui.add(egui::TextEdit::multiline(csv_text).desired_rows(5));
-            if *csv_text != before {
-                *parse_error = match parse_csv_points(csv_text) {
-                    Ok(_) => String::new(),
-                    Err(errs) => format!("{} parse error(s)", errs.len()),
-                };
-                dirty = true;
-            }
-            if !parse_error.is_empty() {
-                ui.colored_label(egui::Color32::RED, parse_error.as_str());
-            } else if let Ok(pts) = parse_csv_points(csv_text) {
-                ui.label(format!("{} points loaded", pts.len()));
-            }
-        }
-        PlotKind::ExprScatter {
-            csv_text,
-            parse_error,
-        } => {
-            ui.add_space(6.0);
-            ui.label("Scatter CSV (x,y,z or x,y,z,w per line)");
-            let before = csv_text.clone();
-            ui.add(egui::TextEdit::multiline(csv_text).desired_rows(5));
-            if *csv_text != before {
-                *parse_error = match parse_csv_points(csv_text) {
-                    Ok(_) => String::new(),
-                    Err(errs) => format!("{} parse error(s)", errs.len()),
-                };
-                dirty = true;
-            }
-            if !parse_error.is_empty() {
-                ui.colored_label(egui::Color32::RED, parse_error.as_str());
-            } else if let Ok(pts) = parse_csv_points(csv_text) {
-                ui.label(format!("{} points loaded", pts.len()));
-            }
+            dirty |= edit_table_import(ui, definition);
         }
         PlotKind::ExprVectorField {
             expression,

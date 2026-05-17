@@ -9,6 +9,7 @@ use crate::picking::segment_segment_closest;
 use crate::plot::entry::PlotEntry;
 use crate::plot::kind::DomainLabels;
 use crate::plot::sweep::ParameterSweep;
+use crate::plot::table::TableDataSet;
 
 pub(crate) const VIEWPORT_BACKGROUND: [f32; 4] = [18.0 / 255.0, 18.0 / 255.0, 18.0 / 255.0, 1.0];
 pub(crate) const DEFAULT_VIEWPORT_BACKGROUND: [f32; 4] = VIEWPORT_BACKGROUND;
@@ -518,6 +519,52 @@ fn scene_bounds(scene: &GraphScene) -> Option<Aabb> {
 }
 
 pub(crate) fn plot_bounds(plot: &PlotEntry) -> Option<Aabb> {
+    if let crate::plot::kind::PlotKind::ImportedTable { definition } = &plot.kind {
+        if let Ok(dataset) = definition.validate() {
+            let bounds = match dataset {
+                TableDataSet::SurfaceGrid { xs, ys, zs } => {
+                    let (Some(x_min), Some(x_max)) = (
+                        xs.iter().cloned().reduce(f64::min),
+                        xs.iter().cloned().reduce(f64::max),
+                    ) else {
+                        return None;
+                    };
+                    let (Some(y_min), Some(y_max)) = (
+                        ys.iter().cloned().reduce(f64::min),
+                        ys.iter().cloned().reduce(f64::max),
+                    ) else {
+                        return None;
+                    };
+                    let (Some(z_min), Some(z_max)) = (
+                        zs.iter().cloned().reduce(f64::min),
+                        zs.iter().cloned().reduce(f64::max),
+                    ) else {
+                        return None;
+                    };
+                    Aabb {
+                        min: glam::vec3(x_min as f32, y_min as f32, z_min as f32),
+                        max: glam::vec3(x_max as f32, y_max as f32, z_max as f32),
+                    }
+                }
+                TableDataSet::Curve { bounds, .. }
+                | TableDataSet::Scatter { bounds, .. }
+                | TableDataSet::VectorField { bounds, .. } => Aabb {
+                    min: glam::vec3(
+                        *bounds.x.start() as f32,
+                        *bounds.y.start() as f32,
+                        *bounds.z.start() as f32,
+                    ),
+                    max: glam::vec3(
+                        *bounds.x.end() as f32,
+                        *bounds.y.end() as f32,
+                        *bounds.z.end() as f32,
+                    ),
+                },
+            };
+            return Some(bounds);
+        }
+    }
+
     let x0 = *plot.domain.x.start() as f32;
     let x1 = *plot.domain.x.end() as f32;
     let y0 = *plot.domain.y.start() as f32;

@@ -10,6 +10,7 @@ use crate::plot::kind::PlotKind;
 use crate::plot::selected_type::SelectedPlotType;
 use crate::ui::domain_editor::truncate_str;
 use crate::ui::equation_editor::{equation_row, equation_row_ed, filter_auto_templates};
+use crate::ui::table_editor::edit_table_import;
 
 fn expression_summary(kind: &PlotKind) -> Option<String> {
     match kind {
@@ -41,6 +42,7 @@ fn expression_summary(kind: &PlotKind) -> Option<String> {
         | PlotKind::ExprVolume { expression, .. }
         | PlotKind::ExprIsosurface { expression, .. }
         | PlotKind::ExprStreamlines { expression, .. } => Some(expression.clone()),
+        PlotKind::ImportedTable { definition } => Some(format!("Imported {}", definition.target.label())),
         _ => None,
     }
 }
@@ -59,6 +61,9 @@ impl App {
     pub(crate) fn open_add_plot_modal(&mut self) {
         self.add_plot_open = true;
         self.add_plot_focus_pending = true;
+        if let Some(target) = self.add_plot_type.table_target() {
+            self.add_table_import.set_target(target);
+        }
     }
 
     fn plot_row_menu(
@@ -386,9 +391,11 @@ impl App {
             for field in &mut self.add_expr_fields {
                 field.clear();
             }
-            self.add_csv_text.clear();
             self.add_iso_values_text = "1.0, 2.0, 3.0".to_string();
             self.add_error.clear();
+            if let Some(target) = self.add_plot_type.table_target() {
+                self.add_table_import = crate::plot::table::TableImportDefinition::empty(target);
+            }
         }
 
         let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
@@ -576,16 +583,7 @@ impl App {
                     );
                 }
                 SelectedPlotType::DataGridSurface => {
-                    ui.label(egui::RichText::new("CSV grid").weak().small());
-                    let response = ui.add(
-                        egui::TextEdit::multiline(&mut self.add_csv_text)
-                            .font(egui::TextStyle::Monospace)
-                            .desired_rows(5),
-                    );
-                    if self.add_plot_focus_pending {
-                        response.request_focus();
-                        self.add_plot_focus_pending = false;
-                    }
+                    edit_table_import(ui, &mut self.add_table_import);
                 }
                 SelectedPlotType::ParametricCurve => {
                     add_row!(
@@ -611,32 +609,13 @@ impl App {
                     );
                 }
                 SelectedPlotType::CurvePoints => {
-                    ui.label(egui::RichText::new("x,y,z per line").weak().small());
-                    let response = ui.add(
-                        egui::TextEdit::multiline(&mut self.add_csv_text)
-                            .font(egui::TextStyle::Monospace)
-                            .desired_rows(5),
-                    );
-                    if self.add_plot_focus_pending {
-                        response.request_focus();
-                        self.add_plot_focus_pending = false;
-                    }
+                    edit_table_import(ui, &mut self.add_table_import);
                 }
                 SelectedPlotType::Scatter => {
-                    ui.label(
-                        egui::RichText::new("x,y,z or x,y,z,w per line")
-                            .weak()
-                            .small(),
-                    );
-                    let response = ui.add(
-                        egui::TextEdit::multiline(&mut self.add_csv_text)
-                            .font(egui::TextStyle::Monospace)
-                            .desired_rows(5),
-                    );
-                    if self.add_plot_focus_pending {
-                        response.request_focus();
-                        self.add_plot_focus_pending = false;
-                    }
+                    edit_table_import(ui, &mut self.add_table_import);
+                }
+                SelectedPlotType::TableVectorField => {
+                    edit_table_import(ui, &mut self.add_table_import);
                 }
                 SelectedPlotType::VectorField => {
                     add_row!(
@@ -733,7 +712,7 @@ impl App {
         let result = build_plot_entry_from_inputs(
             self.add_plot_type,
             &self.add_expr_fields,
-            &self.add_csv_text,
+            &self.add_table_import,
             &self.add_iso_values_text,
         );
         match result {
