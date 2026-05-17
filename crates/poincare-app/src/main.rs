@@ -12,6 +12,7 @@ mod topbar;
 mod ui;
 
 use std::path::PathBuf;
+use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 
 use eframe::egui;
@@ -19,12 +20,15 @@ use grimdock::{PanelStyle, PanelTree};
 use poincare_lib::{AxisConfig, ColormapSource, ColourMode};
 use viewport_lib::BuiltinColourmap;
 use viewport_lib::{
-    CameraAnimator, Easing, GroundPlaneMode, OrbitCameraController, Projection, ViewPreset,
-    ViewportRenderer,
+    CameraAnimator, CameraTarget, CameraTrack, Easing, GroundPlaneMode, OrbitCameraController,
+    Projection, ViewPreset, ViewportRenderer, interpolate_camera,
 };
 
 use dock::{DockTab, build_panel_tree};
-use document::{DEFAULT_VIEWPORT_BACKGROUND, Document, default_camera};
+use document::{
+    DEFAULT_VIEWPORT_BACKGROUND, Document, ExportFormat, SavedCameraView, default_camera,
+    default_export_dir, default_export_filename, export_mode_for_format,
+};
 use plot::entry::PlotEntry;
 use plot::selected_type::SelectedPlotType;
 use ui::equation_editor::EquationEditor;
@@ -104,7 +108,6 @@ struct App {
     panel_style: PanelStyle,
     add_plot_open: bool,
     add_plot_focus_pending: bool,
-    export_open: bool,
     shortcuts_open: bool,
     command_palette_open: bool,
     command_palette_focus_pending: bool,
@@ -119,6 +122,33 @@ struct App {
     renaming_plot: Option<usize>,
     rename_buf: String,
     rename_needs_focus: bool,
+    export_job: Option<ExportJob>,
+}
+
+struct ExportJob {
+    doc_idx: usize,
+    stage: ExportJobStage,
+}
+
+enum ExportJobStage {
+    RenderingFrames {
+        track: CameraTrack,
+        output_path: PathBuf,
+        temp_dir: PathBuf,
+        width: u32,
+        height: u32,
+        fps: u32,
+        format: ExportFormat,
+        frame_count: u32,
+        next_frame: u32,
+        first_projection: Projection,
+        first_fov: f32,
+    },
+    Encoding {
+        child: Child,
+        output_path: PathBuf,
+        temp_dir: PathBuf,
+    },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -168,7 +198,6 @@ impl App {
             panel_style: default_panel_style(),
             add_plot_open: false,
             add_plot_focus_pending: false,
-            export_open: false,
             shortcuts_open: false,
             command_palette_open: false,
             command_palette_focus_pending: false,
@@ -183,6 +212,7 @@ impl App {
             renaming_plot: None,
             rename_buf: String::new(),
             rename_needs_focus: false,
+            export_job: None,
         };
         persistence::load_persisted_state(cc.storage, &mut app);
         for doc in &mut app.documents {
@@ -232,6 +262,11 @@ impl App {
     pub(crate) fn mark_dirty(&mut self) {
         self.record_undo_point();
         self.documents[self.active_document_idx].mark_dirty();
+    }
+
+    pub(crate) fn mark_non_scene_dirty(&mut self) {
+        self.record_undo_point();
+        self.documents[self.active_document_idx].mark_modified();
     }
 
     pub(crate) fn record_undo_point(&mut self) {
@@ -318,22 +353,7 @@ impl App {
     }
 
     pub(crate) fn export_png(&mut self, frame: &mut eframe::Frame) {
-        let Some(render_state) = frame.wgpu_render_state() else {
-            self.documents[self.active_document_idx].export_status =
-                "Export failed: no wgpu render state".to_string();
-            return;
-        };
-
-        let mut renderer_guard = render_state.renderer.write();
-        let Some(viewport_renderer) = renderer_guard
-            .callback_resources
-            .get_mut::<ViewportRenderer>()
-        else {
-            self.documents[self.active_document_idx].export_status =
-                "Export failed: viewport renderer missing".to_string();
-            return;
-        };
-
+        self.documents[self.active_document_idx].export_progress = None;
         let mut export_camera = self.documents[self.active_document_idx].camera.clone();
         export_camera.set_aspect_ratio(
             self.documents[self.active_document_idx].export_width.max(1) as f32,
@@ -341,34 +361,20 @@ impl App {
                 .export_height
                 .max(1) as f32,
         );
-        let mut frame_data = self.documents[self.active_document_idx]
-            .scene
-            .build_frame(&export_camera);
-        frame_data.camera.viewport_size = [
-            self.documents[self.active_document_idx].export_width as f32,
-            self.documents[self.active_document_idx].export_height as f32,
-        ];
-        frame_data.viewport.show_grid = false;
-        frame_data.viewport.background_colour =
-            Some(self.documents[self.active_document_idx].viewport_background);
-        frame_data.effects.ground_plane = viewport_lib::GroundPlane {
-            mode: self.documents[self.active_document_idx].ground_plane_mode,
-            height: self.documents[self.active_document_idx].ground_plane_height,
-            colour: self.documents[self.active_document_idx].ground_plane_color,
-            tile_size: self.documents[self.active_document_idx].ground_plane_tile_size,
-            shadow_colour: [0.0, 0.0, 0.0, 1.0],
-            shadow_opacity: 0.35,
-        };
-
-        let pixels = viewport_renderer.render_offscreen(
-            &render_state.device,
-            &render_state.queue,
-            &frame_data,
+        let pixels = match self.render_export_pixels(
+            frame,
+            &export_camera,
             self.documents[self.active_document_idx].export_width.max(1),
             self.documents[self.active_document_idx]
                 .export_height
                 .max(1),
-        );
+        ) {
+            Ok(pixels) => pixels,
+            Err(err) => {
+                self.documents[self.active_document_idx].export_status = err;
+                return;
+            }
+        };
 
         let path = PathBuf::from(self.documents[self.active_document_idx].export_path.trim());
         if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
@@ -397,6 +403,75 @@ impl App {
                     format!("Export failed: {err}");
             }
         }
+    }
+
+    pub(crate) fn export_animation(&mut self, frame: &mut eframe::Frame) {
+        let _ = frame;
+        let doc_idx = self.active_document_idx;
+        let track = self.build_saved_view_track();
+        if track.len() < 2 {
+            self.documents[doc_idx].export_status =
+                "Animated export requires at least two saved views.".to_string();
+            self.documents[doc_idx].export_progress = None;
+            return;
+        }
+
+        let width = self.documents[doc_idx].export_width.max(1);
+        let height = self.documents[doc_idx].export_height.max(1);
+        let fps = self.documents[doc_idx].export_fps.max(1);
+        let format = self.documents[doc_idx].export_format;
+        let duration = track.duration().max(0.0);
+        let frame_count = ((duration * fps as f64).ceil() as u32).max(2);
+        let output_path = normalized_export_path(
+            self.documents[doc_idx].export_path.trim(),
+            format,
+        );
+        self.documents[doc_idx].export_path = output_path.to_string_lossy().into_owned();
+
+        let temp_dir = std::env::temp_dir().join(format!(
+            "poincare-export-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0)
+        ));
+        if let Err(err) = std::fs::create_dir_all(&temp_dir) {
+            self.documents[doc_idx].export_status = format!("Export failed: {err}");
+            self.documents[doc_idx].export_progress = None;
+            return;
+        }
+
+        let first_projection = self.documents[doc_idx]
+            .saved_views
+            .first()
+            .map(|view| view.camera.projection)
+            .unwrap_or(self.documents[doc_idx].camera.projection);
+        let first_fov = self.documents[doc_idx]
+            .saved_views
+            .first()
+            .map(|view| view.camera.fov_y)
+            .unwrap_or(self.documents[doc_idx].camera.fov_y);
+
+        self.documents[doc_idx].export_status =
+            format!("Rendering animation frames... 0/{frame_count}");
+        self.documents[doc_idx].export_progress = Some(0.0);
+        self.export_job = Some(ExportJob {
+            doc_idx,
+            stage: ExportJobStage::RenderingFrames {
+                track,
+                output_path,
+                temp_dir,
+                width,
+                height,
+                fps,
+                format,
+                frame_count,
+                next_frame: 0,
+                first_projection,
+                first_fov,
+            },
+        });
     }
 
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {
@@ -515,19 +590,19 @@ impl App {
             }
             CameraCommand::SaveSlot(slot) => {
                 let saved = self.documents[self.active_document_idx].camera.clone();
-                if let Some(target) = self
-                    .documents
-                    .get_mut(self.active_document_idx)
-                    .and_then(|doc| doc.camera_slots.get_mut(slot))
+                if let Some(target) = self.documents[self.active_document_idx]
+                    .saved_views
+                    .get_mut(slot)
                 {
-                    *target = Some(saved);
+                    target.camera = saved;
+                    self.documents[self.active_document_idx].mark_modified();
                 }
             }
             CameraCommand::RecallSlot(slot) => {
                 if let Some(saved) = self.documents[self.active_document_idx]
-                    .camera_slots
+                    .saved_views
                     .get(slot)
-                    .and_then(|slot| slot.clone())
+                    .map(|view| view.camera.clone())
                 {
                     self.documents[self.active_document_idx].camera.fov_y = saved.fov_y;
                     self.apply_camera_view(
@@ -588,6 +663,256 @@ impl App {
             if let Some(projection) = projection {
                 camera.projection = projection;
             }
+        }
+    }
+
+    pub(crate) fn add_saved_view(&mut self) {
+        let next_index = self.documents[self.active_document_idx].saved_views.len() + 1;
+        let camera = self.documents[self.active_document_idx].camera.clone();
+        self.documents[self.active_document_idx]
+            .saved_views
+            .push(SavedCameraView {
+                name: format!("View {next_index}"),
+                camera,
+            });
+    }
+
+    pub(crate) fn build_saved_view_track(&self) -> CameraTrack {
+        let doc = &self.documents[self.active_document_idx];
+        let segment = doc.camera_track_segment_duration.max(0.1) as f64;
+        let mut track = CameraTrack::new();
+        for (idx, view) in doc.saved_views.iter().enumerate() {
+            track.push(
+                idx as f64 * segment,
+                CameraTarget {
+                    center: view.camera.center,
+                    distance: view.camera.distance,
+                    orientation: view.camera.orientation,
+                },
+            );
+        }
+        track
+    }
+
+    fn apply_saved_view_track_sample(&mut self, t: f64) {
+        let track = self.build_saved_view_track();
+        if track.is_empty() {
+            return;
+        }
+        let target = interpolate_camera(&track, t);
+        self.cancel_camera_animation();
+        let camera = &mut self.documents[self.active_document_idx].camera;
+        camera.set_center(target.center);
+        camera.set_distance(target.distance);
+        camera.set_orientation(target.orientation);
+    }
+
+    fn render_export_pixels(
+        &mut self,
+        frame: &mut eframe::Frame,
+        export_camera: &viewport_lib::Camera,
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<u8>, String> {
+        let Some(render_state) = frame.wgpu_render_state() else {
+            return Err("Export failed: no wgpu render state".to_string());
+        };
+
+        let mut renderer_guard = render_state.renderer.write();
+        let Some(viewport_renderer) = renderer_guard
+            .callback_resources
+            .get_mut::<ViewportRenderer>()
+        else {
+            return Err("Export failed: viewport renderer missing".to_string());
+        };
+
+        let mut frame_data = self.documents[self.active_document_idx]
+            .scene
+            .build_frame(export_camera);
+        frame_data.camera.viewport_size = [width as f32, height as f32];
+        frame_data.viewport.show_grid = false;
+        frame_data.viewport.background_colour =
+            Some(self.documents[self.active_document_idx].viewport_background);
+        frame_data.effects.ground_plane = viewport_lib::GroundPlane {
+            mode: self.documents[self.active_document_idx].ground_plane_mode,
+            height: self.documents[self.active_document_idx].ground_plane_height,
+            colour: self.documents[self.active_document_idx].ground_plane_color,
+            tile_size: self.documents[self.active_document_idx].ground_plane_tile_size,
+            shadow_colour: [0.0, 0.0, 0.0, 1.0],
+            shadow_opacity: 0.35,
+        };
+
+        Ok(viewport_renderer.render_offscreen(
+            &render_state.device,
+            &render_state.queue,
+            &frame_data,
+            width,
+            height,
+        ))
+    }
+
+    fn spawn_ffmpeg_export(
+        &self,
+        temp_dir: &std::path::Path,
+        output_path: &std::path::Path,
+        fps: u32,
+        format: ExportFormat,
+    ) -> Result<Child, String> {
+        if let Some(parent) = output_path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent).map_err(|err| format!("Export failed: {err}"))?;
+        }
+
+        let input_pattern = temp_dir.join("frame_%05d.png");
+        let mut cmd = Command::new("ffmpeg");
+        cmd.arg("-y")
+            .arg("-nostdin")
+            .arg("-framerate")
+            .arg(fps.to_string())
+            .arg("-i")
+            .arg(&input_pattern);
+        match format {
+            ExportFormat::Gif => {
+                cmd.arg("-vf").arg(format!(
+                    "fps={fps},split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse"
+                ));
+            }
+            ExportFormat::Mp4 => {
+                cmd.args(["-vf", "format=yuv420p", "-pix_fmt", "yuv420p"]);
+            }
+            ExportFormat::Png => {}
+        }
+        cmd.arg(output_path)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+
+        match cmd.spawn() {
+            Ok(child) => Ok(child),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Err(
+                "Export failed: ffmpeg was not found on PATH.".to_string(),
+            ),
+            Err(err) => Err(format!("Export failed: {err}")),
+        }
+    }
+
+    fn tick_export_job(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        let Some(mut job) = self.export_job.take() else {
+            return;
+        };
+
+        let keep_job = match &mut job.stage {
+            ExportJobStage::RenderingFrames {
+                track,
+                output_path,
+                temp_dir,
+                width,
+                height,
+                fps,
+                format,
+                frame_count,
+                next_frame,
+                first_projection,
+                first_fov,
+            } => {
+                if *next_frame >= *frame_count {
+                    match self.spawn_ffmpeg_export(temp_dir, output_path, *fps, *format) {
+                        Ok(child) => {
+                            self.documents[job.doc_idx].export_status =
+                                "Encoding animation...".to_string();
+                            self.documents[job.doc_idx].export_progress = None;
+                            job.stage = ExportJobStage::Encoding {
+                                child,
+                                output_path: output_path.clone(),
+                                temp_dir: temp_dir.clone(),
+                            };
+                            true
+                        }
+                        Err(err) => {
+                            let _ = std::fs::remove_dir_all(temp_dir);
+                            self.documents[job.doc_idx].export_status = err;
+                            self.documents[job.doc_idx].export_progress = None;
+                            false
+                        }
+                    }
+                } else {
+                    let t = if *frame_count <= 1 {
+                        0.0
+                    } else {
+                        track.duration() * *next_frame as f64 / (*frame_count - 1) as f64
+                    };
+                    let target = interpolate_camera(track, t);
+                    let mut export_camera = self.documents[job.doc_idx].camera.clone();
+                    export_camera.set_center(target.center);
+                    export_camera.set_distance(target.distance);
+                    export_camera.set_orientation(target.orientation);
+                    export_camera.projection = *first_projection;
+                    export_camera.set_fov_y(*first_fov);
+                    export_camera.set_aspect_ratio(*width as f32, *height as f32);
+
+                    let pixels = match self.render_export_pixels(frame, &export_camera, *width, *height) {
+                        Ok(pixels) => pixels,
+                        Err(err) => {
+                            let _ = std::fs::remove_dir_all(temp_dir);
+                            self.documents[job.doc_idx].export_status = err;
+                            self.documents[job.doc_idx].export_progress = None;
+                            return;
+                        }
+                    };
+
+                    let frame_path = temp_dir.join(format!("frame_{:05}.png", *next_frame));
+                    if let Err(err) =
+                        image::save_buffer(&frame_path, &pixels, *width, *height, image::ColorType::Rgba8)
+                    {
+                        let _ = std::fs::remove_dir_all(temp_dir);
+                        self.documents[job.doc_idx].export_status = format!("Export failed: {err}");
+                        self.documents[job.doc_idx].export_progress = None;
+                        return;
+                    }
+
+                    *next_frame += 1;
+                    self.documents[job.doc_idx].export_status = format!(
+                        "Rendering animation frames... {}/{}",
+                        *next_frame, *frame_count
+                    );
+                    self.documents[job.doc_idx].export_progress =
+                        Some(*next_frame as f32 / *frame_count as f32);
+                    ctx.request_repaint();
+                    true
+                }
+            }
+            ExportJobStage::Encoding {
+                child,
+                output_path,
+                temp_dir,
+            } => match child.try_wait() {
+                Ok(Some(status)) => {
+                    let _ = std::fs::remove_dir_all(temp_dir);
+                    self.documents[job.doc_idx].export_progress = None;
+                    if status.success() {
+                        self.documents[job.doc_idx].export_status =
+                            format!("Exported {}", output_path.display());
+                    } else {
+                        self.documents[job.doc_idx].export_status =
+                            format!("Export failed: ffmpeg exited with status {status}");
+                    }
+                    false
+                }
+                Ok(None) => {
+                    self.documents[job.doc_idx].export_status = "Encoding animation...".to_string();
+                    self.documents[job.doc_idx].export_progress = None;
+                    ctx.request_repaint();
+                    true
+                }
+                Err(err) => {
+                    let _ = std::fs::remove_dir_all(temp_dir);
+                    self.documents[job.doc_idx].export_status = format!("Export failed: {err}");
+                    self.documents[job.doc_idx].export_progress = None;
+                    false
+                }
+            },
+        };
+
+        if keep_job {
+            self.export_job = Some(job);
         }
     }
 
@@ -761,6 +1086,27 @@ impl eframe::App for App {
         if self.tick_parameter_sweeps(dt) {
             ctx.request_repaint();
         }
+        {
+            let track = self.build_saved_view_track();
+            let mut apply_track_t = None;
+            {
+                let doc = &mut self.documents[self.active_document_idx];
+                if doc.camera_track_playing && track.len() >= 2 {
+                    doc.camera_track_t += dt;
+                    if doc.camera_track_t >= track.duration() {
+                        doc.camera_track_t = track.duration();
+                        doc.camera_track_playing = false;
+                    }
+                    apply_track_t = Some(doc.camera_track_t);
+                } else if doc.camera_track_playing {
+                    doc.camera_track_playing = false;
+                }
+            }
+            if let Some(t) = apply_track_t {
+                self.apply_saved_view_track_sample(t);
+                ctx.request_repaint();
+            }
+        }
         let camera_dt = ctx.input(|i| i.stable_dt).max(1.0 / 240.0);
         if self.camera_animator.update(
             camera_dt,
@@ -770,6 +1116,7 @@ impl eframe::App for App {
         }
 
         self.rebuild_scene(frame);
+        self.tick_export_job(ctx, frame);
         egui::CentralPanel::default()
             .frame(egui::Frame::default().fill(color32_from_rgba(
                 self.documents[self.active_document_idx].viewport_background,
@@ -780,7 +1127,6 @@ impl eframe::App for App {
 
         ui::equation_editor::show_eq_editor_window(ctx, &mut self.eq_editor);
         self.show_add_plot_modal(ctx);
-        self.show_export_modal(ctx, frame);
         self.show_command_palette(ctx);
         self.show_shortcuts_modal(ctx);
         if self.settings_open {
@@ -861,6 +1207,60 @@ fn ensure_poincare_extension(mut path: PathBuf) -> PathBuf {
             .to_string();
         name.push_str(".poincare.json");
         path.set_file_name(name);
+    }
+    path
+}
+
+fn normalized_export_path(path_text: &str, format: ExportFormat) -> PathBuf {
+    let raw = path_text.trim();
+    let mut path = if raw.is_empty() {
+        default_export_dir(export_mode_for_format(format)).join(default_export_filename(format))
+    } else {
+        PathBuf::from(raw)
+    };
+
+    let expected_ext = match format {
+        ExportFormat::Png => "png",
+        ExportFormat::Gif => "gif",
+        ExportFormat::Mp4 => "mp4",
+    };
+
+    if path.extension().and_then(|ext| ext.to_str()) != Some(expected_ext) {
+        path.set_extension(expected_ext);
+    }
+
+    path
+}
+
+fn split_export_path(path_text: &str, format: ExportFormat) -> (PathBuf, String) {
+    let path = normalized_export_path(path_text, format);
+    let filename = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(default_export_filename(format))
+        .to_string();
+    let dir = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| default_export_dir(export_mode_for_format(format)));
+    (dir, filename)
+}
+
+fn export_path_from_parts(dir: &std::path::Path, filename: &str, format: ExportFormat) -> PathBuf {
+    let trimmed = filename.trim();
+    let mut path = if trimmed.is_empty() {
+        dir.join(default_export_filename(format))
+    } else {
+        dir.join(trimmed)
+    };
+    let expected_ext = match format {
+        ExportFormat::Png => "png",
+        ExportFormat::Gif => "gif",
+        ExportFormat::Mp4 => "mp4",
+    };
+    if path.extension().and_then(|ext| ext.to_str()) != Some(expected_ext) {
+        path.set_extension(expected_ext);
     }
     path
 }

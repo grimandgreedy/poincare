@@ -13,7 +13,7 @@ use viewport_lib::{
 };
 
 use crate::App;
-use crate::document::Document;
+use crate::document::{Document, ExportFormat, SavedCameraView};
 use crate::plot::entry::PlotEntry;
 use crate::plot::kind::{PlotKind, SeedMode};
 use crate::plot::sweep::ParameterSweep;
@@ -139,6 +139,14 @@ pub(crate) struct DocumentSnapshot {
     pub export_width: u32,
     #[serde(default = "default_export_height")]
     pub export_height: u32,
+    #[serde(default)]
+    pub export_format: u8,
+    #[serde(default = "default_export_fps")]
+    pub export_fps: u32,
+    #[serde(default = "default_camera_track_segment_duration")]
+    pub camera_track_segment_duration: f32,
+    #[serde(default)]
+    pub saved_views: Vec<PersistedSavedCameraView>,
 
     /// Per-plot parameter sweep config (Phase 6).  `#[serde(default)]` keeps
     /// files written before Phase 6 loadable without error.
@@ -243,6 +251,16 @@ struct PersistedSurfaceLic {
     steps: u32,
     step_size: f32,
     strength: f32,
+}
+
+#[derive(Serialize, Deserialize)]
+pub(crate) struct PersistedSavedCameraView {
+    name: String,
+    center: [f32; 3],
+    distance: f32,
+    orientation: [f32; 4],
+    projection: u8,
+    fov_y: f32,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -435,6 +453,14 @@ impl DocumentSnapshot {
             export_path: doc.export_path.clone(),
             export_width: doc.export_width,
             export_height: doc.export_height,
+            export_format: export_format_to_u8(doc.export_format),
+            export_fps: doc.export_fps,
+            camera_track_segment_duration: doc.camera_track_segment_duration,
+            saved_views: doc
+                .saved_views
+                .iter()
+                .map(PersistedSavedCameraView::from_saved_view)
+                .collect(),
             sweep_config: doc
                 .sweep_config
                 .iter()
@@ -475,6 +501,14 @@ impl DocumentSnapshot {
         if self.export_height > 0 {
             doc.export_height = self.export_height;
         }
+        doc.export_format = u8_to_export_format(self.export_format);
+        doc.export_fps = self.export_fps.max(1);
+        doc.camera_track_segment_duration = self.camera_track_segment_duration.max(0.1);
+        doc.saved_views = self
+            .saved_views
+            .into_iter()
+            .map(|view| view.to_saved_view())
+            .collect();
         doc.sweep_config = self
             .sweep_config
             .into_iter()
@@ -517,6 +551,14 @@ impl DocumentSnapshot {
         if self.export_height > 0 {
             doc.export_height = self.export_height;
         }
+        doc.export_format = u8_to_export_format(self.export_format);
+        doc.export_fps = self.export_fps.max(1);
+        doc.camera_track_segment_duration = self.camera_track_segment_duration.max(0.1);
+        doc.saved_views = self
+            .saved_views
+            .iter()
+            .map(PersistedSavedCameraView::to_saved_view)
+            .collect();
         doc.sweep_config = self
             .sweep_config
             .iter()
@@ -524,6 +566,7 @@ impl DocumentSnapshot {
             .collect();
         doc.scene_dirty = true;
         doc.export_status.clear();
+        doc.export_progress = None;
     }
 }
 
@@ -728,6 +771,32 @@ impl PersistedTransferFunction {
         TransferFunction {
             opacity_scale: self.opacity_scale,
             threshold: self.threshold,
+        }
+    }
+}
+
+impl PersistedSavedCameraView {
+    fn from_saved_view(view: &SavedCameraView) -> Self {
+        Self {
+            name: view.name.clone(),
+            center: view.camera.center.to_array(),
+            distance: view.camera.distance,
+            orientation: view.camera.orientation.to_array(),
+            projection: projection_to_u8(view.camera.projection),
+            fov_y: view.camera.fov_y,
+        }
+    }
+
+    fn to_saved_view(&self) -> SavedCameraView {
+        let mut camera = viewport_lib::Camera::default();
+        camera.center = glam::Vec3::from_array(self.center);
+        camera.set_distance(self.distance);
+        camera.set_orientation(glam::Quat::from_array(self.orientation));
+        camera.projection = u8_to_projection(self.projection);
+        camera.fov_y = self.fov_y;
+        SavedCameraView {
+            name: self.name.clone(),
+            camera,
         }
     }
 }
@@ -1098,7 +1167,9 @@ fn default_viewport_background() -> [f32; 4] {
 }
 
 fn default_export_path() -> String {
-    "poincare-export.png".to_string()
+    crate::document::default_export_path_for_format(ExportFormat::Png)
+        .to_string_lossy()
+        .into_owned()
 }
 
 fn default_export_width() -> u32 {
@@ -1107,6 +1178,14 @@ fn default_export_width() -> u32 {
 
 fn default_export_height() -> u32 {
     1000
+}
+
+fn default_export_fps() -> u32 {
+    24
+}
+
+fn default_camera_track_segment_duration() -> f32 {
+    2.5
 }
 
 // ---------------------------------------------------------------------------
@@ -1174,6 +1253,22 @@ fn u8_to_projection(value: u8) -> Projection {
     match value {
         1 => Projection::Orthographic,
         _ => Projection::Perspective,
+    }
+}
+
+fn export_format_to_u8(value: ExportFormat) -> u8 {
+    match value {
+        ExportFormat::Png => 0,
+        ExportFormat::Gif => 1,
+        ExportFormat::Mp4 => 2,
+    }
+}
+
+fn u8_to_export_format(value: u8) -> ExportFormat {
+    match value {
+        1 => ExportFormat::Gif,
+        2 => ExportFormat::Mp4,
+        _ => ExportFormat::Png,
     }
 }
 
