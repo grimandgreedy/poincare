@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use eframe::egui;
 use poincare_lib::{parse_curve_expr, parse_expr_with_vars};
 
+use crate::plot::analysis::SliceAxis;
 use crate::plot::kind::{DEFAULT_ISO_PALETTE, PlotKind, SeedMode};
 use crate::plot::sweep::ParameterSweep;
 use crate::ui::equation_editor::{EquationEditor, equation_row_ed};
@@ -210,6 +211,135 @@ pub(crate) fn show_expression_params(
         PlotKind::ImportedTable { definition } => {
             ui.add_space(6.0);
             dirty |= edit_table_import(ui, definition);
+        }
+        PlotKind::ScalarSlice {
+            expression,
+            parameters,
+            axis,
+            position,
+            contour_values,
+            ..
+        } => {
+            ui.add_space(4.0);
+            ui.group(|ui| {
+                dirty |= update_single_expr(
+                    ui,
+                    "f =",
+                    expression,
+                    parameters,
+                    |s| parse_expr_with_vars(s, &["x", "y", "z"]),
+                    eq_ed,
+                );
+            });
+            dirty |= edit_slice_controls(ui, axis, position, contour_values);
+            dirty |= show_param_sliders(ui, parameters, slider_dragging, sweep_map);
+        }
+        PlotKind::VectorSlice {
+            expression,
+            parameters,
+            axis,
+            position,
+        } => {
+            ui.add_space(4.0);
+            ui.group(|ui| {
+                dirty |= update_triple_pipe_expr(
+                    ui,
+                    expression,
+                    parameters,
+                    &["x", "y", "z"],
+                    &["vx =", "vy =", "vz ="],
+                    eq_ed,
+                );
+            });
+            let mut empty = Vec::new();
+            dirty |= edit_slice_controls(ui, axis, position, &mut empty);
+            dirty |= show_param_sliders(ui, parameters, slider_dragging, sweep_map);
+        }
+        PlotKind::GradientField {
+            expression,
+            parameters,
+        } => {
+            ui.add_space(4.0);
+            ui.group(|ui| {
+                dirty |= update_single_expr(
+                    ui,
+                    "f =",
+                    expression,
+                    parameters,
+                    |s| parse_expr_with_vars(s, &["x", "y", "z"]),
+                    eq_ed,
+                );
+            });
+            dirty |= show_param_sliders(ui, parameters, slider_dragging, sweep_map);
+        }
+        PlotKind::DivergenceField {
+            expression,
+            parameters,
+            vol_resolution,
+        } => {
+            ui.add_space(4.0);
+            ui.group(|ui| {
+                dirty |= update_triple_pipe_expr(
+                    ui,
+                    expression,
+                    parameters,
+                    &["x", "y", "z"],
+                    &["vx =", "vy =", "vz ="],
+                    eq_ed,
+                );
+            });
+            ui.label("Volume Resolution");
+            ui.horizontal(|ui| {
+                dirty |= ui.add(egui::DragValue::new(&mut vol_resolution[0]).range(8..=256).prefix("X ")).changed();
+                dirty |= ui.add(egui::DragValue::new(&mut vol_resolution[1]).range(8..=256).prefix("Y ")).changed();
+                dirty |= ui.add(egui::DragValue::new(&mut vol_resolution[2]).range(8..=256).prefix("Z ")).changed();
+            });
+            dirty |= show_param_sliders(ui, parameters, slider_dragging, sweep_map);
+        }
+        PlotKind::CurlField {
+            expression,
+            parameters,
+        } => {
+            ui.add_space(4.0);
+            ui.group(|ui| {
+                dirty |= update_triple_pipe_expr(
+                    ui,
+                    expression,
+                    parameters,
+                    &["x", "y", "z"],
+                    &["vx =", "vy =", "vz ="],
+                    eq_ed,
+                );
+            });
+            dirty |= show_param_sliders(ui, parameters, slider_dragging, sweep_map);
+        }
+        PlotKind::PointAnnotations { points, show_labels } => {
+            dirty |= ui.checkbox(show_labels, "Show labels").changed();
+            ui.label(format!("{} point annotation(s)", points.len()));
+            egui::ScrollArea::vertical()
+                .max_height(180.0)
+                .show(ui, |ui| {
+                    for (index, point) in points.iter_mut().enumerate() {
+                        ui.horizontal(|ui| {
+                            ui.label(format!("{}", index + 1));
+                            dirty |= ui.text_edit_singleline(&mut point.label).changed();
+                        });
+                    }
+                });
+        }
+        PlotKind::ArrowAnnotations { arrows, show_labels } => {
+            dirty |= ui.checkbox(show_labels, "Show labels").changed();
+            ui.label(format!("{} arrow annotation(s)", arrows.len()));
+            egui::ScrollArea::vertical()
+                .max_height(180.0)
+                .show(ui, |ui| {
+                    for (index, arrow) in arrows.iter_mut().enumerate() {
+                        ui.horizontal(|ui| {
+                            ui.label(format!("{}", index + 1));
+                            dirty |= ui.text_edit_singleline(&mut arrow.label).changed();
+                        });
+                    }
+                });
         }
         PlotKind::ExprVectorField {
             expression,
@@ -670,6 +800,50 @@ pub(crate) fn update_triple_pipe_expr(
                     "⚠ parse error in one or more components",
                 );
             }
+        }
+    }
+    dirty
+}
+
+fn edit_slice_controls(
+    ui: &mut egui::Ui,
+    axis: &mut SliceAxis,
+    position: &mut f64,
+    contour_values: &mut Vec<f32>,
+) -> bool {
+    let mut dirty = false;
+    ui.horizontal(|ui| {
+        egui::ComboBox::from_label("Slice Axis")
+            .selected_text(axis.label())
+            .show_ui(ui, |ui| {
+                for candidate in SliceAxis::ALL {
+                    dirty |= ui
+                        .selectable_value(axis, candidate, candidate.label())
+                        .changed();
+                }
+            });
+        dirty |= ui
+            .add(egui::DragValue::new(position).speed(0.1).prefix("at "))
+            .changed();
+    });
+    if !contour_values.is_empty() {
+        ui.label("Contour Levels");
+        let mut remove_idx = None;
+        for (index, value) in contour_values.iter_mut().enumerate() {
+            ui.horizontal(|ui| {
+                dirty |= ui.add(egui::DragValue::new(value).speed(0.1)).changed();
+                if ui.small_button("X").clicked() {
+                    remove_idx = Some(index);
+                    dirty = true;
+                }
+            });
+        }
+        if let Some(index) = remove_idx {
+            contour_values.remove(index);
+        }
+        if ui.small_button("+ Level").clicked() {
+            contour_values.push(0.0);
+            dirty = true;
         }
     }
     dirty

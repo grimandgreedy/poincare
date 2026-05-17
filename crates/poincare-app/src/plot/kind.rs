@@ -1,5 +1,6 @@
 use poincare_lib::PlotStyle;
 
+use crate::plot::analysis::{ArrowAnnotation, PointAnnotation, SliceAxis};
 use crate::plot::table::{TableImportDefinition, TablePlotTarget};
 
 /// Default palette for isosurface per-level colours.
@@ -136,6 +137,41 @@ pub(crate) enum PlotKind {
     ImportedTable {
         definition: TableImportDefinition,
     },
+    ScalarSlice {
+        expression: String,
+        parameters: Vec<(String, f64)>,
+        axis: SliceAxis,
+        position: f64,
+        contour_values: Vec<f32>,
+        contour_style: PlotStyle,
+    },
+    VectorSlice {
+        expression: String,
+        parameters: Vec<(String, f64)>,
+        axis: SliceAxis,
+        position: f64,
+    },
+    GradientField {
+        expression: String,
+        parameters: Vec<(String, f64)>,
+    },
+    DivergenceField {
+        expression: String,
+        parameters: Vec<(String, f64)>,
+        vol_resolution: [u32; 3],
+    },
+    CurlField {
+        expression: String,
+        parameters: Vec<(String, f64)>,
+    },
+    PointAnnotations {
+        points: Vec<PointAnnotation>,
+        show_labels: bool,
+    },
+    ArrowAnnotations {
+        arrows: Vec<ArrowAnnotation>,
+        show_labels: bool,
+    },
     /// Vector field (vx(x,y,z), vy(x,y,z), vz(x,y,z)).
     ExprVectorField {
         expression: String,
@@ -176,7 +212,8 @@ impl PlotKind {
             | Self::ExprSpherical { .. }
             | Self::ExprCylindrical { .. }
             | Self::ExprPolar { .. }
-            | Self::ExprParametricSurface { .. } => StyleCaps {
+            | Self::ExprParametricSurface { .. }
+            | Self::ScalarSlice { .. } => StyleCaps {
                 mesh: true,
                 line: false,
                 point: false,
@@ -192,19 +229,24 @@ impl PlotKind {
                 point: false,
                 glyph: false,
             },
-            Self::ScatterCloud => StyleCaps {
+            Self::ScatterCloud | Self::PointAnnotations { .. } => StyleCaps {
                 mesh: false,
                 line: false,
                 point: true,
                 glyph: false,
             },
-            Self::VectorField | Self::ExprVectorField { .. } => StyleCaps {
+            Self::VectorField
+            | Self::ExprVectorField { .. }
+            | Self::VectorSlice { .. }
+            | Self::GradientField { .. }
+            | Self::CurlField { .. }
+            | Self::ArrowAnnotations { .. } => StyleCaps {
                 mesh: false,
                 line: false,
                 point: false,
                 glyph: true,
             },
-            Self::VolumeRender { .. } | Self::ExprVolume { .. } => StyleCaps {
+            Self::VolumeRender { .. } | Self::ExprVolume { .. } | Self::DivergenceField { .. } => StyleCaps {
                 mesh: false,
                 line: false,
                 point: false,
@@ -256,7 +298,11 @@ impl PlotKind {
             Self::ExprParametricSurface { .. } => DomainLabels::Uv,
             Self::ExprCurve { .. } => DomainLabels::T,
             Self::ExprCartesianLine { ind_var, .. } => DomainLabels::SingleVar(ind_var.clone()),
-            Self::ImportedTable { .. } => DomainLabels::None,
+            Self::ImportedTable { .. }
+            | Self::ScalarSlice { .. }
+            | Self::VectorSlice { .. }
+            | Self::PointAnnotations { .. }
+            | Self::ArrowAnnotations { .. } => DomainLabels::None,
             Self::VectorField
             | Self::Streamlines { .. }
             | Self::VolumeRender { .. }
@@ -264,8 +310,11 @@ impl PlotKind {
             | Self::ExprVectorField { .. }
             | Self::ExprVolume { .. }
             | Self::ExprIsosurface { .. }
-            | Self::ExprStreamlines { .. } => DomainLabels::Xyz,
-            _ => DomainLabels::None,
+            | Self::ExprStreamlines { .. }
+            | Self::GradientField { .. }
+            | Self::DivergenceField { .. }
+            | Self::CurlField { .. } => DomainLabels::Xyz,
+        _ => DomainLabels::None,
         }
     }
 
@@ -275,11 +324,20 @@ impl PlotKind {
             Self::ScatterCloud
                 | Self::Streamlines { .. }
                 | Self::ImportedTable { .. }
+                | Self::PointAnnotations { .. }
+                | Self::ArrowAnnotations { .. }
         )
     }
 
     pub(crate) fn uses_seed_resolution(&self) -> bool {
-        matches!(self, Self::VectorField | Self::ExprVectorField { .. })
+        matches!(
+            self,
+            Self::VectorField
+                | Self::ExprVectorField { .. }
+                | Self::VectorSlice { .. }
+                | Self::GradientField { .. }
+                | Self::CurlField { .. }
+        )
     }
 
     /// Return a mutable reference to the parameter list for expression-based plot kinds.
@@ -293,6 +351,11 @@ impl PlotKind {
             | Self::ExprCylindrical { parameters, .. }
             | Self::ExprPolar { parameters, .. }
             | Self::ExprParametricSurface { parameters, .. }
+            | Self::ScalarSlice { parameters, .. }
+            | Self::VectorSlice { parameters, .. }
+            | Self::GradientField { parameters, .. }
+            | Self::DivergenceField { parameters, .. }
+            | Self::CurlField { parameters, .. }
             | Self::ExprVectorField { parameters, .. }
             | Self::ExprVolume { parameters, .. }
             | Self::ExprIsosurface { parameters, .. }

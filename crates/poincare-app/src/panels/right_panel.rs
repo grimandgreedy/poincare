@@ -1,11 +1,16 @@
 use eframe::egui;
-use viewport_lib::{Easing, Projection, ViewPreset};
+use viewport_lib::{AttributeKind, Easing, Projection, ViewPreset};
 
 use crate::App;
 use crate::CameraCommand;
 use crate::InspectorTab;
 use crate::dock::DockTab;
 use crate::document::{ExportFormat, ExportMode, default_export_dir, ensure_export_dir_exists, export_mode_for_format};
+use crate::plot::analysis::{
+    PointAnnotation, SliceAxis, default_slice_position, make_arrow_annotation,
+    make_point_annotations,
+};
+use crate::plot::entry::PlotEntry;
 use crate::plot::kind::{PlotKind, StyleCaps, evenly_spaced_isovalues};
 use crate::ui::domain_editor::{edit_domain, edit_resolution};
 use crate::ui::expr_params::show_expression_params;
@@ -35,6 +40,7 @@ impl App {
             ui.selectable_value(&mut self.inspector_tab, InspectorTab::Domain, "Domain");
             ui.selectable_value(&mut self.inspector_tab, InspectorTab::Style, "Style");
             ui.selectable_value(&mut self.inspector_tab, InspectorTab::Surface, "Surface");
+            ui.selectable_value(&mut self.inspector_tab, InspectorTab::Analysis, "Analysis");
         });
         ui.separator();
 
@@ -50,8 +56,6 @@ impl App {
                 .resize_with(plot_count, Default::default);
         }
 
-        let slider_dragging = &mut self.slider_dragging;
-        let eq_editor = &mut self.eq_editor;
         let inspector_tab = self.inspector_tab;
         let mut selected_dirty = false;
 
@@ -86,8 +90,8 @@ impl App {
                                 selected_dirty |= show_expression_params(
                                     ui,
                                     &mut plot.kind,
-                                    slider_dragging,
-                                    eq_editor,
+                                    &mut self.slider_dragging,
+                                    &mut self.eq_editor,
                                     sweep_map,
                                 );
                             });
@@ -132,6 +136,12 @@ impl App {
                         selected_dirty |=
                             edit_plot_surface_settings(ui, &mut plot.style, plot.kind.style_caps());
                         selected_dirty |= align_surface_colour_for_lic(&mut plot.style);
+                    }
+                    InspectorTab::Analysis => {
+                        let selected_index = index;
+                        let _ = plot;
+                        let _ = sweep_map;
+                        self.analysis_inspector(ui, doc_idx, selected_index);
                     }
                 }
             });
@@ -541,5 +551,320 @@ impl App {
         {
             ui.label(&self.documents[self.active_document_idx].export_status);
         }
+    }
+
+    fn analysis_inspector(&mut self, ui: &mut egui::Ui, doc_idx: usize, plot_idx: usize) {
+        let selected = self.documents[doc_idx].plots[plot_idx].clone();
+        ui.label("Derived Tools");
+        match &selected.kind {
+            PlotKind::ExprVolume { .. } | PlotKind::ExprIsosurface { .. } => {
+                ui.horizontal(|ui| {
+                    if ui.button("Add Z Slice").clicked()
+                        && let Some(plot) =
+                            self.make_scalar_slice_plot(&selected, SliceAxis::Z)
+                    {
+                        self.push_analysis_plot(doc_idx, plot);
+                    }
+                    if ui.button("Add Gradient Field").clicked()
+                        && let Some(plot) = self.make_gradient_plot(&selected)
+                    {
+                        self.push_analysis_plot(doc_idx, plot);
+                    }
+                });
+                ui.label(egui::RichText::new("Slices include contour cross-sections.").small().weak());
+            }
+            PlotKind::ExprVectorField { .. } => {
+                ui.horizontal(|ui| {
+                    if ui.button("Add Z Vector Slice").clicked()
+                        && let Some(plot) =
+                            self.make_vector_slice_plot(&selected, SliceAxis::Z)
+                    {
+                        self.push_analysis_plot(doc_idx, plot);
+                    }
+                    if ui.button("Add Divergence Volume").clicked()
+                        && let Some(plot) = self.make_divergence_plot(&selected)
+                    {
+                        self.push_analysis_plot(doc_idx, plot);
+                    }
+                    if ui.button("Add Curl Field").clicked()
+                        && let Some(plot) = self.make_curl_plot(&selected)
+                    {
+                        self.push_analysis_plot(doc_idx, plot);
+                    }
+                });
+            }
+            _ => {
+                ui.label(egui::RichText::new(
+                    "Select a scalar field or vector field plot to generate slices or derived fields.",
+                ).small().weak());
+            }
+        }
+
+        ui.add_space(8.0);
+        ui.separator();
+        ui.label("Annotations");
+
+        if let Some(hit) = self.documents[doc_idx].last_probe_hit.clone() {
+            ui.horizontal(|ui| {
+                if ui.button("Annotate Probe Point").clicked() {
+                    self.push_analysis_plot(
+                        doc_idx,
+                        PlotEntry {
+                            name: "Probe Annotation".to_string(),
+                            visible: true,
+                            domain: self.documents[doc_idx].plots[plot_idx].domain.clone(),
+                            resolution: self.documents[doc_idx].plots[plot_idx].resolution,
+                            style: poincare_lib::PlotStyle {
+                                colour_mode: poincare_lib::ColourMode::Solid([1.0, 0.95, 0.35, 1.0]),
+                                point_size: 10.0,
+                                ..poincare_lib::PlotStyle::default()
+                            },
+                            kind: PlotKind::PointAnnotations {
+                                points: vec![PointAnnotation {
+                                    position: hit.world_pos.to_array(),
+                                    label: "Probe".to_string(),
+                                }],
+                                show_labels: true,
+                            },
+                        },
+                    );
+                }
+                if ui.button("Annotate Probe Direction").clicked() {
+                    self.push_analysis_plot(
+                        doc_idx,
+                        PlotEntry {
+                            name: "Probe Direction".to_string(),
+                            visible: true,
+                            domain: self.documents[doc_idx].plots[plot_idx].domain.clone(),
+                            resolution: self.documents[doc_idx].plots[plot_idx].resolution,
+                            style: poincare_lib::PlotStyle {
+                                colour_mode: poincare_lib::ColourMode::Solid([0.35, 0.85, 1.0, 1.0]),
+                                glyph_scale: 1.0,
+                                shading: poincare_lib::ShadingMode::Unlit,
+                                ..poincare_lib::PlotStyle::default()
+                            },
+                            kind: PlotKind::ArrowAnnotations {
+                                arrows: vec![make_arrow_annotation(
+                                    hit.world_pos,
+                                    hit.normal,
+                                    if hit.snapped { "Snapped Direction" } else { "Probe Direction" },
+                                )],
+                                show_labels: true,
+                            },
+                        },
+                    );
+                }
+            });
+        } else {
+            ui.label(egui::RichText::new("Use probe mode to create point, normal, or tangent annotations.").small().weak());
+        }
+
+        if !self.documents[doc_idx].pinned_probes.is_empty()
+            && ui.button("Create Pinned Probe Samples").clicked()
+        {
+            let points = self.documents[doc_idx]
+                .pinned_probes
+                .iter()
+                .map(|hit| hit.world_pos.to_array())
+                .collect::<Vec<_>>();
+            self.push_analysis_plot(
+                doc_idx,
+                PlotEntry {
+                    name: "Pinned Probe Samples".to_string(),
+                    visible: true,
+                    domain: self.documents[doc_idx].plots[plot_idx].domain.clone(),
+                    resolution: self.documents[doc_idx].plots[plot_idx].resolution,
+                    style: poincare_lib::PlotStyle {
+                        colour_mode: poincare_lib::ColourMode::Solid([1.0, 0.6, 0.2, 1.0]),
+                        point_size: 8.0,
+                        ..poincare_lib::PlotStyle::default()
+                    },
+                    kind: PlotKind::PointAnnotations {
+                        points: make_point_annotations(&points, "Probe"),
+                        show_labels: true,
+                    },
+                },
+            );
+        }
+
+        ui.add_space(8.0);
+        ui.separator();
+        ui.label("Intersections");
+        if self.documents[doc_idx].intersection_cache.is_empty() {
+            ui.label(egui::RichText::new("No cached curve intersections in the current scene.").small().weak());
+        } else if ui.button("Create Intersection Markers").clicked() {
+            let points = self.documents[doc_idx]
+                .intersection_cache
+                .iter()
+                .map(|point| point.to_array())
+                .collect::<Vec<_>>();
+            self.push_analysis_plot(
+                doc_idx,
+                PlotEntry {
+                    name: "Intersection Markers".to_string(),
+                    visible: true,
+                    domain: self.documents[doc_idx].plots[plot_idx].domain.clone(),
+                    resolution: self.documents[doc_idx].plots[plot_idx].resolution,
+                    style: poincare_lib::PlotStyle {
+                        colour_mode: poincare_lib::ColourMode::Solid([0.9, 0.25, 0.25, 1.0]),
+                        point_size: 9.0,
+                        ..poincare_lib::PlotStyle::default()
+                    },
+                    kind: PlotKind::PointAnnotations {
+                        points: make_point_annotations(&points, "Intersection"),
+                        show_labels: true,
+                    },
+                },
+            );
+        }
+    }
+
+    fn push_analysis_plot(&mut self, doc_idx: usize, plot: PlotEntry) {
+        self.documents[doc_idx].plots.push(plot);
+        self.documents[doc_idx].selected_plot = Some(self.documents[doc_idx].plots.len() - 1);
+        self.mark_dirty();
+    }
+
+    fn make_scalar_slice_plot(&self, source: &PlotEntry, axis: SliceAxis) -> Option<PlotEntry> {
+        let (expression, parameters) = match &source.kind {
+            PlotKind::ExprVolume { expression, parameters, .. }
+            | PlotKind::ExprIsosurface { expression, parameters, .. } => {
+                (expression.clone(), parameters.clone())
+            }
+            _ => return None,
+        };
+        Some(PlotEntry {
+            name: format!("{} Slice {}", axis.label(), source.name),
+            visible: true,
+            domain: source.domain.clone(),
+            resolution: source.resolution,
+            style: poincare_lib::PlotStyle {
+                colour_mode: poincare_lib::ColourMode::ByAttribute {
+                    name: "value".to_string(),
+                    kind: AttributeKind::Vertex,
+                },
+                two_sided: true,
+                ..source.style.clone()
+            },
+            kind: PlotKind::ScalarSlice {
+                expression,
+                parameters,
+                axis,
+                position: default_slice_position(&source.domain, axis),
+                contour_values: evenly_spaced_isovalues(8),
+                contour_style: poincare_lib::PlotStyle {
+                    colour_mode: poincare_lib::ColourMode::Solid([1.0, 0.95, 0.35, 1.0]),
+                    line_width: 2.0,
+                    ..poincare_lib::PlotStyle::default()
+                },
+            },
+        })
+    }
+
+    fn make_vector_slice_plot(&self, source: &PlotEntry, axis: SliceAxis) -> Option<PlotEntry> {
+        let (expression, parameters) = match &source.kind {
+            PlotKind::ExprVectorField { expression, parameters } => {
+                (expression.clone(), parameters.clone())
+            }
+            _ => return None,
+        };
+        Some(PlotEntry {
+            name: format!("{} Slice {}", axis.label(), source.name),
+            visible: true,
+            domain: source.domain.clone(),
+            resolution: source.resolution,
+            style: source.style.clone(),
+            kind: PlotKind::VectorSlice {
+                expression,
+                parameters,
+                axis,
+                position: default_slice_position(&source.domain, axis),
+            },
+        })
+    }
+
+    fn make_gradient_plot(&self, source: &PlotEntry) -> Option<PlotEntry> {
+        let (expression, parameters) = match &source.kind {
+            PlotKind::ExprVolume { expression, parameters, .. }
+            | PlotKind::ExprIsosurface { expression, parameters, .. } => {
+                (expression.clone(), parameters.clone())
+            }
+            _ => return None,
+        };
+        Some(PlotEntry {
+            name: format!("Gradient {}", source.name),
+            visible: true,
+            domain: source.domain.clone(),
+            resolution: source.resolution,
+            style: poincare_lib::PlotStyle {
+                colour_mode: poincare_lib::ColourMode::ByAttribute {
+                    name: "magnitude".to_string(),
+                    kind: AttributeKind::Vertex,
+                },
+                glyph_scale: 0.8,
+                shading: poincare_lib::ShadingMode::Unlit,
+                ..poincare_lib::PlotStyle::default()
+            },
+            kind: PlotKind::GradientField {
+                expression,
+                parameters,
+            },
+        })
+    }
+
+    fn make_divergence_plot(&self, source: &PlotEntry) -> Option<PlotEntry> {
+        let (expression, parameters) = match &source.kind {
+            PlotKind::ExprVectorField { expression, parameters } => {
+                (expression.clone(), parameters.clone())
+            }
+            _ => return None,
+        };
+        Some(PlotEntry {
+            name: format!("Divergence {}", source.name),
+            visible: true,
+            domain: source.domain.clone(),
+            resolution: source.resolution,
+            style: poincare_lib::PlotStyle {
+                opacity: 0.3,
+                transfer_function: Some(poincare_lib::TransferFunction {
+                    opacity_scale: 0.4,
+                    threshold: None,
+                }),
+                ..poincare_lib::PlotStyle::default()
+            },
+            kind: PlotKind::DivergenceField {
+                expression,
+                parameters,
+                vol_resolution: [64, 64, 64],
+            },
+        })
+    }
+
+    fn make_curl_plot(&self, source: &PlotEntry) -> Option<PlotEntry> {
+        let (expression, parameters) = match &source.kind {
+            PlotKind::ExprVectorField { expression, parameters } => {
+                (expression.clone(), parameters.clone())
+            }
+            _ => return None,
+        };
+        Some(PlotEntry {
+            name: format!("Curl {}", source.name),
+            visible: true,
+            domain: source.domain.clone(),
+            resolution: source.resolution,
+            style: poincare_lib::PlotStyle {
+                colour_mode: poincare_lib::ColourMode::ByAttribute {
+                    name: "magnitude".to_string(),
+                    kind: AttributeKind::Vertex,
+                },
+                glyph_scale: 0.8,
+                shading: poincare_lib::ShadingMode::Unlit,
+                ..poincare_lib::PlotStyle::default()
+            },
+            kind: PlotKind::CurlField {
+                expression,
+                parameters,
+            },
+        })
     }
 }
