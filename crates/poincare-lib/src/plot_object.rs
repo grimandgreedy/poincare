@@ -1,6 +1,6 @@
 use glam::Vec3;
 
-use viewport_lib::MeshData;
+use viewport_lib::{LabelItem, MeshData};
 
 use crate::coordinate::CoordinateSystem;
 use crate::domain::{DataBounds, Domain};
@@ -65,6 +65,7 @@ pub enum PlotGeometry {
         /// Voxel spacing `[dx, dy, dz]`.
         spacing: [f32; 3],
     },
+    Labels(Vec<LabelItem>),
     Composite(Vec<PlotComponent>),
 }
 

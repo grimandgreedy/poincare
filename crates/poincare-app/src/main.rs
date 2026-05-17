@@ -235,6 +235,7 @@ pub(crate) enum InspectorTab {
     Domain,
     Style,
     Surface,
+    Analysis,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

@@ -66,6 +66,10 @@ struct CachedVolume {
     scalar_range: (f32, f32),
 }
 
+struct CachedLabels {
+    labels: Vec<LabelItem>,
+}
+
 #[derive(Default)]
 struct CachedPlot {
     surfaces: Vec<CachedSurface>,
@@ -74,6 +78,7 @@ struct CachedPlot {
     glyphs: Vec<CachedGlyphs>,
     streamtubes: Vec<CachedStreamtube>,
     volumes: Vec<CachedVolume>,
+    labels: Vec<CachedLabels>,
 }
 
 /// A collection of plot objects rendered together in one scene.
@@ -443,11 +448,16 @@ impl GraphScene {
             polylines.clear();
         }
 
-        let axis_labels: Vec<LabelItem> = axis::build_axis_labels_projected(
+        let mut axis_labels: Vec<LabelItem> = axis::build_axis_labels_projected(
             &axis_domain,
             &self.axis_config,
             &ticks_per_axis,
             Some(&vp),
+        );
+        axis_labels.extend(
+            self.cached_plots
+                .iter()
+                .flat_map(|plot| plot.labels.iter().flat_map(|labels| labels.labels.clone())),
         );
 
         let mut frame = FrameData::default();
@@ -602,6 +612,11 @@ fn cache_geometry(
                 style,
                 scalar_range,
             });
+        }
+        PlotGeometry::Labels(labels) => {
+            if !labels.is_empty() {
+                cache.labels.push(CachedLabels { labels });
+            }
         }
         PlotGeometry::Composite(components) => {
             for PlotComponent { geometry, style } in components {

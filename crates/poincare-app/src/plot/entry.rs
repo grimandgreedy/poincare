@@ -7,6 +7,9 @@ use poincare_lib::{
     parse_surface_expr,
 };
 
+use crate::plot::analysis::{
+    AnnotatedArrowsPlot, AnnotatedPointsPlot, PlaneVectorFieldPlot, ScalarSlicePlot,
+};
 use crate::plot::kind::PlotKind;
 use crate::plot::table::{TableDataSet, TableVectorFieldPlot, build_curve_piecewise};
 
@@ -345,6 +348,231 @@ impl PlotEntry {
                     }
                 }
             }
+            PlotKind::ScalarSlice {
+                expression,
+                parameters,
+                axis,
+                position,
+                contour_values,
+                contour_style,
+            } => {
+                if let Ok(parsed) = parse_expr_with_vars(expression, &["x", "y", "z"]) {
+                    let params = parameters.clone();
+                    scene.add_with_pick_id(
+                        pick_id,
+                        ScalarSlicePlot {
+                            axis: *axis,
+                            position: *position,
+                            value_fn: Box::new(move |x, y, z| {
+                                let mut vars: Vec<(&str, f64)> = vec![("x", x), ("y", y), ("z", z)];
+                                for (name, val) in &params {
+                                    vars.push((name.as_str(), *val));
+                                }
+                                eval_with_vars(&parsed, &vars)
+                            }),
+                            contour_values: contour_values.clone(),
+                            contour_style: contour_style.clone(),
+                            style: self.surface_style(),
+                        },
+                    );
+                }
+            }
+            PlotKind::VectorSlice {
+                expression,
+                parameters,
+                axis,
+                position,
+            } => {
+                let parts: Vec<&str> = expression.splitn(3, '|').collect();
+                if parts.len() == 3 {
+                    if let (Ok(px), Ok(py), Ok(pz)) = (
+                        parse_expr_with_vars(parts[0], &["x", "y", "z"]),
+                        parse_expr_with_vars(parts[1], &["x", "y", "z"]),
+                        parse_expr_with_vars(parts[2], &["x", "y", "z"]),
+                    ) {
+                        let params = parameters.clone();
+                        scene.add_with_pick_id(
+                            pick_id,
+                            PlaneVectorFieldPlot {
+                                axis: *axis,
+                                position: *position,
+                                vector_fn: Box::new(move |x, y, z| {
+                                    let mut vars: Vec<(&str, f64)> =
+                                        vec![("x", x), ("y", y), ("z", z)];
+                                    for (name, val) in &params {
+                                        vars.push((name.as_str(), *val));
+                                    }
+                                    glam::vec3(
+                                        eval_with_vars(&px, &vars) as f32,
+                                        eval_with_vars(&py, &vars) as f32,
+                                        eval_with_vars(&pz, &vars) as f32,
+                                    )
+                                }),
+                                style: self.style.clone(),
+                            },
+                        );
+                    }
+                }
+            }
+            PlotKind::GradientField {
+                expression,
+                parameters,
+            } => {
+                if let Ok(parsed) = parse_expr_with_vars(expression, &["x", "y", "z"]) {
+                    let params = parameters.clone();
+                    let seeds = [
+                        self.resolution.u.clamp(2, 12),
+                        self.resolution.v.clamp(2, 12),
+                        ((self.resolution.u + self.resolution.v) / 4).clamp(2, 8),
+                    ];
+                    scene.add_with_pick_id(
+                        pick_id,
+                        VectorField3D::from_fn(
+                            move |x, y, z| {
+                                let h = gradient_step(&params);
+                                finite_gradient(
+                                    |sx, sy, sz| {
+                                        let mut vars =
+                                            vec![("x", sx), ("y", sy), ("z", sz)];
+                                        for (name, val) in &params {
+                                            vars.push((name.as_str(), *val));
+                                        }
+                                        eval_with_vars(&parsed, &vars)
+                                    },
+                                    x,
+                                    y,
+                                    z,
+                                    h,
+                                )
+                            },
+                            seeds,
+                        )
+                        .with_domain(self.domain.clone())
+                        .with_style(self.style.clone())
+                        .with_resolution(self.resolution),
+                    );
+                }
+            }
+            PlotKind::DivergenceField {
+                expression,
+                parameters,
+                vol_resolution,
+            } => {
+                let parts: Vec<&str> = expression.splitn(3, '|').collect();
+                if parts.len() == 3 {
+                    if let (Ok(px), Ok(py), Ok(pz)) = (
+                        parse_expr_with_vars(parts[0], &["x", "y", "z"]),
+                        parse_expr_with_vars(parts[1], &["x", "y", "z"]),
+                        parse_expr_with_vars(parts[2], &["x", "y", "z"]),
+                    ) {
+                        let params = parameters.clone();
+                        let res = *vol_resolution;
+                        scene.add_with_pick_id(
+                            pick_id,
+                            DensityPlot3D::from_fn(
+                                move |x, y, z| {
+                                    let h = gradient_step(&params);
+                                    finite_divergence(
+                                        |sx, sy, sz| {
+                                            let mut vars =
+                                                vec![("x", sx), ("y", sy), ("z", sz)];
+                                            for (name, val) in &params {
+                                                vars.push((name.as_str(), *val));
+                                            }
+                                            glam::vec3(
+                                                eval_with_vars(&px, &vars) as f32,
+                                                eval_with_vars(&py, &vars) as f32,
+                                                eval_with_vars(&pz, &vars) as f32,
+                                            )
+                                        },
+                                        x,
+                                        y,
+                                        z,
+                                        h,
+                                    ) as f64
+                                },
+                                res,
+                            )
+                            .with_domain(self.domain.clone())
+                            .with_style(self.style.clone()),
+                        );
+                    }
+                }
+            }
+            PlotKind::CurlField {
+                expression,
+                parameters,
+            } => {
+                let parts: Vec<&str> = expression.splitn(3, '|').collect();
+                if parts.len() == 3 {
+                    if let (Ok(px), Ok(py), Ok(pz)) = (
+                        parse_expr_with_vars(parts[0], &["x", "y", "z"]),
+                        parse_expr_with_vars(parts[1], &["x", "y", "z"]),
+                        parse_expr_with_vars(parts[2], &["x", "y", "z"]),
+                    ) {
+                        let params = parameters.clone();
+                        let seeds = [
+                            self.resolution.u.clamp(2, 12),
+                            self.resolution.v.clamp(2, 12),
+                            ((self.resolution.u + self.resolution.v) / 4).clamp(2, 8),
+                        ];
+                        scene.add_with_pick_id(
+                            pick_id,
+                            VectorField3D::from_fn(
+                                move |x, y, z| {
+                                    let h = gradient_step(&params);
+                                    finite_curl(
+                                        |sx, sy, sz| {
+                                            let mut vars =
+                                                vec![("x", sx), ("y", sy), ("z", sz)];
+                                            for (name, val) in &params {
+                                                vars.push((name.as_str(), *val));
+                                            }
+                                            glam::vec3(
+                                                eval_with_vars(&px, &vars) as f32,
+                                                eval_with_vars(&py, &vars) as f32,
+                                                eval_with_vars(&pz, &vars) as f32,
+                                            )
+                                        },
+                                        x,
+                                        y,
+                                        z,
+                                        h,
+                                    )
+                                },
+                                seeds,
+                            )
+                            .with_domain(self.domain.clone())
+                            .with_style(self.style.clone())
+                            .with_resolution(self.resolution),
+                        );
+                    }
+                }
+            }
+            PlotKind::PointAnnotations { points, show_labels } => {
+                if !points.is_empty() {
+                    scene.add_with_pick_id(
+                        pick_id,
+                        AnnotatedPointsPlot {
+                            points: points.clone(),
+                            show_labels: *show_labels,
+                            style: self.style.clone(),
+                        },
+                    );
+                }
+            }
+            PlotKind::ArrowAnnotations { arrows, show_labels } => {
+                if !arrows.is_empty() {
+                    scene.add_with_pick_id(
+                        pick_id,
+                        AnnotatedArrowsPlot {
+                            arrows: arrows.clone(),
+                            show_labels: *show_labels,
+                            style: self.style.clone(),
+                        },
+                    );
+                }
+            }
             PlotKind::ImportedTable { definition } => {
                 if let Ok(dataset) = definition.validate() {
                     match dataset {
@@ -544,4 +772,55 @@ impl PlotEntry {
             }
         }
     }
+}
+
+fn gradient_step(parameters: &[(String, f64)]) -> f64 {
+    let scale = parameters
+        .iter()
+        .map(|(_, value)| value.abs())
+        .fold(1.0_f64, f64::max);
+    (scale * 0.01).clamp(1.0e-3, 0.25)
+}
+
+fn finite_gradient(
+    f: impl Fn(f64, f64, f64) -> f64,
+    x: f64,
+    y: f64,
+    z: f64,
+    h: f64,
+) -> glam::Vec3 {
+    let dx = (f(x + h, y, z) - f(x - h, y, z)) / (2.0 * h);
+    let dy = (f(x, y + h, z) - f(x, y - h, z)) / (2.0 * h);
+    let dz = (f(x, y, z + h) - f(x, y, z - h)) / (2.0 * h);
+    glam::vec3(dx as f32, dy as f32, dz as f32)
+}
+
+fn finite_divergence(
+    f: impl Fn(f64, f64, f64) -> glam::Vec3,
+    x: f64,
+    y: f64,
+    z: f64,
+    h: f64,
+) -> f32 {
+    let ddx = (f(x + h, y, z).x - f(x - h, y, z).x) / (2.0 * h as f32);
+    let ddy = (f(x, y + h, z).y - f(x, y - h, z).y) / (2.0 * h as f32);
+    let ddz = (f(x, y, z + h).z - f(x, y, z - h).z) / (2.0 * h as f32);
+    ddx + ddy + ddz
+}
+
+fn finite_curl(
+    f: impl Fn(f64, f64, f64) -> glam::Vec3,
+    x: f64,
+    y: f64,
+    z: f64,
+    h: f64,
+) -> glam::Vec3 {
+    let inv = 1.0 / (2.0 * h as f32);
+    let d_fz_dy = (f(x, y + h, z).z - f(x, y - h, z).z) * inv;
+    let d_fy_dz = (f(x, y, z + h).y - f(x, y, z - h).y) * inv;
+    let d_fx_dz = (f(x, y, z + h).x - f(x, y, z - h).x) * inv;
+    let d_fz_dx = (f(x + h, y, z).z - f(x - h, y, z).z) * inv;
+    let d_fy_dx = (f(x + h, y, z).y - f(x - h, y, z).y) * inv;
+    let d_fx_dy = (f(x, y + h, z).x - f(x, y - h, z).x) * inv;
+    glam::vec3(d_fz_dy - d_fy_dz, d_fx_dz - d_fz_dx, d_fy_dx - d_fx_dy)
 }

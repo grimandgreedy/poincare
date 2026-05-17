@@ -6,6 +6,7 @@ use viewport_lib::{Aabb, Camera, GroundPlaneMode};
 
 use crate::picking::ProbeHit;
 use crate::picking::segment_segment_closest;
+use crate::plot::analysis::SliceAxis;
 use crate::plot::entry::PlotEntry;
 use crate::plot::kind::DomainLabels;
 use crate::plot::sweep::ParameterSweep;
@@ -564,6 +565,37 @@ pub(crate) fn plot_bounds(plot: &PlotEntry) -> Option<Aabb> {
             return Some(bounds);
         }
     }
+    match &plot.kind {
+        crate::plot::kind::PlotKind::ScalarSlice { axis, position, .. }
+        | crate::plot::kind::PlotKind::VectorSlice { axis, position, .. } => {
+            let (min, max) = match axis {
+                SliceAxis::X => (
+                    glam::vec3(*position as f32, *plot.domain.y.start() as f32, *plot.domain.z.start() as f32),
+                    glam::vec3(*position as f32, *plot.domain.y.end() as f32, *plot.domain.z.end() as f32),
+                ),
+                SliceAxis::Y => (
+                    glam::vec3(*plot.domain.x.start() as f32, *position as f32, *plot.domain.z.start() as f32),
+                    glam::vec3(*plot.domain.x.end() as f32, *position as f32, *plot.domain.z.end() as f32),
+                ),
+                SliceAxis::Z => (
+                    glam::vec3(*plot.domain.x.start() as f32, *plot.domain.y.start() as f32, *position as f32),
+                    glam::vec3(*plot.domain.x.end() as f32, *plot.domain.y.end() as f32, *position as f32),
+                ),
+            };
+            return Some(Aabb { min, max });
+        }
+        crate::plot::kind::PlotKind::PointAnnotations { points, .. } => {
+            return bounds_from_positions(points.iter().map(|point| glam::Vec3::from_array(point.position)));
+        }
+        crate::plot::kind::PlotKind::ArrowAnnotations { arrows, .. } => {
+            return bounds_from_positions(arrows.iter().flat_map(|arrow| {
+                let origin = glam::Vec3::from_array(arrow.origin);
+                let tip = origin + glam::Vec3::from_array(arrow.vector);
+                [origin, tip]
+            }));
+        }
+        _ => {}
+    }
 
     let x0 = *plot.domain.x.start() as f32;
     let x1 = *plot.domain.x.end() as f32;
@@ -591,5 +623,25 @@ pub(crate) fn plot_bounds(plot: &PlotEntry) -> Option<Aabb> {
         max += pad;
     }
 
+    Some(Aabb { min, max })
+}
+
+fn bounds_from_positions(points: impl IntoIterator<Item = glam::Vec3>) -> Option<Aabb> {
+    let mut min = glam::Vec3::splat(f32::INFINITY);
+    let mut max = glam::Vec3::splat(f32::NEG_INFINITY);
+    let mut any = false;
+    for point in points {
+        min = min.min(point);
+        max = max.max(point);
+        any = true;
+    }
+    if !any {
+        return None;
+    }
+    if (max - min).length_squared() < 1.0e-8 {
+        let pad = glam::Vec3::splat(0.5);
+        min -= pad;
+        max += pad;
+    }
     Some(Aabb { min, max })
 }

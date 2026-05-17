@@ -14,6 +14,7 @@ use viewport_lib::{
 
 use crate::App;
 use crate::document::{Document, ExportFormat, SavedCameraView};
+use crate::plot::analysis::{ArrowAnnotation, PointAnnotation, SliceAxis};
 use crate::plot::entry::PlotEntry;
 use crate::plot::kind::{PlotKind, SeedMode};
 use crate::plot::sweep::ParameterSweep;
@@ -92,6 +93,26 @@ impl PersistedParameterSweep {
 
 fn default_parameter_step() -> f64 {
     0.1
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn persist_slice_axis(axis: SliceAxis) -> u8 {
+    match axis {
+        SliceAxis::X => 0,
+        SliceAxis::Y => 1,
+        SliceAxis::Z => 2,
+    }
+}
+
+fn load_slice_axis(axis: u8) -> SliceAxis {
+    match axis {
+        0 => SliceAxis::X,
+        1 => SliceAxis::Y,
+        _ => SliceAxis::Z,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -325,6 +346,43 @@ enum PersistedPlotKind {
     },
     ImportedTable {
         definition: TableImportDefinition,
+    },
+    ScalarSlice {
+        expression: String,
+        parameters: Vec<(String, f64)>,
+        axis: u8,
+        position: f64,
+        contour_values: Vec<f32>,
+        contour_style: PersistedPlotStyle,
+    },
+    VectorSlice {
+        expression: String,
+        parameters: Vec<(String, f64)>,
+        axis: u8,
+        position: f64,
+    },
+    GradientField {
+        expression: String,
+        parameters: Vec<(String, f64)>,
+    },
+    DivergenceField {
+        expression: String,
+        parameters: Vec<(String, f64)>,
+        vol_resolution: [u32; 3],
+    },
+    CurlField {
+        expression: String,
+        parameters: Vec<(String, f64)>,
+    },
+    PointAnnotations {
+        points: Vec<PointAnnotation>,
+        #[serde(default = "default_true")]
+        show_labels: bool,
+    },
+    ArrowAnnotations {
+        arrows: Vec<ArrowAnnotation>,
+        #[serde(default = "default_true")]
+        show_labels: bool,
     },
     ExprVectorField {
         expression: String,
@@ -954,6 +1012,69 @@ impl PersistedPlotKind {
             PlotKind::ImportedTable { definition } => Self::ImportedTable {
                 definition: definition.clone(),
             },
+            PlotKind::ScalarSlice {
+                expression,
+                parameters,
+                axis,
+                position,
+                contour_values,
+                contour_style,
+            } => Self::ScalarSlice {
+                expression: expression.clone(),
+                parameters: parameters.clone(),
+                axis: persist_slice_axis(*axis),
+                position: *position,
+                contour_values: contour_values.clone(),
+                contour_style: PersistedPlotStyle::from_plot_style(contour_style),
+            },
+            PlotKind::VectorSlice {
+                expression,
+                parameters,
+                axis,
+                position,
+            } => Self::VectorSlice {
+                expression: expression.clone(),
+                parameters: parameters.clone(),
+                axis: persist_slice_axis(*axis),
+                position: *position,
+            },
+            PlotKind::GradientField {
+                expression,
+                parameters,
+            } => Self::GradientField {
+                expression: expression.clone(),
+                parameters: parameters.clone(),
+            },
+            PlotKind::DivergenceField {
+                expression,
+                parameters,
+                vol_resolution,
+            } => Self::DivergenceField {
+                expression: expression.clone(),
+                parameters: parameters.clone(),
+                vol_resolution: *vol_resolution,
+            },
+            PlotKind::CurlField {
+                expression,
+                parameters,
+            } => Self::CurlField {
+                expression: expression.clone(),
+                parameters: parameters.clone(),
+            },
+            PlotKind::PointAnnotations {
+                points,
+                show_labels,
+            } => Self::PointAnnotations {
+                points: points.clone(),
+                show_labels: *show_labels,
+            },
+            PlotKind::ArrowAnnotations {
+                arrows,
+                show_labels,
+            } => Self::ArrowAnnotations {
+                arrows: arrows.clone(),
+                show_labels: *show_labels,
+            },
             PlotKind::ExprVectorField {
                 expression,
                 parameters,
@@ -1083,6 +1204,69 @@ impl PersistedPlotKind {
             },
             Self::ImportedTable { definition } => PlotKind::ImportedTable {
                 definition: definition.clone(),
+            },
+            Self::ScalarSlice {
+                expression,
+                parameters,
+                axis,
+                position,
+                contour_values,
+                contour_style,
+            } => PlotKind::ScalarSlice {
+                expression: expression.clone(),
+                parameters: parameters.clone(),
+                axis: load_slice_axis(*axis),
+                position: *position,
+                contour_values: contour_values.clone(),
+                contour_style: contour_style.to_plot_style(),
+            },
+            Self::VectorSlice {
+                expression,
+                parameters,
+                axis,
+                position,
+            } => PlotKind::VectorSlice {
+                expression: expression.clone(),
+                parameters: parameters.clone(),
+                axis: load_slice_axis(*axis),
+                position: *position,
+            },
+            Self::GradientField {
+                expression,
+                parameters,
+            } => PlotKind::GradientField {
+                expression: expression.clone(),
+                parameters: parameters.clone(),
+            },
+            Self::DivergenceField {
+                expression,
+                parameters,
+                vol_resolution,
+            } => PlotKind::DivergenceField {
+                expression: expression.clone(),
+                parameters: parameters.clone(),
+                vol_resolution: *vol_resolution,
+            },
+            Self::CurlField {
+                expression,
+                parameters,
+            } => PlotKind::CurlField {
+                expression: expression.clone(),
+                parameters: parameters.clone(),
+            },
+            Self::PointAnnotations {
+                points,
+                show_labels,
+            } => PlotKind::PointAnnotations {
+                points: points.clone(),
+                show_labels: *show_labels,
+            },
+            Self::ArrowAnnotations {
+                arrows,
+                show_labels,
+            } => PlotKind::ArrowAnnotations {
+                arrows: arrows.clone(),
+                show_labels: *show_labels,
             },
             Self::ExprVectorField {
                 expression,

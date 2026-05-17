@@ -1,3 +1,4 @@
+pub(crate) mod analysis;
 pub(crate) mod builder;
 pub(crate) mod entry;
 pub(crate) mod kind;
