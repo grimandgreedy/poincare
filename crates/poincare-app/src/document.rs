@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use poincare_lib::{AxisConfig, GraphScene};
 use viewport_lib::{Aabb, Camera, GroundPlaneMode};
@@ -12,6 +13,25 @@ use crate::plot::sweep::ParameterSweep;
 pub(crate) const VIEWPORT_BACKGROUND: [f32; 4] = [18.0 / 255.0, 18.0 / 255.0, 18.0 / 255.0, 1.0];
 pub(crate) const DEFAULT_VIEWPORT_BACKGROUND: [f32; 4] = VIEWPORT_BACKGROUND;
 const UNDO_LIMIT: usize = 100;
+
+#[derive(Clone)]
+pub(crate) struct SavedCameraView {
+    pub name: String,
+    pub camera: Camera,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ExportFormat {
+    Png,
+    Gif,
+    Mp4,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ExportMode {
+    Image,
+    Video,
+}
 
 #[derive(Clone)]
 pub(crate) struct DocumentUndoState {
@@ -30,8 +50,11 @@ pub(crate) struct DocumentUndoState {
     ground_plane_color: [f32; 4],
     ground_plane_tile_size: f32,
     viewport_background: [f32; 4],
-    camera_slots: [Option<Camera>; 5],
+    saved_views: Vec<SavedCameraView>,
+    camera_track_segment_duration: f32,
     sweep_config: Vec<HashMap<String, ParameterSweep>>,
+    export_format: ExportFormat,
+    export_fps: u32,
 }
 
 pub(crate) struct Document {
@@ -52,6 +75,7 @@ pub(crate) struct Document {
     pub export_width: u32,
     pub export_height: u32,
     pub export_status: String,
+    pub export_progress: Option<f32>,
 
     pub probe_mode: bool,
     pub probe_hit: Option<ProbeHit>,
@@ -64,10 +88,15 @@ pub(crate) struct Document {
     pub ground_plane_color: [f32; 4],
     pub ground_plane_tile_size: f32,
     pub viewport_background: [f32; 4],
-    pub camera_slots: [Option<Camera>; 5],
+    pub saved_views: Vec<SavedCameraView>,
+    pub camera_track_segment_duration: f32,
+    pub camera_track_t: f64,
+    pub camera_track_playing: bool,
 
     /// Per-plot parameter sweep config.  Parallel to `plots`; grown lazily.
     pub sweep_config: Vec<HashMap<String, ParameterSweep>>,
+    pub export_format: ExportFormat,
+    pub export_fps: u32,
     history_head: Option<DocumentUndoState>,
     undo_stack: Vec<DocumentUndoState>,
     redo_stack: Vec<DocumentUndoState>,
@@ -86,10 +115,13 @@ impl Document {
             scene_dirty: true,
             camera: default_camera(),
             axis_config: AxisConfig::default(),
-            export_path: "poincare-export.png".to_string(),
+            export_path: default_export_path_for_format(ExportFormat::Png)
+                .to_string_lossy()
+                .into_owned(),
             export_width: 1600,
             export_height: 1000,
             export_status: String::new(),
+            export_progress: None,
             probe_mode: false,
             probe_hit: None,
             intersection_cache: Vec::new(),
@@ -100,8 +132,13 @@ impl Document {
             ground_plane_color: [0.3, 0.3, 0.3, 1.0],
             ground_plane_tile_size: 1.0,
             viewport_background: DEFAULT_VIEWPORT_BACKGROUND,
-            camera_slots: std::array::from_fn(|_| None),
+            saved_views: Vec::new(),
+            camera_track_segment_duration: 2.5,
+            camera_track_t: 0.0,
+            camera_track_playing: false,
             sweep_config: Vec::new(),
+            export_format: ExportFormat::Png,
+            export_fps: 24,
             history_head: None,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
@@ -121,6 +158,13 @@ impl Document {
         self.dirty = true;
         self.scene_dirty = true;
         self.export_status.clear();
+        self.export_progress = None;
+    }
+
+    pub(crate) fn mark_modified(&mut self) {
+        self.dirty = true;
+        self.export_status.clear();
+        self.export_progress = None;
     }
 
     pub(crate) fn initialize_history(&mut self) {
@@ -311,8 +355,11 @@ impl Document {
             ground_plane_color: self.ground_plane_color,
             ground_plane_tile_size: self.ground_plane_tile_size,
             viewport_background: self.viewport_background,
-            camera_slots: self.camera_slots.clone(),
+            saved_views: self.saved_views.clone(),
+            camera_track_segment_duration: self.camera_track_segment_duration,
             sweep_config: self.sweep_config.clone(),
+            export_format: self.export_format,
+            export_fps: self.export_fps,
         }
     }
 
@@ -332,15 +379,74 @@ impl Document {
         self.ground_plane_color = state.ground_plane_color;
         self.ground_plane_tile_size = state.ground_plane_tile_size;
         self.viewport_background = state.viewport_background;
-        self.camera_slots = state.camera_slots;
+        self.saved_views = state.saved_views;
+        self.camera_track_segment_duration = state.camera_track_segment_duration;
+        self.camera_track_t = 0.0;
+        self.camera_track_playing = false;
         self.sweep_config = state.sweep_config;
+        self.export_format = state.export_format;
+        self.export_fps = state.export_fps;
         self.scene_dirty = true;
         self.export_status.clear();
+        self.export_progress = None;
         self.probe_hit = None;
         self.intersection_cache.clear();
         self.probe_snap_point = None;
         self.probe_snap_locked = false;
     }
+}
+
+pub(crate) fn export_mode_for_format(format: ExportFormat) -> ExportMode {
+    match format {
+        ExportFormat::Png => ExportMode::Image,
+        ExportFormat::Gif | ExportFormat::Mp4 => ExportMode::Video,
+    }
+}
+
+pub(crate) fn default_export_filename(format: ExportFormat) -> &'static str {
+    match format {
+        ExportFormat::Png => "poincare-export.png",
+        ExportFormat::Gif => "poincare-export.gif",
+        ExportFormat::Mp4 => "poincare-export.mp4",
+    }
+}
+
+pub(crate) fn home_dir() -> PathBuf {
+    if let Some(home) = std::env::var_os("HOME") {
+        return PathBuf::from(home);
+    }
+    if let Some(profile) = std::env::var_os("USERPROFILE") {
+        return PathBuf::from(profile);
+    }
+    match (std::env::var_os("HOMEDRIVE"), std::env::var_os("HOMEPATH")) {
+        (Some(drive), Some(path)) => PathBuf::from(format!(
+            "{}{}",
+            PathBuf::from(drive).to_string_lossy(),
+            PathBuf::from(path).to_string_lossy()
+        )),
+        _ => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+    }
+}
+
+pub(crate) fn default_export_dir(mode: ExportMode) -> PathBuf {
+    let mut path = home_dir();
+    path.push(match mode {
+        ExportMode::Image => "Pictures",
+        ExportMode::Video => "Videos",
+    });
+    path.push("Poincare");
+    path
+}
+
+pub(crate) fn ensure_export_dir_exists(dir: &std::path::Path) -> Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|err| format!("Export failed: {err}"))
+}
+
+pub(crate) fn default_export_path_for_format(format: ExportFormat) -> PathBuf {
+    let mode = export_mode_for_format(format);
+    let dir = default_export_dir(mode);
+    let _ = ensure_export_dir_exists(&dir);
+    dir.join(default_export_filename(format))
 }
 
 pub(crate) fn default_camera() -> Camera {

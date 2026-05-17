@@ -13,6 +13,7 @@ pub(crate) enum DockTab {
     Viewport,
     PlotProperties,
     CameraProperties,
+    ExportProperties,
 }
 
 fn tab(title: &str, id: DockTab) -> Tab<DockTab> {
@@ -21,6 +22,7 @@ fn tab(title: &str, id: DockTab) -> Tab<DockTab> {
         DockTab::Viewport => ("⬡", egui::Color32::from_rgb(100, 200, 140)),
         DockTab::PlotProperties => ("⚙", egui::Color32::from_rgb(210, 150, 80)), // amber
         DockTab::CameraProperties => ("◎", egui::Color32::from_rgb(150, 190, 230)),
+        DockTab::ExportProperties => ("⇩", egui::Color32::from_rgb(180, 220, 140)),
     };
     Tab::new(title, id)
         .with_leading_visual(icon)
@@ -84,6 +86,10 @@ pub(crate) fn build_panel_tree() -> PanelTree<DockTab> {
         6,
         tab("Camera", DockTab::CameraProperties).with_closable(false),
     );
+    tree.ensure_tab_in_leaf(
+        6,
+        tab("Export", DockTab::ExportProperties).with_closable(false),
+    );
     tree.focus_tab(&DockTab::PlotProperties);
 
     tree
@@ -110,6 +116,7 @@ impl App {
                     DockTab::Viewport => ("Viewport", 5),
                     DockTab::PlotProperties => ("Plot", 6),
                     DockTab::CameraProperties => ("Camera", 6),
+                    DockTab::ExportProperties => ("Export", 6),
                 };
                 self.panel_tree
                     .as_mut()
@@ -122,7 +129,7 @@ impl App {
         }
     }
 
-    fn render_dock_tab(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame, tab: DockTab) {
+    fn render_dock_tab(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame, tab: DockTab) {
         match tab {
             DockTab::Plots => {
                 self.left_panel(ui);
@@ -139,6 +146,11 @@ impl App {
             DockTab::CameraProperties => {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     self.camera_inspector(ui);
+                });
+            }
+            DockTab::ExportProperties => {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    self.export_inspector(ui, frame);
                 });
             }
         }

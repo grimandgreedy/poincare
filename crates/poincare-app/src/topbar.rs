@@ -4,6 +4,7 @@ use viewport_lib::{Projection, ViewPreset};
 use crate::App;
 use crate::CameraCommand;
 use crate::PlotPreset;
+use crate::dock::DockTab;
 use crate::presets::example_plots::ExamplePlot;
 
 #[derive(Clone, Copy)]
@@ -45,8 +46,8 @@ impl App {
                 self.menu_examples(ui);
                 self.menu_help(ui, ctx);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Export PNG").clicked() {
-                        self.export_open = true;
+                    if ui.button("Export").clicked() {
+                        self.pending_focus_tab = Some(DockTab::ExportProperties);
                     }
                 });
             });
@@ -265,7 +266,7 @@ impl App {
                     self.close_document(idx);
                 }
             }
-            PaletteCommand::ExportPng => self.export_open = true,
+            PaletteCommand::ExportPng => self.pending_focus_tab = Some(DockTab::ExportProperties),
             PaletteCommand::Settings => self.settings_open = true,
             PaletteCommand::ShowShortcuts => self.shortcuts_open = true,
             PaletteCommand::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),

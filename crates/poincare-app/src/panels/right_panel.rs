@@ -4,6 +4,8 @@ use viewport_lib::{Easing, Projection, ViewPreset};
 use crate::App;
 use crate::CameraCommand;
 use crate::InspectorTab;
+use crate::dock::DockTab;
+use crate::document::{ExportFormat, ExportMode, default_export_dir, ensure_export_dir_exists, export_mode_for_format};
 use crate::plot::kind::{PlotKind, StyleCaps, evenly_spaced_isovalues};
 use crate::ui::domain_editor::{edit_domain, edit_resolution};
 use crate::ui::expr_params::show_expression_params;
@@ -271,60 +273,267 @@ impl App {
         ui.add_space(10.0);
         ui.separator();
         ui.label("Saved Views");
-        for slot in 0..5 {
-            let has_slot = self.documents[self.active_document_idx].camera_slots[slot].is_some();
-            ui.horizontal(|ui| {
-                ui.label(format!("Slot {}", slot + 1));
-                if ui
-                    .add_enabled(has_slot, egui::Button::new("Recall"))
-                    .clicked()
-                {
-                    self.run_camera_command(CameraCommand::RecallSlot(slot));
-                }
-                let label = if has_slot { "Overwrite" } else { "Save" };
-                if ui.button(label).clicked() {
-                    self.run_camera_command(CameraCommand::SaveSlot(slot));
-                }
-            });
-        }
-    }
-
-    pub(crate) fn show_export_modal(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        if !self.export_open {
-            return;
-        }
-
-        let mut open = self.export_open;
-        egui::Window::new("Export PNG")
-            .open(&mut open)
-            .collapsible(false)
-            .resizable(false)
-            .default_width(420.0)
-            .show(ctx, |ui| {
-                self.export_controls(ui, frame);
-            });
-        self.export_open = open;
-    }
-
-    fn export_controls(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
-        ui.text_edit_singleline(&mut self.documents[self.active_document_idx].export_path);
         ui.horizontal(|ui| {
-            ui.add(
-                egui::DragValue::new(&mut self.documents[self.active_document_idx].export_width)
-                    .speed(1)
-                    .range(256..=8192)
-                    .prefix("W "),
-            );
-            ui.add(
-                egui::DragValue::new(&mut self.documents[self.active_document_idx].export_height)
-                    .speed(1)
-                    .range(256..=8192)
-                    .prefix("H "),
+            if ui.button("+").clicked() {
+                self.record_undo_point();
+                self.add_saved_view();
+                self.mark_non_scene_dirty();
+            }
+            ui.label(
+                egui::RichText::new("Add the current camera as a new saved view.")
+                    .small()
+                    .weak(),
             );
         });
-        if ui.button("Export PNG").clicked() {
-            self.rebuild_scene(frame);
-            self.export_png(frame);
+        let mut remove_view = None;
+        let mut views_changed = false;
+        for slot in 0..self.documents[self.active_document_idx].saved_views.len() {
+            ui.horizontal(|ui| {
+                let view = &mut self.documents[self.active_document_idx].saved_views[slot];
+                views_changed |= ui
+                    .add(
+                        egui::TextEdit::singleline(&mut view.name)
+                        .desired_width(120.0)
+                        .hint_text("View name"),
+                    )
+                    .changed();
+                if ui.button("Recall").clicked() {
+                    self.run_camera_command(CameraCommand::RecallSlot(slot));
+                }
+                if ui.button("Overwrite").clicked() {
+                    self.run_camera_command(CameraCommand::SaveSlot(slot));
+                }
+                if ui.button("×").clicked() {
+                    remove_view = Some(slot);
+                }
+            });
+        }
+        if views_changed {
+            self.mark_non_scene_dirty();
+        }
+        if let Some(slot) = remove_view {
+            self.record_undo_point();
+            self.documents[self.active_document_idx].saved_views.remove(slot);
+            self.documents[self.active_document_idx].camera_track_playing = false;
+            self.mark_non_scene_dirty();
+        }
+
+        ui.add_space(10.0);
+        ui.separator();
+        ui.label("Track");
+        let segment_changed = ui
+            .add(
+            egui::Slider::new(
+                &mut self.documents[self.active_document_idx].camera_track_segment_duration,
+                0.25_f32..=10.0_f32,
+            )
+            .text("Seconds per view"),
+        )
+        .changed();
+        if segment_changed {
+            self.mark_non_scene_dirty();
+        }
+        let track = self.build_saved_view_track();
+        let duration = track.duration();
+        ui.horizontal(|ui| {
+            let can_play = track.len() >= 2;
+            let playing = self.documents[self.active_document_idx].camera_track_playing;
+            let label = if playing { "Stop" } else { "Play" };
+            if ui.add_enabled(can_play, egui::Button::new(label)).clicked() {
+                if playing {
+                    self.documents[self.active_document_idx].camera_track_playing = false;
+                } else {
+                    self.documents[self.active_document_idx].camera_track_t = 0.0;
+                    self.documents[self.active_document_idx].camera_track_playing = true;
+                }
+            }
+            if ui.button("Rewind").clicked() {
+                self.documents[self.active_document_idx].camera_track_t = 0.0;
+                self.documents[self.active_document_idx].camera_track_playing = false;
+                self.apply_saved_view_track_sample(0.0);
+            }
+        });
+        if duration > 0.0 {
+            let mut t = self.documents[self.active_document_idx].camera_track_t as f32;
+            if ui
+                .add(egui::Slider::new(&mut t, 0.0..=(duration as f32)).text("Track Position"))
+                .changed()
+            {
+                self.documents[self.active_document_idx].camera_track_t = t as f64;
+                self.documents[self.active_document_idx].camera_track_playing = false;
+                self.apply_saved_view_track_sample(t as f64);
+            }
+        }
+        ui.label(
+            egui::RichText::new(format!(
+                "{} views, {:.1}s track duration",
+                self.documents[self.active_document_idx].saved_views.len(),
+                duration
+            ))
+            .small()
+            .weak(),
+        );
+    }
+
+    pub(crate) fn export_inspector(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        let export_running = self.export_job.is_some();
+        ui.label(egui::RichText::new("Export").strong());
+        ui.label(
+            egui::RichText::new("PNG exports the current camera. GIF and MP4 follow the saved-view track and require ffmpeg.")
+                .small()
+                .weak(),
+        );
+        ui.separator();
+        ui.add_enabled_ui(!export_running, |ui| {
+            let current_format = self.documents[self.active_document_idx].export_format;
+            let mut mode = export_mode_for_format(current_format);
+            let (mut dir, mut filename) =
+                crate::split_export_path(&self.documents[self.active_document_idx].export_path, current_format);
+            ui.horizontal(|ui| {
+                ui.label("Mode");
+                let image_clicked = ui
+                    .selectable_value(&mut mode, ExportMode::Image, "Image")
+                    .clicked();
+                let video_clicked = ui
+                    .selectable_value(&mut mode, ExportMode::Video, "Video")
+                    .clicked();
+                if image_clicked && self.documents[self.active_document_idx].export_format != ExportFormat::Png {
+                    self.documents[self.active_document_idx].export_format = ExportFormat::Png;
+                    dir = default_export_dir(ExportMode::Image);
+                    let _ = ensure_export_dir_exists(&dir);
+                    filename = "poincare-export.png".to_string();
+                }
+                if video_clicked && self.documents[self.active_document_idx].export_format == ExportFormat::Png {
+                    self.documents[self.active_document_idx].export_format = ExportFormat::Mp4;
+                    dir = default_export_dir(ExportMode::Video);
+                    let _ = ensure_export_dir_exists(&dir);
+                    filename = "poincare-export.mp4".to_string();
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Directory");
+                let mut dir_text = dir.to_string_lossy().into_owned();
+                ui.add(
+                    egui::TextEdit::singleline(&mut dir_text)
+                        .desired_width(320.0),
+                );
+                if ui.button("Choose…").clicked() {
+                    let start_dir = if dir.as_os_str().is_empty() {
+                        default_export_dir(mode)
+                    } else {
+                        dir.clone()
+                    };
+                    if let Some(chosen) = rfd::FileDialog::new().set_directory(start_dir).pick_folder() {
+                        dir = chosen;
+                    }
+                }
+                if dir_text != dir.to_string_lossy() {
+                    dir = std::path::PathBuf::from(dir_text);
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Filename");
+                ui.add(
+                    egui::TextEdit::singleline(&mut filename)
+                        .desired_width(220.0),
+                );
+            });
+            let full_export_path =
+                crate::export_path_from_parts(&dir, &filename, self.documents[self.active_document_idx].export_format);
+            self.documents[self.active_document_idx].export_path =
+                full_export_path.to_string_lossy().into_owned();
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::DragValue::new(&mut self.documents[self.active_document_idx].export_width)
+                        .speed(1)
+                        .range(256..=8192)
+                        .prefix("W "),
+                );
+                ui.add(
+                    egui::DragValue::new(&mut self.documents[self.active_document_idx].export_height)
+                        .speed(1)
+                        .range(256..=8192)
+                        .prefix("H "),
+                );
+            });
+            if mode == ExportMode::Video {
+                egui::ComboBox::from_label("Video Format")
+                    .selected_text(match self.documents[self.active_document_idx].export_format {
+                        ExportFormat::Gif => "GIF",
+                        ExportFormat::Mp4 => "MP4",
+                        ExportFormat::Png => "MP4",
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut self.documents[self.active_document_idx].export_format,
+                            ExportFormat::Gif,
+                            "GIF",
+                        );
+                        ui.selectable_value(
+                            &mut self.documents[self.active_document_idx].export_format,
+                            ExportFormat::Mp4,
+                            "MP4",
+                        );
+                    });
+            }
+            ui.label(
+                egui::RichText::new(match self.documents[self.active_document_idx].export_format {
+                    ExportFormat::Png => "Images default to ~/Pictures/Poincare and use .png files.",
+                    ExportFormat::Gif => "Videos default to ~/Videos/Poincare and use .gif files.",
+                    ExportFormat::Mp4 => "Videos default to ~/Videos/Poincare and use .mp4 files.",
+                })
+                .small()
+                .weak(),
+            );
+            ui.add(
+                egui::DragValue::new(&mut self.documents[self.active_document_idx].export_fps)
+                    .speed(1)
+                    .range(1..=120)
+                    .prefix("FPS "),
+            );
+            if self.documents[self.active_document_idx].export_format != ExportFormat::Png {
+                ui.add(
+                    egui::Slider::new(
+                        &mut self.documents[self.active_document_idx].camera_track_segment_duration,
+                        0.25_f32..=10.0_f32,
+                    )
+                    .text("Track seconds per view"),
+                );
+            }
+            ui.horizontal(|ui| {
+                let action_label = if mode == ExportMode::Image {
+                    "Export Image"
+                } else {
+                    "Export Video"
+                };
+                if ui.button(action_label).clicked() {
+                    self.pending_focus_tab = Some(DockTab::ExportProperties);
+                    if let Err(err) = ensure_export_dir_exists(&dir) {
+                        self.documents[self.active_document_idx].export_status = err;
+                        self.documents[self.active_document_idx].export_progress = None;
+                        return;
+                    }
+                    self.rebuild_scene(frame);
+                    if mode == ExportMode::Image {
+                        self.export_png(frame);
+                    } else {
+                        self.export_animation(frame);
+                    }
+                }
+            });
+        });
+        if export_running {
+            ui.add_space(6.0);
+            if let Some(progress) = self.documents[self.active_document_idx].export_progress {
+                ui.add(
+                    egui::ProgressBar::new(progress)
+                        .desired_width(260.0)
+                        .show_percentage(),
+                );
+            } else {
+                ui.add(egui::Spinner::new());
+                ui.label(egui::RichText::new("Pending...").small().weak());
+            }
         }
         if !self.documents[self.active_document_idx]
             .export_status
