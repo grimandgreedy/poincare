@@ -1,5 +1,6 @@
 use viewport_lib::{
-    AttributeKind, BuiltinColourmap, BuiltinMatcap, ColourmapId, ParamVis, ParamVisMode,
+    AttributeKind, BuiltinColourmap, BuiltinMatcap, ColourmapId, GlyphType, ParamVis,
+    ParamVisMode,
 };
 
 /// Transfer function for volume opacity control.
@@ -198,6 +199,8 @@ pub struct PlotStyle {
     pub point_size: f32,
     /// Global scale applied to glyph arrows in VectorField3D. Default: 1.0.
     pub glyph_scale: f32,
+    /// Glyph mesh used for vector field instances. Default: arrow.
+    pub glyph_type: GlyphType,
     /// Surface shading mode. Default: smooth.
     pub shading: ShadingMode,
     /// Tube radius for StreamPlot3D. When `Some(r)`, streamlines are rendered as
@@ -225,6 +228,7 @@ impl Default for PlotStyle {
             line_width: 2.0,
             point_size: 4.0,
             glyph_scale: 1.0,
+            glyph_type: GlyphType::Arrow,
             shading: ShadingMode::Smooth,
             tube_radius: None,
             transfer_function: None,

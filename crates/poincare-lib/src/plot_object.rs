@@ -10,7 +10,10 @@ use crate::style::PlotStyle;
 /// A single glyph instance (position + direction vector) for vector field plots.
 pub struct GlyphInstance {
     pub position: Vec3,
+    /// Display vector used to orient and size the rendered glyph.
     pub vector: Vec3,
+    /// Underlying field sample before any display scaling is applied.
+    pub raw_vector: Vec3,
 }
 
 /// A geometry component with its own style.

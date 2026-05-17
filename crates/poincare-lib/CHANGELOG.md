@@ -6,6 +6,11 @@ This project uses internal pre-release versioning. Until `1.0.0`, breaking chang
 
 ## [Unreleased]
 
+- Added `PlotStyle::glyph_type` so vector-field plots can choose between supported glyph meshes.
+- Fixed glyph appearance opacity to use `PlotStyle::opacity`.
+- Fixed vector-field scalar colouring to use raw field vectors instead of display-scaled glyph vectors.
+- Made vector-field glyph rendering unlit for consistent readability.
+
 ## [0.2.0]
 
 - No public API changes. The new camera controls and keyboard-shortcuts help UI were added in `poincare-app`.

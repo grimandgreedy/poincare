@@ -8,9 +8,13 @@ This project uses internal pre-release versioning. Until `1.0.0`, breaking chang
 
 ### Features
 - Added document-level undo/redo with menu items, command-palette actions, and `Cmd/Ctrl+Z` / `Cmd/Ctrl+Shift+Z` shortcuts.
+- Added vector-field glyph shape selection in plot style controls.
 
 ### Fixes
 - Focus on plot properties tab by default.
+- Fixed vector-field glyph colouring so `Glyph Scale` no longer changes magnitude-based colour mapping.
+- Fixed vector-field opacity controls so the style opacity slider affects rendered glyphs.
+- Made vector fields render unlit by default so glyphs stay clearly visible regardless of scene lighting.
 
 ## [0.3.0]
 

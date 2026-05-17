@@ -1,4 +1,6 @@
-use poincare_lib::{ColormapSource, ColourMode, Domain, PlotStyle, Resolution, TransferFunction};
+use poincare_lib::{
+    ColormapSource, ColourMode, Domain, PlotStyle, Resolution, ShadingMode, TransferFunction,
+};
 use viewport_lib::{AttributeKind, BuiltinColourmap};
 
 use crate::plot::entry::PlotEntry;
@@ -86,6 +88,7 @@ pub fn build() -> Vec<PlotEntry> {
                     kind: AttributeKind::Vertex,
                 },
                 glyph_scale: 0.8,
+                shading: ShadingMode::Unlit,
                 ..PlotStyle::default()
             },
             kind: PlotKind::ExprVectorField {

@@ -1,6 +1,7 @@
 use eframe::egui;
 use poincare_lib::{
-    ColormapSource, ColourMode, MatcapSource, ParamVisSettings, PlotStyle, ShadingMode,
+    ColormapSource, ColourMode, GlyphType, MatcapSource, ParamVisSettings, PlotStyle,
+    ShadingMode,
     SurfaceFaceQuantity, SurfaceLicSettings, SurfaceLicVectorField,
 };
 use viewport_lib::{AttributeKind, BuiltinColourmap, BuiltinMatcap, ParamVisMode};
@@ -34,6 +35,22 @@ pub(crate) fn edit_plot_style_basic(
         changed |= ui
             .add(egui::Slider::new(&mut style.glyph_scale, 0.1..=3.0).text("Glyph Scale"))
             .changed();
+        let mut glyph_type = style.glyph_type;
+        egui::ComboBox::from_label("Glyph Shape")
+            .selected_text(match glyph_type {
+                GlyphType::Arrow => "Arrow",
+                GlyphType::Sphere => "Sphere",
+                GlyphType::Cube => "Cube",
+            })
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut glyph_type, GlyphType::Arrow, "Arrow");
+                ui.selectable_value(&mut glyph_type, GlyphType::Sphere, "Sphere");
+                ui.selectable_value(&mut glyph_type, GlyphType::Cube, "Cube");
+            });
+        if glyph_type != style.glyph_type {
+            style.glyph_type = glyph_type;
+            changed = true;
+        }
     }
 
     changed

@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use eframe::Storage;
 use poincare_lib::{
-    AxisConfig, ColormapSource, ColourMode, Domain, MatcapSource, ParamVisSettings, PlotStyle,
-    Resolution, ShadingMode, SurfaceFaceQuantity, SurfaceLicSettings, SurfaceLicVectorField,
-    TransferFunction,
+    AxisConfig, ColormapSource, ColourMode, Domain, GlyphType, MatcapSource, ParamVisSettings,
+    PlotStyle, Resolution, ShadingMode, SurfaceFaceQuantity, SurfaceLicSettings,
+    SurfaceLicVectorField, TransferFunction,
 };
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -201,6 +201,8 @@ struct PersistedPlotStyle {
     line_width: f32,
     point_size: f32,
     glyph_scale: f32,
+    #[serde(default)]
+    glyph_type: u8,
     shading: u8,
     tube_radius: Option<f32>,
     transfer_function: Option<PersistedTransferFunction>,
@@ -624,6 +626,7 @@ impl PersistedPlotStyle {
             line_width: style.line_width,
             point_size: style.point_size,
             glyph_scale: style.glyph_scale,
+            glyph_type: glyph_type_to_u8(style.glyph_type),
             shading: shading_to_u8(style.shading),
             tube_radius: style.tube_radius,
             transfer_function: style
@@ -652,6 +655,7 @@ impl PersistedPlotStyle {
             line_width: self.line_width,
             point_size: self.point_size,
             glyph_scale: self.glyph_scale,
+            glyph_type: u8_to_glyph_type(self.glyph_type),
             shading: u8_to_shading(self.shading),
             tube_radius: self.tube_radius,
             transfer_function: self
@@ -1210,6 +1214,22 @@ fn u8_to_shading(value: u8) -> ShadingMode {
         0 => ShadingMode::Flat,
         2 => ShadingMode::Unlit,
         _ => ShadingMode::Smooth,
+    }
+}
+
+fn glyph_type_to_u8(value: GlyphType) -> u8 {
+    match value {
+        GlyphType::Arrow => 0,
+        GlyphType::Sphere => 1,
+        GlyphType::Cube => 2,
+    }
+}
+
+fn u8_to_glyph_type(value: u8) -> GlyphType {
+    match value {
+        1 => GlyphType::Sphere,
+        2 => GlyphType::Cube,
+        _ => GlyphType::Arrow,
     }
 }
 

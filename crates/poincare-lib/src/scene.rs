@@ -269,10 +269,12 @@ impl GraphScene {
                         .collect();
                     item.scale = 1.0;
                     item.scale_by_magnitude = false;
+                    item.glyph_type = glyphs.style.glyph_type;
                     item.default_colour = default_colour_rgba(&glyphs.style);
                     item.use_default_colour =
                         matches!(glyphs.style.colour_mode, ColourMode::Solid(_));
                     item.appearance = appearance_from_style(&glyphs.style);
+                    item.appearance.unlit = true;
                     apply_glyph_colour_mode(
                         &mut item,
                         &glyphs.style,
@@ -592,7 +594,7 @@ fn material_from_style(style: &PlotStyle, matcap_id: Option<viewport_lib::Matcap
 
 fn appearance_from_style(style: &PlotStyle) -> AppearanceSettings {
     let mut appearance = AppearanceSettings::default();
-    appearance.opacity = default_colour_rgba(style)[3];
+    appearance.opacity = style.opacity.clamp(0.0, 1.0);
     appearance.unlit = matches!(style.shading, ShadingMode::Unlit);
     appearance
 }
@@ -693,7 +695,7 @@ fn apply_glyph_colour_mode(
     match &style.colour_mode {
         ColourMode::Solid(_) => {}
         ColourMode::Colormap { scalar_range, .. } => {
-            item.scalars = instances.iter().map(|g| g.vector.length()).collect();
+            item.scalars = instances.iter().map(|g| g.raw_vector.length()).collect();
             item.scalar_range = *scalar_range;
             item.colourmap_id = resolved_colourmap_id;
         }
@@ -815,10 +817,10 @@ fn derive_glyph_scalars(attribute: &str, instances: &[GlyphInstance]) -> Option<
         "y" => Some(instances.iter().map(|g| g.position.y).collect()),
         "z" => Some(instances.iter().map(|g| g.position.z).collect()),
         "radius" => Some(instances.iter().map(|g| g.position.length()).collect()),
-        "magnitude" | "value" => Some(instances.iter().map(|g| g.vector.length()).collect()),
-        "vx" => Some(instances.iter().map(|g| g.vector.x).collect()),
-        "vy" => Some(instances.iter().map(|g| g.vector.y).collect()),
-        "vz" => Some(instances.iter().map(|g| g.vector.z).collect()),
+        "magnitude" | "value" => Some(instances.iter().map(|g| g.raw_vector.length()).collect()),
+        "vx" => Some(instances.iter().map(|g| g.raw_vector.x).collect()),
+        "vy" => Some(instances.iter().map(|g| g.raw_vector.y).collect()),
+        "vz" => Some(instances.iter().map(|g| g.raw_vector.z).collect()),
         "index" => Some((0..instances.len()).map(|i| i as f32).collect()),
         _ => None,
     }
