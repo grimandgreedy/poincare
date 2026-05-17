@@ -84,6 +84,7 @@ pub(crate) fn build_panel_tree() -> PanelTree<DockTab> {
         6,
         tab("Camera", DockTab::CameraProperties).with_closable(false),
     );
+    tree.focus_tab(&DockTab::PlotProperties);
 
     tree
 }
