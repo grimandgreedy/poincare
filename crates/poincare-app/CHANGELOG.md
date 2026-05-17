@@ -6,6 +6,12 @@ This project uses internal pre-release versioning. Until `1.0.0`, breaking chang
 
 ## [Unreleased]
 
+### Features
+- Added document-level undo/redo with menu items, command-palette actions, and `Cmd/Ctrl+Z` / `Cmd/Ctrl+Shift+Z` shortcuts.
+
+### Fixes
+- Focus on plot properties tab by default.
+
 ## [0.3.0]
 
 - Added a dedicated `Camera` tab as a second bottom `grimdock` tab alongside plot properties.
