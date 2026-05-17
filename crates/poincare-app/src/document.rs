@@ -20,14 +20,14 @@ pub(crate) struct SavedCameraView {
     pub camera: Camera,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ExportFormat {
     Png,
     Gif,
     Mp4,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ExportMode {
     Image,
     Video,

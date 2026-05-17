@@ -45,7 +45,7 @@ pub(crate) fn build_panel_tree() -> PanelTree<DockTab> {
     tree.split_leaf(
         2,
         SplitDir::Vertical,
-        tab("Plot", DockTab::PlotProperties),
+        tab("Plot Properties", DockTab::PlotProperties),
         ChildSide::Second,
     );
 

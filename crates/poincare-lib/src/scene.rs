@@ -426,6 +426,14 @@ impl Default for GraphScene {
 }
 
 impl GraphScene {
+    pub fn release_gpu_resources(&self, resources: &mut ViewportGpuResources) {
+        for cached_plot in &self.cached_plots {
+            for surface in &cached_plot.surfaces {
+                let _ = resources.remove_mesh(surface.mesh_index);
+            }
+        }
+    }
+
     /// Upload a custom 256-sample RGBA colourmap through the viewport resource manager.
     pub fn upload_colourmap(
         device: &wgpu::Device,
