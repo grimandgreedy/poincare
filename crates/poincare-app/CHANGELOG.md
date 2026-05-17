@@ -14,6 +14,8 @@ This project uses internal pre-release versioning. Until `1.0.0`, breaking chang
 - Updated the export tab to use image/video modes, home-directory defaults, and directory selection for export destinations.
 - Added canvas-based plot picking using `viewport-lib`'s unified picker, including click-to-select, hover highlight, and double-click frame-to-selection.
 - Added probe pinning with persistent pinned points, distance measurement between pinned points, and `Cmd+Click` pinning in the viewport.
+- Added table-backed import editing for surface grids, curves, scatter plots, and sampled vector fields, including preview, delimiter/header detection, explicit column mapping, validation, and refresh-from-file support.
+- Added an `Analysis` inspector tab for generating slice plots, contour cross-sections, gradient/divergence/curl derived plots, probe annotations, pinned-probe sample plots, and cached curve-intersection marker plots as normal persisted plot entries.
 
 ### Fixes
 - Focus on plot properties tab by default.
@@ -27,6 +29,7 @@ This project uses internal pre-release versioning. Until `1.0.0`, breaking chang
 - Fixed probe pinning so the pin action still works after moving from the plotted point to the button.
 - Fixed quit confirmation so `Quit Without Saving` actually closes the app after confirmation.
 - Removed the temporary `Solo` viewport control.
+- Fixed generated annotation plots so label visibility can be toggled per plot and large annotation sets no longer truncate label editing after the first four items.
 
 ## [0.3.0]
 
