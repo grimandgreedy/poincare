@@ -166,16 +166,16 @@ impl App {
                     let is_selected =
                         self.documents[self.active_document_idx].selected_plot == Some(index);
                     let is_renaming = self.renaming_plot == Some(index);
-                    let (plot_name, label, dot_color) = {
+                    let (plot_name, hover_text, dot_color) = {
                         let plot = &self.documents[self.active_document_idx].plots[index];
-                        let label =
-                            expression_summary(&plot.kind).unwrap_or_else(|| plot.name.clone());
                         (
                             plot.name.clone(),
-                            truncate_str(&label, 28),
+                            expression_summary(&plot.kind)
+                                .unwrap_or_else(|| plot.name.clone()),
                             self.representative_plot_color(plot),
                         )
                     };
+                    let label = truncate_str(&plot_name, 28);
 
                     let row_response = egui::Frame::group(ui.style())
                         .fill(if is_selected {
@@ -223,7 +223,7 @@ impl App {
                                         self.documents[self.active_document_idx].selected_plot =
                                             Some(index);
                                     }
-                                    response.on_hover_text(plot_name);
+                                    response.on_hover_text(hover_text);
                                 }
 
                                 let mut visible =
