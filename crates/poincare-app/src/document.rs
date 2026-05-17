@@ -11,6 +11,28 @@ use crate::plot::sweep::ParameterSweep;
 
 pub(crate) const VIEWPORT_BACKGROUND: [f32; 4] = [18.0 / 255.0, 18.0 / 255.0, 18.0 / 255.0, 1.0];
 pub(crate) const DEFAULT_VIEWPORT_BACKGROUND: [f32; 4] = VIEWPORT_BACKGROUND;
+const UNDO_LIMIT: usize = 100;
+
+#[derive(Clone)]
+pub(crate) struct DocumentUndoState {
+    title: String,
+    path: Option<std::path::PathBuf>,
+    dirty: bool,
+    plots: Vec<PlotEntry>,
+    selected_plot: Option<usize>,
+    camera: Camera,
+    axis_config: AxisConfig,
+    export_path: String,
+    export_width: u32,
+    export_height: u32,
+    ground_plane_mode: GroundPlaneMode,
+    ground_plane_height: f32,
+    ground_plane_color: [f32; 4],
+    ground_plane_tile_size: f32,
+    viewport_background: [f32; 4],
+    camera_slots: [Option<Camera>; 5],
+    sweep_config: Vec<HashMap<String, ParameterSweep>>,
+}
 
 pub(crate) struct Document {
     pub title: String,
@@ -46,6 +68,10 @@ pub(crate) struct Document {
 
     /// Per-plot parameter sweep config.  Parallel to `plots`; grown lazily.
     pub sweep_config: Vec<HashMap<String, ParameterSweep>>,
+    history_head: Option<DocumentUndoState>,
+    undo_stack: Vec<DocumentUndoState>,
+    redo_stack: Vec<DocumentUndoState>,
+    history_pending_commit: bool,
 }
 
 impl Document {
@@ -76,6 +102,10 @@ impl Document {
             viewport_background: DEFAULT_VIEWPORT_BACKGROUND,
             camera_slots: std::array::from_fn(|_| None),
             sweep_config: Vec::new(),
+            history_head: None,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+            history_pending_commit: false,
         }
     }
 
@@ -91,6 +121,69 @@ impl Document {
         self.dirty = true;
         self.scene_dirty = true;
         self.export_status.clear();
+    }
+
+    pub(crate) fn initialize_history(&mut self) {
+        self.history_head = Some(self.snapshot_state());
+        self.undo_stack.clear();
+        self.redo_stack.clear();
+        self.history_pending_commit = false;
+    }
+
+    pub(crate) fn can_undo(&self) -> bool {
+        !self.undo_stack.is_empty()
+    }
+
+    pub(crate) fn can_redo(&self) -> bool {
+        !self.redo_stack.is_empty()
+    }
+
+    pub(crate) fn record_undo_point(&mut self) {
+        if self.history_head.is_none() {
+            self.initialize_history();
+        }
+        if self.history_pending_commit {
+            return;
+        }
+        if let Some(head) = &self.history_head {
+            self.undo_stack.push(head.clone());
+            if self.undo_stack.len() > UNDO_LIMIT {
+                self.undo_stack.remove(0);
+            }
+            self.redo_stack.clear();
+            self.history_pending_commit = true;
+        }
+    }
+
+    pub(crate) fn finalize_history_point(&mut self) {
+        if self.history_pending_commit {
+            self.history_head = Some(self.snapshot_state());
+            self.history_pending_commit = false;
+        } else if self.history_head.is_none() {
+            self.history_head = Some(self.snapshot_state());
+        }
+    }
+
+    pub(crate) fn undo(&mut self) -> bool {
+        let Some(previous) = self.undo_stack.pop() else {
+            return false;
+        };
+        self.redo_stack.push(self.snapshot_state());
+        self.restore_state(previous.clone());
+        self.history_head = Some(previous);
+        self.history_pending_commit = false;
+        true
+    }
+
+    pub(crate) fn redo(&mut self) -> bool {
+        let Some(next) = self.redo_stack.pop() else {
+            return false;
+        };
+        self.undo_stack.push(self.snapshot_state());
+        self.restore_state(next.clone());
+        self.history_head = Some(next);
+        self.history_pending_commit = false;
+        true
     }
 
     /// Build the CPU-side scene from the current plot list.
@@ -199,6 +292,54 @@ impl Document {
         let idx = self.selected_plot?;
         let plot = self.plots.get(idx)?;
         plot.visible.then(|| plot_bounds(plot)).flatten()
+    }
+
+    fn snapshot_state(&self) -> DocumentUndoState {
+        DocumentUndoState {
+            title: self.title.clone(),
+            path: self.path.clone(),
+            dirty: self.dirty,
+            plots: self.plots.clone(),
+            selected_plot: self.selected_plot,
+            camera: self.camera.clone(),
+            axis_config: self.axis_config.clone(),
+            export_path: self.export_path.clone(),
+            export_width: self.export_width,
+            export_height: self.export_height,
+            ground_plane_mode: self.ground_plane_mode,
+            ground_plane_height: self.ground_plane_height,
+            ground_plane_color: self.ground_plane_color,
+            ground_plane_tile_size: self.ground_plane_tile_size,
+            viewport_background: self.viewport_background,
+            camera_slots: self.camera_slots.clone(),
+            sweep_config: self.sweep_config.clone(),
+        }
+    }
+
+    fn restore_state(&mut self, state: DocumentUndoState) {
+        self.title = state.title;
+        self.path = state.path;
+        self.dirty = state.dirty;
+        self.plots = state.plots;
+        self.selected_plot = state.selected_plot.filter(|&i| i < self.plots.len());
+        self.camera = state.camera;
+        self.axis_config = state.axis_config;
+        self.export_path = state.export_path;
+        self.export_width = state.export_width;
+        self.export_height = state.export_height;
+        self.ground_plane_mode = state.ground_plane_mode;
+        self.ground_plane_height = state.ground_plane_height;
+        self.ground_plane_color = state.ground_plane_color;
+        self.ground_plane_tile_size = state.ground_plane_tile_size;
+        self.viewport_background = state.viewport_background;
+        self.camera_slots = state.camera_slots;
+        self.sweep_config = state.sweep_config;
+        self.scene_dirty = true;
+        self.export_status.clear();
+        self.probe_hit = None;
+        self.intersection_cache.clear();
+        self.probe_snap_point = None;
+        self.probe_snap_locked = false;
     }
 }
 
