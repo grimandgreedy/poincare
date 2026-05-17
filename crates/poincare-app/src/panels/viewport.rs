@@ -9,9 +9,15 @@ use crate::CameraCommand;
 use crate::picking::{ProbeHit, pick_probe, world_to_screen};
 
 impl App {
-    pub(crate) fn viewport(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+    pub(crate) fn viewport(
+        &mut self,
+        ctx: &egui::Context,
+        ui: &mut egui::Ui,
+        frame: &mut eframe::Frame,
+    ) {
         let available = ui.available_size();
         let (rect, response) = ui.allocate_exact_size(available, egui::Sense::click_and_drag());
+        let doc_idx = self.active_document_idx;
         self.last_viewport_size = [rect.width().max(1.0) as u32, rect.height().max(1.0) as u32];
         let scrolled =
             response.hovered() && ui.ctx().input(|i| i.raw_scroll_delta != egui::Vec2::ZERO);
@@ -41,6 +47,7 @@ impl App {
             .apply_to_camera(&mut self.documents[self.active_document_idx].camera);
 
         // Axis indicator click (runs in both modes).
+        let mut consumed_click = false;
         if response.clicked() {
             if let Some(pos) = response.interact_pointer_pos() {
                 let vp_rect = [rect.left(), rect.top(), rect.width(), rect.height()];
@@ -70,6 +77,7 @@ impl App {
                         }
                     };
                     self.run_camera_command(CameraCommand::ViewPreset(preset));
+                    consumed_click = true;
                 }
             }
         }
@@ -82,13 +90,45 @@ impl App {
 
         if self.documents[self.active_document_idx].probe_mode {
             self.probe_tick(ui, &response, rect);
+            self.documents[self.active_document_idx].hovered_plot = None;
+            if response.clicked()
+                && ui.input(|i| i.modifiers.command)
+                && !probe_btn_hit_test(response.interact_pointer_pos(), rect)
+            {
+                if let Some(hit) = self.documents[self.active_document_idx].probe_hit.clone() {
+                    self.documents[self.active_document_idx].pinned_probes.push(hit);
+                }
+            }
         } else {
             self.documents[self.active_document_idx].probe_hit = None;
+            self.documents[self.active_document_idx].hovered_plot =
+                self.pick_plot_from_viewport(frame, &response, rect);
+            if !consumed_click && response.clicked() {
+                if let Some(plot_idx) = self.documents[self.active_document_idx].hovered_plot {
+                    self.documents[self.active_document_idx].selected_plot = Some(plot_idx);
+                    self.pending_focus_tab = Some(crate::dock::DockTab::PlotProperties);
+                }
+            }
+            if response.double_clicked()
+                && !consumed_click
+                && self.documents[self.active_document_idx].hovered_plot.is_some()
+            {
+                self.documents[self.active_document_idx].selected_plot =
+                    self.documents[self.active_document_idx].hovered_plot;
+                self.run_camera_command(CameraCommand::FrameSelected);
+            }
         }
 
+        let selected_plot_id = self.documents[doc_idx]
+            .selected_plot
+            .map(|idx| (idx + 1) as u64);
         let mut frame_data = self.documents[self.active_document_idx]
             .scene
-            .build_frame(&self.documents[self.active_document_idx].camera);
+            .build_frame_with_selection(
+                &self.documents[self.active_document_idx].camera,
+                selected_plot_id,
+                None,
+            );
         frame_data.camera.viewport_size = [rect.width(), rect.height()];
         frame_data.camera.pixels_per_point = ctx.pixels_per_point();
         frame_data.viewport.show_grid = self.documents[self.active_document_idx]
@@ -104,6 +144,24 @@ impl App {
             shadow_colour: [0.0, 0.0, 0.0, 1.0],
             shadow_opacity: 0.35,
         };
+        if let Some(hovered_plot_idx) = self.documents[doc_idx]
+            .hovered_plot
+            .filter(|&idx| Some(idx) != self.documents[doc_idx].selected_plot)
+        {
+            if let Some(bounds) = self.documents[doc_idx]
+                .plots
+                .get(hovered_plot_idx)
+                .and_then(crate::document::plot_bounds)
+            {
+                let mut hover_outline = viewport_lib::aabb_wireframe_polyline(
+                    &bounds,
+                    [0.98, 0.85, 0.22, 1.0],
+                );
+                hover_outline.line_width = 2.0;
+                hover_outline.id = 0;
+                frame_data.scene.polylines.push(hover_outline);
+            }
+        }
 
         ui.painter()
             .add(eframe::egui_wgpu::Callback::new_paint_callback(
@@ -255,6 +313,66 @@ impl App {
                 );
             }
         }
+        if self.documents[self.active_document_idx].probe_mode {
+            let view_proj = self.documents[self.active_document_idx]
+                .camera
+                .proj_matrix()
+                * self.documents[self.active_document_idx]
+                    .camera
+                    .view_matrix();
+            let viewport_size = glam::Vec2::new(rect.width(), rect.height());
+            let painter = ui.painter();
+            let pinned = &self.documents[self.active_document_idx].pinned_probes;
+            for (idx, hit) in pinned.iter().enumerate() {
+                if let Some(screen_local) =
+                    world_to_screen(hit.world_pos, view_proj, viewport_size)
+                {
+                    let screen = egui::Pos2::new(
+                        rect.left() + screen_local.x,
+                        rect.top() + screen_local.y,
+                    );
+                    let color = egui::Color32::from_rgb(255, 210, 40);
+                    painter.circle_filled(screen, 4.0, color);
+                    painter.circle_stroke(
+                        screen,
+                        7.0,
+                        egui::Stroke::new(1.5, egui::Color32::from_black_alpha(120)),
+                    );
+                    painter.text(
+                        screen + egui::vec2(10.0, -10.0),
+                        egui::Align2::LEFT_BOTTOM,
+                        format!("#{}", idx + 1),
+                        egui::FontId::monospace(12.0),
+                        color,
+                    );
+                }
+            }
+            for pair in pinned.windows(2) {
+                let a = pair[0].world_pos;
+                let b = pair[1].world_pos;
+                let Some(sa_local) = world_to_screen(a, view_proj, viewport_size) else {
+                    continue;
+                };
+                let Some(sb_local) = world_to_screen(b, view_proj, viewport_size) else {
+                    continue;
+                };
+                let sa = egui::Pos2::new(rect.left() + sa_local.x, rect.top() + sa_local.y);
+                let sb = egui::Pos2::new(rect.left() + sb_local.x, rect.top() + sb_local.y);
+                painter.line_segment(
+                    [sa, sb],
+                    egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 210, 40)),
+                );
+                let mid = sa.lerp(sb, 0.5);
+                let distance = a.distance(b);
+                painter.text(
+                    mid + egui::vec2(8.0, -8.0),
+                    egui::Align2::LEFT_BOTTOM,
+                    format!("{distance:.3}"),
+                    egui::FontId::monospace(12.0),
+                    egui::Color32::from_rgb(255, 225, 120),
+                );
+            }
+        }
 
         // Probe toggle button — top-right corner of the viewport.
         let btn_size = egui::vec2(54.0, 22.0);
@@ -273,13 +391,56 @@ impl App {
                 !self.documents[self.active_document_idx].probe_mode;
             if !self.documents[self.active_document_idx].probe_mode {
                 self.documents[self.active_document_idx].probe_hit = None;
+                self.documents[self.active_document_idx].last_probe_hit = None;
                 self.documents[self.active_document_idx].probe_snap_locked = false;
                 self.documents[self.active_document_idx].probe_snap_point = None;
             }
         }
 
+        let has_selected_plot = self.documents[doc_idx].selected_plot.is_some();
+        let frame_rect = egui::Rect::from_min_size(
+            egui::pos2(rect.right() - btn_size.x - 8.0, rect.top() + 36.0),
+            btn_size,
+        );
+        let frame_btn = ui.add_enabled_ui(has_selected_plot, |ui| {
+            ui.put(frame_rect, egui::Button::new("Frame"))
+        });
+        if frame_btn.inner.clicked() {
+            self.run_camera_command(CameraCommand::FrameSelected);
+        }
+
+        if self.documents[doc_idx].probe_mode {
+            let pin_rect = egui::Rect::from_min_size(
+                egui::pos2(rect.right() - btn_size.x - 8.0, rect.top() + 64.0),
+                btn_size,
+            );
+            let can_pin = self.documents[doc_idx].last_probe_hit.is_some();
+            let pin_btn = ui.add_enabled_ui(can_pin, |ui| {
+                ui.put(pin_rect, egui::Button::new("Pin"))
+            });
+            if pin_btn.inner.clicked() {
+                if let Some(hit) = self.documents[doc_idx].last_probe_hit.clone() {
+                    self.documents[doc_idx].pinned_probes.push(hit);
+                }
+            }
+
+            let clear_rect = egui::Rect::from_min_size(
+                egui::pos2(rect.right() - btn_size.x - 8.0, rect.top() + 92.0),
+                btn_size,
+            );
+            let clear_btn = ui.add_enabled_ui(
+                !self.documents[doc_idx].pinned_probes.is_empty(),
+                |ui| ui.put(clear_rect, egui::Button::new("Clear")),
+            );
+            if clear_btn.inner.clicked() {
+                self.documents[doc_idx].pinned_probes.clear();
+            }
+        }
+
         if self.documents[self.active_document_idx].probe_mode {
             ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
+        } else if self.documents[doc_idx].hovered_plot.is_some() {
+            ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
         } else if response.dragged() {
             ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
         } else if response.hovered() {
@@ -396,21 +557,59 @@ impl App {
         let normal = live_normal.unwrap_or(glam::Vec3::Z);
         self.documents[self.active_document_idx].probe_hit =
             if live_pos.is_some() || nearest_candidate.is_some() {
-                Some(ProbeHit {
-                    world_pos,
-                    normal,
-                    near_snap: nearest_candidate.is_some(),
-                    snapped: false,
-                })
+            Some(ProbeHit {
+                world_pos,
+                normal,
+                near_snap: nearest_candidate.is_some(),
+                snapped: false,
+            })
             } else {
                 None
             };
+        if let Some(hit) = self.documents[self.active_document_idx].probe_hit.clone() {
+            self.documents[self.active_document_idx].last_probe_hit = Some(hit);
+        }
         let _ = ui;
     }
 
     pub(crate) fn scene_extent(&self) -> f32 {
         self.documents[self.active_document_idx].scene_extent()
     }
+
+    fn pick_plot_from_viewport(
+        &self,
+        frame: &mut eframe::Frame,
+        response: &egui::Response,
+        rect: egui::Rect,
+    ) -> Option<usize> {
+        let cursor = response.hover_pos()?;
+        let local = glam::Vec2::new(cursor.x - rect.left(), cursor.y - rect.top());
+        let viewport_size = glam::Vec2::new(rect.width(), rect.height());
+        let view_proj = self.documents[self.active_document_idx]
+            .camera
+            .proj_matrix()
+            * self.documents[self.active_document_idx].camera.view_matrix();
+        let render_state = frame.wgpu_render_state()?;
+        let renderer_guard = render_state.renderer.read();
+        let renderer = renderer_guard.callback_resources.get::<viewport_lib::ViewportRenderer>()?;
+        let hit = renderer.pick(local, viewport_size, view_proj, viewport_lib::PickMask::OBJECT)?;
+        pick_id_to_plot_index(hit.id)
+    }
+}
+
+fn pick_id_to_plot_index(pick_id: u64) -> Option<usize> {
+    pick_id.checked_sub(1).map(|idx| idx as usize)
+}
+
+fn probe_btn_hit_test(pointer_pos: Option<egui::Pos2>, rect: egui::Rect) -> bool {
+    let Some(pointer_pos) = pointer_pos else {
+        return false;
+    };
+    let btn_rect = egui::Rect::from_min_size(
+        egui::pos2(rect.right() - 54.0 - 8.0, rect.top() + 8.0),
+        egui::vec2(54.0, 22.0),
+    );
+    btn_rect.contains(pointer_pos)
 }
 
 /// Like `push_egui_events` but optionally skips left-button events (for probe mode).

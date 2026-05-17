@@ -167,6 +167,7 @@ struct App {
     pending_save_as: bool,
     confirm_close_idx: Option<usize>,
     confirm_quit: bool,
+    force_quit: bool,
     orbit_controller: OrbitCameraController,
     last_axes_snap: Option<(usize, bool)>,
     last_viewport_size: [u32; 2],
@@ -257,6 +258,7 @@ impl App {
             pending_save_as: false,
             confirm_close_idx: None,
             confirm_quit: false,
+            force_quit: false,
             orbit_controller: OrbitCameraController::viewport_primitives(),
             last_axes_snap: None,
             last_viewport_size: [1000, 700],
@@ -1085,7 +1087,9 @@ impl eframe::App for App {
         // Intercept OS close request — prompt if any document has unsaved changes.
         if ctx.input(|i| i.viewport().close_requested()) {
             let any_dirty = self.documents.iter().any(|d| d.dirty);
-            if any_dirty {
+            if self.force_quit {
+                self.force_quit = false;
+            } else if any_dirty {
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
                 self.confirm_quit = true;
             }
@@ -1275,6 +1279,8 @@ impl eframe::App for App {
                     });
                 });
             if confirmed {
+                self.confirm_quit = false;
+                self.force_quit = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             } else if cancelled {
                 self.confirm_quit = false;

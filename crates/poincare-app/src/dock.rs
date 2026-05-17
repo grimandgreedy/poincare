@@ -136,7 +136,7 @@ impl App {
             }
             DockTab::Viewport => {
                 let ctx = ui.ctx().clone();
-                self.viewport(&ctx, ui);
+                self.viewport(&ctx, ui, frame);
             }
             DockTab::PlotProperties => {
                 egui::ScrollArea::vertical().show(ui, |ui| {

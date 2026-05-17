@@ -79,6 +79,9 @@ pub(crate) struct Document {
 
     pub probe_mode: bool,
     pub probe_hit: Option<ProbeHit>,
+    pub last_probe_hit: Option<ProbeHit>,
+    pub hovered_plot: Option<usize>,
+    pub pinned_probes: Vec<ProbeHit>,
     pub intersection_cache: Vec<glam::Vec3>,
     pub probe_snap_point: Option<glam::Vec3>,
     pub probe_snap_locked: bool,
@@ -124,6 +127,9 @@ impl Document {
             export_progress: None,
             probe_mode: false,
             probe_hit: None,
+            last_probe_hit: None,
+            hovered_plot: None,
+            pinned_probes: Vec::new(),
             intersection_cache: Vec::new(),
             probe_snap_point: None,
             probe_snap_locked: false,
@@ -239,8 +245,12 @@ impl Document {
         }
         let mut scene = GraphScene::new();
         scene.axis_config = self.axis_config.clone();
-        for plot in self.plots.iter().filter(|p| p.visible) {
-            plot.add_to_scene(&mut scene);
+        for (plot_idx, plot) in self.plots.iter().enumerate() {
+            if !plot.visible {
+                continue;
+            }
+            // Pick IDs are one-based so `0` remains the "not pickable" sentinel.
+            plot.add_to_scene_with_pick_id(&mut scene, (plot_idx + 1) as u64);
         }
         Some(scene)
     }
@@ -390,6 +400,9 @@ impl Document {
         self.export_status.clear();
         self.export_progress = None;
         self.probe_hit = None;
+        self.last_probe_hit = None;
+        self.hovered_plot = None;
+        self.pinned_probes.clear();
         self.intersection_cache.clear();
         self.probe_snap_point = None;
         self.probe_snap_locked = false;
@@ -504,7 +517,7 @@ fn scene_bounds(scene: &GraphScene) -> Option<Aabb> {
     Some(Aabb { min, max })
 }
 
-fn plot_bounds(plot: &PlotEntry) -> Option<Aabb> {
+pub(crate) fn plot_bounds(plot: &PlotEntry) -> Option<Aabb> {
     let x0 = *plot.domain.x.start() as f32;
     let x1 = *plot.domain.x.end() as f32;
     let y0 = *plot.domain.y.start() as f32;
