@@ -10,6 +10,7 @@ This project uses internal pre-release versioning. Until `1.0.0`, breaking chang
 - Fixed glyph appearance opacity to use `PlotStyle::opacity`.
 - Fixed vector-field scalar colouring to use raw field vectors instead of display-scaled glyph vectors.
 - Made vector-field glyph rendering unlit for consistent readability.
+- Added `GraphScene::release_gpu_resources` and fixed repeated scene rebuilds to release old uploaded surface meshes before replacing them.
 
 ## [0.2.0]
 

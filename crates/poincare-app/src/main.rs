@@ -13,7 +13,8 @@ mod ui;
 
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::{fs::OpenOptions, io::Write};
 
 use eframe::egui;
 use grimdock::{PanelStyle, PanelTree};
@@ -32,6 +33,8 @@ use document::{
 use plot::entry::PlotEntry;
 use plot::selected_type::SelectedPlotType;
 use ui::equation_editor::EquationEditor;
+
+static DEBUG_LOG_FILE: OnceLock<Mutex<std::fs::File>> = OnceLock::new();
 
 fn default_panel_style() -> PanelStyle {
     PanelStyle {
@@ -52,7 +55,81 @@ fn app_icon() -> Arc<egui::IconData> {
     })
 }
 
+fn debug_log_dir() -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        return document::home_dir().join("Library/Logs/Poincare");
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+            return PathBuf::from(local_app_data).join("Poincare/logs");
+        }
+        return document::home_dir().join("AppData/Local/Poincare/logs");
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        if let Some(xdg_state) = std::env::var_os("XDG_STATE_HOME") {
+            return PathBuf::from(xdg_state).join("poincare");
+        }
+        document::home_dir().join(".local/state/poincare")
+    }
+}
+
+fn debug_log_path() -> PathBuf {
+    debug_log_dir().join("poincare.log")
+}
+
+fn init_debug_logging() {
+    let dir = debug_log_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    let path = debug_log_path();
+    if let Ok(file) = OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = DEBUG_LOG_FILE.set(Mutex::new(file));
+    }
+    debug_log(&format!(
+        "===== session start pid={} log={} =====",
+        std::process::id(),
+        path.display()
+    ));
+}
+
+fn debug_log(message: &str) {
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| format!("{}.{:03}", d.as_secs(), d.subsec_millis()))
+        .unwrap_or_else(|_| "time_error".to_string());
+    let line = format!("[{timestamp}] {message}\n");
+    if let Some(file) = DEBUG_LOG_FILE.get() {
+        if let Ok(mut file) = file.lock() {
+            let _ = file.write_all(line.as_bytes());
+            let _ = file.flush();
+        }
+    }
+    eprintln!("{line}");
+}
+
+fn install_panic_logging() {
+    std::panic::set_hook(Box::new(|panic_info| {
+        let location = panic_info
+            .location()
+            .map(|loc| format!("{}:{}", loc.file(), loc.line()))
+            .unwrap_or_else(|| "unknown".to_string());
+        let payload = panic_info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|s| (*s).to_string())
+            .or_else(|| panic_info.payload().downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "non-string panic payload".to_string());
+        debug_log(&format!("panic at {location}: {payload}"));
+        let bt = std::backtrace::Backtrace::force_capture();
+        debug_log(&format!("backtrace:\n{bt}"));
+    }));
+}
+
 fn main() -> eframe::Result {
+    init_debug_logging();
+    install_panic_logging();
     eframe::run_native(
         "Poincaré",
         eframe::NativeOptions {
@@ -324,7 +401,6 @@ impl App {
         let Some(mut scene) = self.documents[self.active_document_idx].build_scene_data() else {
             return;
         };
-
         let Some(render_state) = frame.wgpu_render_state() else {
             return;
         };
@@ -336,6 +412,9 @@ impl App {
         else {
             return;
         };
+        self.documents[self.active_document_idx]
+            .scene
+            .release_gpu_resources(viewport_renderer.resources_mut());
 
         if let Err(err) = scene.upload_meshes(
             &render_state.device,
@@ -397,10 +476,12 @@ impl App {
             Ok(()) => {
                 self.documents[self.active_document_idx].export_status =
                     format!("Exported {}", path.display());
+                debug_log(&format!("png export complete path={}", path.display()));
             }
             Err(err) => {
                 self.documents[self.active_document_idx].export_status =
                     format!("Export failed: {err}");
+                debug_log(&format!("png export failed: {err}"));
             }
         }
     }
@@ -413,6 +494,7 @@ impl App {
             self.documents[doc_idx].export_status =
                 "Animated export requires at least two saved views.".to_string();
             self.documents[doc_idx].export_progress = None;
+            debug_log("animated export aborted: fewer than two saved views");
             return;
         }
 
@@ -816,6 +898,10 @@ impl App {
                 if *next_frame >= *frame_count {
                     match self.spawn_ffmpeg_export(temp_dir, output_path, *fps, *format) {
                         Ok(child) => {
+                            debug_log(&format!(
+                                "animated export encoding start path={}",
+                                output_path.display()
+                            ));
                             self.documents[job.doc_idx].export_status =
                                 "Encoding animation...".to_string();
                             self.documents[job.doc_idx].export_progress = None;
@@ -852,7 +938,7 @@ impl App {
                         Ok(pixels) => pixels,
                         Err(err) => {
                             let _ = std::fs::remove_dir_all(temp_dir);
-                            self.documents[job.doc_idx].export_status = err;
+                            self.documents[job.doc_idx].export_status = err.clone();
                             self.documents[job.doc_idx].export_progress = None;
                             return;
                         }
@@ -1083,7 +1169,8 @@ impl eframe::App for App {
         // Tick parameter sweeps before rebuilding the scene so the new values
         // are picked up by the same frame's rebuild.
         let dt = ctx.input(|i| i.stable_dt) as f64;
-        if self.tick_parameter_sweeps(dt) {
+        let sweeps_active = self.tick_parameter_sweeps(dt);
+        if sweeps_active {
             ctx.request_repaint();
         }
         {

@@ -11,6 +11,7 @@ This project uses internal pre-release versioning. Until `1.0.0`, breaking chang
 - Added vector-field glyph shape selection in plot style controls.
 - Added a growable saved-view list in the camera tab, with track playback built from those saved views using `viewport-lib` camera interpolation.
 - Added a dedicated bottom `Export` tab with PNG export plus GIF/MP4 animation export driven by the saved-view track.
+- Updated the export tab to use image/video modes, home-directory defaults, and directory selection for export destinations.
 
 ### Fixes
 - Focus on plot properties tab by default.
@@ -19,6 +20,7 @@ This project uses internal pre-release versioning. Until `1.0.0`, breaking chang
 - Made vector fields render unlit by default so glyphs stay clearly visible regardless of scene lighting.
 - Fixed animated export output naming so GIF/MP4 exports use the correct file extension automatically.
 - Added export progress reporting: determinate progress while rendering animation frames, and pending status while `ffmpeg` encodes the final file.
+- Fixed a crash during parameter sweeps and camera playback by releasing old GPU scene meshes before rebuilt meshes are uploaded.
 
 ## [0.3.0]
 
