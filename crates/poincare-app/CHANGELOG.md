@@ -4,7 +4,7 @@ All notable changes to this crate will be documented in this file.
 
 This project uses internal pre-release versioning. Until `1.0.0`, breaking changes may be released in minor versions.
 
-## [Unreleased]
+## [0.5.0]
 
 ### Features
 - Added document-level undo/redo with menu items, command-palette actions, and `Cmd/Ctrl+Z` / `Cmd/Ctrl+Shift+Z` shortcuts.
