@@ -6,6 +6,9 @@ This project uses internal pre-release versioning. Until `1.0.0`, breaking chang
 
 ## [Unreleased]
 
+
+## [0.4.0]
+
 - Added `PlotStyle::glyph_type` so vector-field plots can choose between supported glyph meshes.
 - Added selected-item-aware frame building so applications can mark picked plots for viewport highlighting.
 - Added scene support for plot-owned world-space labels via `PlotGeometry::Labels`, allowing applications to persist annotations as normal plots instead of special overlay state.
