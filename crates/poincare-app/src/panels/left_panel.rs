@@ -8,9 +8,194 @@ use crate::plot::builder::build_plot_entry_from_inputs;
 use crate::plot::entry::PlotEntry;
 use crate::plot::kind::PlotKind;
 use crate::plot::selected_type::SelectedPlotType;
+use crate::plot::table::TablePlotTarget;
 use crate::ui::domain_editor::truncate_str;
 use crate::ui::equation_editor::{equation_row, equation_row_ed, filter_auto_templates};
 use crate::ui::table_editor::edit_table_import;
+
+#[derive(Clone, Copy)]
+pub(crate) enum PlotMarkerKind {
+    Point,
+    Curve,
+    Streamline,
+    Surface,
+    Isosurface,
+    Volume,
+    VectorField,
+}
+
+impl PlotMarkerKind {
+    pub(crate) fn from_plot_kind(kind: &PlotKind) -> Self {
+        match kind {
+            PlotKind::ScatterCloud | PlotKind::PointAnnotations { .. } => Self::Point,
+            PlotKind::HelixCurve
+            | PlotKind::ExprCurve { .. }
+            | PlotKind::ExprCartesianLine { .. }
+            | PlotKind::DerivedPolylineGroups { .. } => Self::Curve,
+            PlotKind::Streamlines { .. } | PlotKind::ExprStreamlines { .. } => Self::Streamline,
+            PlotKind::ContouredSurface { .. }
+            | PlotKind::SphericalHarmonic
+            | PlotKind::GridSurface
+            | PlotKind::ExprCartesian { .. }
+            | PlotKind::ExprSpherical { .. }
+            | PlotKind::ExprCylindrical { .. }
+            | PlotKind::ExprPolar { .. }
+            | PlotKind::ExprParametricSurface { .. }
+            | PlotKind::ScalarSlice { .. } => Self::Surface,
+            PlotKind::Isosurface { .. } | PlotKind::ExprIsosurface { .. } => Self::Isosurface,
+            PlotKind::VolumeRender { .. }
+            | PlotKind::ExprVolume { .. }
+            | PlotKind::DivergenceField { .. } => Self::Volume,
+            PlotKind::VectorField
+            | PlotKind::ExprVectorField { .. }
+            | PlotKind::VectorSlice { .. }
+            | PlotKind::GradientField { .. }
+            | PlotKind::CurlField { .. }
+            | PlotKind::ArrowAnnotations { .. } => Self::VectorField,
+            PlotKind::ImportedTable { definition } => match definition.target {
+                TablePlotTarget::SurfaceGrid => Self::Surface,
+                TablePlotTarget::Curve => Self::Curve,
+                TablePlotTarget::Scatter => Self::Point,
+                TablePlotTarget::VectorField => Self::VectorField,
+            },
+        }
+    }
+}
+
+pub(crate) fn paint_plot_marker(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    color: egui::Color32,
+    kind: PlotMarkerKind,
+) {
+    let stroke = egui::Stroke::new(1.6, color);
+    let fill = color.gamma_multiply(0.22);
+    let c = rect.center();
+    let w = rect.width();
+    let h = rect.height();
+    let left = rect.left() + w * 0.16;
+    let right = rect.right() - w * 0.16;
+    let top = rect.top() + h * 0.16;
+    let bottom = rect.bottom() - h * 0.16;
+
+    match kind {
+        PlotMarkerKind::Point => {
+            painter.add(egui::Shape::convex_polygon(
+                vec![
+                    egui::pos2(c.x, top),
+                    egui::pos2(right, c.y),
+                    egui::pos2(c.x, bottom),
+                    egui::pos2(left, c.y),
+                ],
+                color,
+                egui::Stroke::NONE,
+            ));
+        }
+        PlotMarkerKind::Curve => {
+            let points = vec![
+                egui::pos2(left, c.y + h * 0.18),
+                egui::pos2(c.x - w * 0.18, c.y - h * 0.18),
+                egui::pos2(c.x + w * 0.02, c.y + h * 0.08),
+                egui::pos2(right, c.y - h * 0.16),
+            ];
+            painter.add(egui::Shape::line(points, stroke));
+        }
+        PlotMarkerKind::Streamline => {
+            let points = vec![
+                egui::pos2(left, c.y + h * 0.2),
+                egui::pos2(c.x - w * 0.2, c.y - h * 0.2),
+                egui::pos2(c.x + w * 0.02, c.y + h * 0.06),
+                egui::pos2(right - w * 0.08, c.y - h * 0.14),
+            ];
+            painter.add(egui::Shape::line(points, stroke));
+            painter.line_segment(
+                [
+                    egui::pos2(right - w * 0.2, c.y - h * 0.24),
+                    egui::pos2(right - w * 0.08, c.y - h * 0.14),
+                ],
+                stroke,
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(right - w * 0.15, c.y - h * 0.02),
+                    egui::pos2(right - w * 0.08, c.y - h * 0.14),
+                ],
+                stroke,
+            );
+        }
+        PlotMarkerKind::Surface => {
+            painter.add(egui::Shape::convex_polygon(
+                vec![
+                    egui::pos2(left + w * 0.08, bottom - h * 0.1),
+                    egui::pos2(c.x - w * 0.08, top),
+                    egui::pos2(right, top + h * 0.12),
+                    egui::pos2(c.x + w * 0.08, bottom),
+                ],
+                fill,
+                stroke,
+            ));
+        }
+        PlotMarkerKind::Isosurface => {
+            let ring = vec![
+                egui::pos2(c.x, top),
+                egui::pos2(right - w * 0.12, c.y - h * 0.18),
+                egui::pos2(right, c.y + h * 0.08),
+                egui::pos2(c.x + w * 0.18, bottom),
+                egui::pos2(left + w * 0.1, c.y + h * 0.18),
+                egui::pos2(left, c.y - h * 0.08),
+            ];
+            painter.add(egui::Shape::convex_polygon(ring, fill, stroke));
+            painter.circle_stroke(c, w * 0.18, egui::Stroke::new(1.2, color));
+        }
+        PlotMarkerKind::Volume => {
+            let dx = w * 0.12;
+            let dy = h * 0.14;
+            let back = [
+                egui::pos2(left + dx, top),
+                egui::pos2(right, top),
+                egui::pos2(right, bottom - dy),
+                egui::pos2(left + dx, bottom - dy),
+            ];
+            let front = [
+                egui::pos2(left, top + dy),
+                egui::pos2(right - dx, top + dy),
+                egui::pos2(right - dx, bottom),
+                egui::pos2(left, bottom),
+            ];
+            for edge in back.windows(2) {
+                painter.line_segment([edge[0], edge[1]], stroke);
+            }
+            painter.line_segment([back[3], back[0]], stroke);
+            for edge in front.windows(2) {
+                painter.line_segment([edge[0], edge[1]], stroke);
+            }
+            painter.line_segment([front[3], front[0]], stroke);
+            for i in 0..4 {
+                painter.line_segment([front[i], back[i]], stroke);
+            }
+        }
+        PlotMarkerKind::VectorField => {
+            painter.line_segment(
+                [egui::pos2(left, bottom), egui::pos2(right - w * 0.14, top + h * 0.14)],
+                stroke,
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(right - w * 0.34, top + h * 0.14),
+                    egui::pos2(right - w * 0.14, top + h * 0.14),
+                ],
+                stroke,
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(right - w * 0.14, top + h * 0.14),
+                    egui::pos2(right - w * 0.14, top + h * 0.34),
+                ],
+                stroke,
+            );
+        }
+    }
+}
 
 fn expression_summary(kind: &PlotKind) -> Option<String> {
     match kind {
@@ -171,13 +356,14 @@ impl App {
                     let is_selected =
                         self.documents[self.active_document_idx].selected_plot == Some(index);
                     let is_renaming = self.renaming_plot == Some(index);
-                    let (plot_name, hover_text, dot_color) = {
+                    let (plot_name, hover_text, marker_color, marker_kind) = {
                         let plot = &self.documents[self.active_document_idx].plots[index];
                         (
                             plot.name.clone(),
                             expression_summary(&plot.kind)
                                 .unwrap_or_else(|| plot.name.clone()),
                             self.representative_plot_color(plot),
+                            PlotMarkerKind::from_plot_kind(&plot.kind),
                         )
                     };
                     let label = truncate_str(&plot_name, 28);
@@ -197,12 +383,16 @@ impl App {
                         .inner_margin(egui::Margin::same(8))
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
-                                let (dot_rect, _) = ui.allocate_exact_size(
-                                    egui::vec2(10.0, 10.0),
+                                let (marker_rect, _) = ui.allocate_exact_size(
+                                    egui::vec2(14.0, 14.0),
                                     egui::Sense::hover(),
                                 );
-                                ui.painter()
-                                    .circle_filled(dot_rect.center(), 4.5, dot_color);
+                                paint_plot_marker(
+                                    ui.painter(),
+                                    marker_rect,
+                                    marker_color,
+                                    marker_kind,
+                                );
 
                                 if is_renaming {
                                     let response = ui.add(
