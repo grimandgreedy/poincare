@@ -2,9 +2,8 @@
 
 All notable changes to this crate will be documented in this file.
 
-This project uses internal pre-release versioning. Until `1.0.0`, breaking changes may be released in minor versions.
-
-## [Unreleased]
+## [0.5.0]
+- Redefine the intended app/lib boundary around equations/plot structs.
 
 
 ## [0.4.0]
