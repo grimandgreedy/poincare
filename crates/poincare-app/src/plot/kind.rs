@@ -1,7 +1,10 @@
-use poincare_lib::{CurveInterpolation, PlotStyle};
+use poincare_lib::{
+    CurveInterpolation, DomainEditorMetadata, PlotMetadata, PlotStyle,
+    StyleCapabilities as LibStyleCapabilities,
+};
 
 use crate::plot::analysis::{ArrowAnnotation, PointAnnotation, SliceAxis};
-use crate::plot::table::{TableImportDefinition, TablePlotTarget};
+use crate::plot::table::TableImportDefinition;
 
 /// Default palette for isosurface per-level colours.
 pub(crate) const DEFAULT_ISO_PALETTE: [[f32; 4]; 6] = [
@@ -71,6 +74,38 @@ pub(crate) enum DomainLabels {
     /// Single axis with a custom label (e.g. the independent variable of a Cartesian line).
     /// The domain x field is used as the range.
     SingleVar(String),
+}
+
+impl From<LibStyleCapabilities> for StyleCaps {
+    fn from(value: LibStyleCapabilities) -> Self {
+        Self {
+            mesh: value.mesh,
+            line: value.line,
+            point: value.point,
+            glyph: value.glyph,
+        }
+    }
+}
+
+impl From<DomainEditorMetadata> for DomainLabels {
+    fn from(value: DomainEditorMetadata) -> Self {
+        match value {
+            DomainEditorMetadata::Fixed => Self::None,
+            DomainEditorMetadata::One { primary } => match primary.as_str() {
+                "theta" => Self::Theta,
+                "T" => Self::T,
+                _ => Self::SingleVar(primary),
+            },
+            DomainEditorMetadata::Two { primary, secondary } => match (primary.as_str(), secondary.as_str()) {
+                ("X", "Y") => Self::Xy,
+                ("theta", "phi") => Self::ThetaPhi,
+                ("theta", "z") => Self::ThetaZ,
+                ("U", "V") => Self::Uv,
+                _ => Self::None,
+            },
+            DomainEditorMetadata::Three { .. } => Self::Xyz,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -209,171 +244,28 @@ pub(crate) enum PlotKind {
 }
 
 impl PlotKind {
+    fn metadata(&self) -> PlotMetadata {
+        self.to_plot_definition().metadata()
+    }
+
     pub(crate) fn style_caps(&self) -> StyleCaps {
-        match self {
-            Self::ContouredSurface { .. }
-            | Self::SphericalHarmonic
-            | Self::GridSurface
-            | Self::Isosurface { .. }
-            | Self::ExprCartesian { .. }
-            | Self::ExprSpherical { .. }
-            | Self::ExprCylindrical { .. }
-            | Self::ExprPolar { .. }
-            | Self::ExprParametricSurface { .. }
-            | Self::ScalarSlice { .. } => StyleCaps {
-                mesh: true,
-                line: false,
-                point: false,
-                glyph: false,
-            },
-            Self::HelixCurve
-            | Self::Streamlines { .. }
-            | Self::ExprCurve { .. }
-            | Self::ExprCartesianLine { .. }
-            | Self::DerivedPolylineGroups { .. }
-            | Self::InterpolatedCurve { .. }
-            | Self::ExprStreamlines { .. } => StyleCaps {
-                mesh: false,
-                line: true,
-                point: false,
-                glyph: false,
-            },
-            Self::ScatterCloud | Self::PointAnnotations { .. } => StyleCaps {
-                mesh: false,
-                line: false,
-                point: true,
-                glyph: false,
-            },
-            Self::VectorField
-            | Self::ExprVectorField { .. }
-            | Self::VectorSlice { .. }
-            | Self::GradientField { .. }
-            | Self::CurlField { .. }
-            | Self::ArrowAnnotations { .. } => StyleCaps {
-                mesh: false,
-                line: false,
-                point: false,
-                glyph: true,
-            },
-            Self::VolumeRender { .. } | Self::ExprVolume { .. } | Self::DivergenceField { .. } => StyleCaps {
-                mesh: false,
-                line: false,
-                point: false,
-                glyph: false,
-            },
-            Self::ExprIsosurface { .. } => StyleCaps {
-                mesh: true,
-                line: false,
-                point: false,
-                glyph: false,
-            },
-            Self::ImportedTable { definition } => match definition.target {
-                TablePlotTarget::SurfaceGrid => StyleCaps {
-                    mesh: true,
-                    line: false,
-                    point: false,
-                    glyph: false,
-                },
-                TablePlotTarget::Curve => StyleCaps {
-                    mesh: false,
-                    line: true,
-                    point: false,
-                    glyph: false,
-                },
-                TablePlotTarget::Scatter => StyleCaps {
-                    mesh: false,
-                    line: false,
-                    point: true,
-                    glyph: false,
-                },
-                TablePlotTarget::VectorField => StyleCaps {
-                    mesh: false,
-                    line: false,
-                    point: false,
-                    glyph: true,
-                },
-            },
-        }
+        self.metadata().style_caps.into()
     }
 
     pub(crate) fn domain_labels(&self) -> DomainLabels {
-        match self {
-            Self::ExprCartesian { .. } | Self::ContouredSurface { .. } | Self::GridSurface => {
-                DomainLabels::Xy
-            }
-            Self::ExprSpherical { .. } => DomainLabels::ThetaPhi,
-            Self::ExprCylindrical { .. } => DomainLabels::ThetaZ,
-            Self::ExprPolar { .. } => DomainLabels::Theta,
-            Self::ExprParametricSurface { .. } => DomainLabels::Uv,
-            Self::ExprCurve { .. } => DomainLabels::T,
-            Self::ExprCartesianLine { ind_var, .. } => DomainLabels::SingleVar(ind_var.clone()),
-            Self::ImportedTable { .. }
-            | Self::ScalarSlice { .. }
-            | Self::VectorSlice { .. }
-            | Self::PointAnnotations { .. }
-            | Self::ArrowAnnotations { .. }
-            | Self::InterpolatedCurve { .. }
-            | Self::DerivedPolylineGroups { .. } => DomainLabels::None,
-            Self::VectorField
-            | Self::Streamlines { .. }
-            | Self::VolumeRender { .. }
-            | Self::Isosurface { .. }
-            | Self::ExprVectorField { .. }
-            | Self::ExprVolume { .. }
-            | Self::ExprIsosurface { .. }
-            | Self::ExprStreamlines { .. }
-            | Self::GradientField { .. }
-            | Self::DivergenceField { .. }
-            | Self::CurlField { .. } => DomainLabels::Xyz,
-        _ => DomainLabels::None,
-        }
+        self.metadata().domain_editor.into()
     }
 
     pub(crate) fn uses_resolution(&self) -> bool {
-        !matches!(
-            self,
-            Self::ScatterCloud
-                | Self::Streamlines { .. }
-                | Self::ImportedTable { .. }
-                | Self::InterpolatedCurve { .. }
-                | Self::PointAnnotations { .. }
-                | Self::ArrowAnnotations { .. }
-                | Self::DerivedPolylineGroups { .. }
-        )
+        self.metadata().uses_resolution
     }
 
     pub(crate) fn uses_seed_resolution(&self) -> bool {
-        matches!(
-            self,
-            Self::VectorField
-                | Self::ExprVectorField { .. }
-                | Self::VectorSlice { .. }
-                | Self::GradientField { .. }
-                | Self::CurlField { .. }
-        )
+        self.metadata().uses_seed_resolution
     }
 
     pub(crate) fn supports_surface_intersection(&self) -> bool {
-        matches!(
-            self,
-            Self::ContouredSurface { .. }
-                | Self::SphericalHarmonic
-                | Self::GridSurface
-                | Self::Isosurface { .. }
-                | Self::ExprCartesian { .. }
-                | Self::ExprSpherical { .. }
-                | Self::ExprCylindrical { .. }
-                | Self::ExprPolar { .. }
-                | Self::ExprParametricSurface { .. }
-                | Self::ExprIsosurface { .. }
-                | Self::ImportedTable {
-                    definition: TableImportDefinition {
-                        target: TablePlotTarget::SurfaceGrid,
-                        ..
-                    },
-                }
-                | Self::ScalarSlice { .. }
-        )
+        self.metadata().supports_surface_intersection
     }
 
     /// Return a mutable reference to the parameter list for expression-based plot kinds.

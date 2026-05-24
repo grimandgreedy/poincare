@@ -3,8 +3,15 @@ use std::sync::Arc;
 use poincare_lib::{
     ColourMode, ContourPlot3D, Curve3D, DensityPlot3D, Domain, GraphScene, LevelSet3D, PlotStyle,
     Resolution, Scatter3D, StreamPlot3D, Surface3D, VectorField3D, eval_curve_point, eval_surface,
-    eval_with_vars, parse_curve_expr, parse_expr_with_vars,
-    parse_surface_expr,
+    eval_with_vars,
+    graph_spec::{
+        ArrowAnnotation as LibArrowAnnotation, GraphSpec, OptionalColumn as LibOptionalColumn,
+        PlotDefinition, PlotSpec, PointAnnotation as LibPointAnnotation,
+        SeedMode as LibSeedMode, SliceAxis as LibSliceAxis,
+        TableColumnMapping as LibTableColumnMapping, TableDelimiter as LibTableDelimiter,
+        TableImportDefinition as LibTableImportDefinition, TablePlotTarget as LibTablePlotTarget,
+    },
+    parse_curve_expr, parse_expr_with_vars, parse_surface_expr,
 };
 
 use crate::plot::analysis::{
@@ -27,12 +34,14 @@ pub(crate) struct PlotEntry {
 }
 
 impl PlotEntry {
+    #[allow(dead_code)]
     fn surface_style(&self) -> PlotStyle {
         let mut style = self.style.clone();
         style.two_sided = true;
         style
     }
 
+    #[allow(dead_code)]
     pub(crate) fn add_to_scene_with_pick_id(&self, scene: &mut GraphScene, pick_id: u64) {
         match &self.kind {
             PlotKind::ContouredSurface {
@@ -808,8 +817,366 @@ impl PlotEntry {
             }
         }
     }
+
+    #[allow(dead_code)]
+    pub(crate) fn to_plot_spec(&self) -> PlotSpec {
+        PlotSpec {
+            name: self.name.clone(),
+            visible: self.visible,
+            domain: self.domain.clone(),
+            resolution: self.resolution,
+            style: self.style.clone(),
+            definition: self.kind.to_plot_definition(),
+        }
+    }
 }
 
+impl PlotKind {
+    #[allow(dead_code)]
+    pub(crate) fn to_plot_definition(&self) -> PlotDefinition {
+        match self {
+            PlotKind::ContouredSurface {
+                contour_values,
+                contour_style,
+            } => PlotDefinition::ContouredSurface {
+                contour_values: contour_values.clone(),
+                contour_style: contour_style.clone(),
+            },
+            PlotKind::SphericalHarmonic => PlotDefinition::SphericalHarmonic,
+            PlotKind::HelixCurve => PlotDefinition::HelixCurve,
+            PlotKind::ScatterCloud => PlotDefinition::ScatterCloud,
+            PlotKind::VectorField => PlotDefinition::VectorField,
+            PlotKind::GridSurface => PlotDefinition::GridSurface,
+            PlotKind::Streamlines { seeds } => PlotDefinition::Streamlines {
+                seeds: seeds.iter().map(|seed| seed.to_array()).collect(),
+            },
+            PlotKind::VolumeRender { resolution } => PlotDefinition::VolumeRender {
+                resolution: *resolution,
+            },
+            PlotKind::Isosurface {
+                isovalues,
+                resolution,
+            } => PlotDefinition::Isosurface {
+                isovalues: isovalues.clone(),
+                resolution: *resolution,
+            },
+            PlotKind::ExprCartesian {
+                expression,
+                parameters,
+            } => PlotDefinition::ExprCartesian {
+                expression: expression.clone(),
+                parameters: parameters.clone(),
+            },
+            PlotKind::ExprCurve {
+                expression,
+                parameters,
+                t_range,
+            } => PlotDefinition::ExprCurve {
+                expression: expression.clone(),
+                parameters: parameters.clone(),
+                t_range: *t_range,
+            },
+            PlotKind::ExprCartesianLine {
+                dep_var,
+                ind_var,
+                expression,
+                parameters,
+            } => PlotDefinition::ExprCartesianLine {
+                dep_var: dep_var.clone(),
+                ind_var: ind_var.clone(),
+                expression: expression.clone(),
+                parameters: parameters.clone(),
+            },
+            PlotKind::ExprSpherical {
+                expression,
+                parameters,
+            } => PlotDefinition::ExprSpherical {
+                expression: expression.clone(),
+                parameters: parameters.clone(),
+            },
+            PlotKind::ExprCylindrical {
+                expression,
+                parameters,
+            } => PlotDefinition::ExprCylindrical {
+                expression: expression.clone(),
+                parameters: parameters.clone(),
+            },
+            PlotKind::ExprPolar {
+                expression,
+                parameters,
+            } => PlotDefinition::ExprPolar {
+                expression: expression.clone(),
+                parameters: parameters.clone(),
+            },
+            PlotKind::ExprParametricSurface {
+                expression,
+                parameters,
+            } => PlotDefinition::ExprParametricSurface {
+                expression: expression.clone(),
+                parameters: parameters.clone(),
+            },
+            PlotKind::ImportedTable { definition } => PlotDefinition::ImportedTable {
+                definition: convert_table_import_definition(definition),
+            },
+            PlotKind::ScalarSlice {
+                expression,
+                parameters,
+                axis,
+                position,
+                contour_values,
+                contour_style,
+            } => PlotDefinition::ScalarSlice {
+                expression: expression.clone(),
+                parameters: parameters.clone(),
+                axis: convert_slice_axis(*axis),
+                position: *position,
+                contour_values: contour_values.clone(),
+                contour_style: contour_style.clone(),
+            },
+            PlotKind::VectorSlice {
+                expression,
+                parameters,
+                axis,
+                position,
+            } => PlotDefinition::VectorSlice {
+                expression: expression.clone(),
+                parameters: parameters.clone(),
+                axis: convert_slice_axis(*axis),
+                position: *position,
+            },
+            PlotKind::GradientField {
+                expression,
+                parameters,
+            } => PlotDefinition::GradientField {
+                expression: expression.clone(),
+                parameters: parameters.clone(),
+            },
+            PlotKind::DivergenceField {
+                expression,
+                parameters,
+                vol_resolution,
+            } => PlotDefinition::DivergenceField {
+                expression: expression.clone(),
+                parameters: parameters.clone(),
+                vol_resolution: *vol_resolution,
+            },
+            PlotKind::CurlField {
+                expression,
+                parameters,
+            } => PlotDefinition::CurlField {
+                expression: expression.clone(),
+                parameters: parameters.clone(),
+            },
+            PlotKind::PointAnnotations { points, show_labels } => PlotDefinition::PointAnnotations {
+                points: points
+                    .iter()
+                    .map(|point| LibPointAnnotation {
+                        position: point.position,
+                        label: point.label.clone(),
+                    })
+                    .collect(),
+                show_labels: *show_labels,
+            },
+            PlotKind::ArrowAnnotations { arrows, show_labels } => PlotDefinition::ArrowAnnotations {
+                arrows: arrows
+                    .iter()
+                    .map(|arrow| LibArrowAnnotation {
+                        origin: arrow.origin,
+                        vector: arrow.vector,
+                        label: arrow.label.clone(),
+                    })
+                    .collect(),
+                show_labels: *show_labels,
+            },
+            PlotKind::DerivedPolylineGroups { groups } => PlotDefinition::DerivedPolylineGroups {
+                groups: groups.clone(),
+            },
+            PlotKind::InterpolatedCurve {
+                points,
+                interpolation,
+            } => PlotDefinition::InterpolatedCurve {
+                points: points.clone(),
+                interpolation: *interpolation,
+            },
+            PlotKind::ExprVectorField {
+                expression,
+                parameters,
+            } => PlotDefinition::ExprVectorField {
+                expression: expression.clone(),
+                parameters: parameters.clone(),
+            },
+            PlotKind::ExprVolume {
+                expression,
+                parameters,
+                vol_resolution,
+            } => PlotDefinition::ExprVolume {
+                expression: expression.clone(),
+                parameters: parameters.clone(),
+                vol_resolution: *vol_resolution,
+            },
+            PlotKind::ExprIsosurface {
+                expression,
+                parameters,
+                isovalues,
+                iso_colours,
+                vol_resolution,
+            } => PlotDefinition::ExprIsosurface {
+                expression: expression.clone(),
+                parameters: parameters.clone(),
+                isovalues: isovalues.clone(),
+                iso_colours: iso_colours.clone(),
+                vol_resolution: *vol_resolution,
+            },
+            PlotKind::ExprStreamlines {
+                expression,
+                parameters,
+                seed_mode,
+                step_size,
+                max_steps,
+            } => PlotDefinition::ExprStreamlines {
+                expression: expression.clone(),
+                parameters: parameters.clone(),
+                seed_mode: convert_seed_mode(seed_mode),
+                step_size: *step_size,
+                max_steps: *max_steps,
+            },
+        }
+    }
+}
+
+#[allow(dead_code)]
+pub(crate) fn build_graph_spec(entries: &[PlotEntry], axis_config: poincare_lib::AxisConfig) -> GraphSpec {
+    GraphSpec {
+        axis_config,
+        plots: entries.iter().map(PlotEntry::to_plot_spec).collect(),
+    }
+}
+
+#[allow(dead_code)]
+fn convert_slice_axis(axis: crate::plot::analysis::SliceAxis) -> LibSliceAxis {
+    match axis {
+        crate::plot::analysis::SliceAxis::X => LibSliceAxis::X,
+        crate::plot::analysis::SliceAxis::Y => LibSliceAxis::Y,
+        crate::plot::analysis::SliceAxis::Z => LibSliceAxis::Z,
+    }
+}
+
+#[allow(dead_code)]
+fn convert_seed_mode(seed_mode: &crate::plot::kind::SeedMode) -> LibSeedMode {
+    match seed_mode {
+        crate::plot::kind::SeedMode::Grid { nx, ny, nz } => LibSeedMode::Grid {
+            nx: *nx,
+            ny: *ny,
+            nz: *nz,
+        },
+        crate::plot::kind::SeedMode::Plane { axis, offset } => LibSeedMode::Plane {
+            axis: *axis,
+            offset: *offset,
+        },
+        crate::plot::kind::SeedMode::ManualCsv { csv_text } => LibSeedMode::ManualCsv {
+            csv_text: csv_text.clone(),
+        },
+    }
+}
+
+#[allow(dead_code)]
+fn convert_table_import_definition(
+    definition: &crate::plot::table::TableImportDefinition,
+) -> LibTableImportDefinition {
+    LibTableImportDefinition {
+        source_path: definition.source_path.clone(),
+        raw_text: definition.raw_text.clone(),
+        delimiter: match definition.delimiter {
+            crate::plot::table::TableDelimiter::Comma => LibTableDelimiter::Comma,
+            crate::plot::table::TableDelimiter::Semicolon => LibTableDelimiter::Semicolon,
+            crate::plot::table::TableDelimiter::Tab => LibTableDelimiter::Tab,
+            crate::plot::table::TableDelimiter::Space => LibTableDelimiter::Space,
+            crate::plot::table::TableDelimiter::Pipe => LibTableDelimiter::Pipe,
+        },
+        header_row: definition.header_row,
+        target: match definition.target {
+            crate::plot::table::TablePlotTarget::SurfaceGrid => LibTablePlotTarget::SurfaceGrid,
+            crate::plot::table::TablePlotTarget::Curve => LibTablePlotTarget::Curve,
+            crate::plot::table::TablePlotTarget::Scatter => LibTablePlotTarget::Scatter,
+            crate::plot::table::TablePlotTarget::VectorField => LibTablePlotTarget::VectorField,
+        },
+        mapping: convert_table_column_mapping(&definition.mapping),
+    }
+}
+
+#[allow(dead_code)]
+fn convert_table_column_mapping(
+    mapping: &crate::plot::table::TableColumnMapping,
+) -> LibTableColumnMapping {
+    match mapping {
+        crate::plot::table::TableColumnMapping::SurfaceGrid { x, y, z } => {
+            LibTableColumnMapping::SurfaceGrid {
+                x: *x,
+                y: *y,
+                z: *z,
+            }
+        }
+        crate::plot::table::TableColumnMapping::Curve {
+            x,
+            y,
+            z,
+            label,
+            group,
+        } => LibTableColumnMapping::Curve {
+            x: *x,
+            y: *y,
+            z: convert_optional_column(*z),
+            label: convert_optional_column(*label),
+            group: convert_optional_column(*group),
+        },
+        crate::plot::table::TableColumnMapping::Scatter {
+            x,
+            y,
+            z,
+            scalar,
+            label,
+            group,
+        } => LibTableColumnMapping::Scatter {
+            x: *x,
+            y: *y,
+            z: convert_optional_column(*z),
+            scalar: convert_optional_column(*scalar),
+            label: convert_optional_column(*label),
+            group: convert_optional_column(*group),
+        },
+        crate::plot::table::TableColumnMapping::VectorField {
+            x,
+            y,
+            z,
+            vx,
+            vy,
+            vz,
+            scalar,
+            label,
+            group,
+        } => LibTableColumnMapping::VectorField {
+            x: *x,
+            y: *y,
+            z: convert_optional_column(*z),
+            vx: *vx,
+            vy: *vy,
+            vz: convert_optional_column(*vz),
+            scalar: convert_optional_column(*scalar),
+            label: convert_optional_column(*label),
+            group: convert_optional_column(*group),
+        },
+    }
+}
+
+#[allow(dead_code)]
+fn convert_optional_column(column: crate::plot::table::OptionalColumn) -> LibOptionalColumn {
+    match column {
+        crate::plot::table::OptionalColumn::None => LibOptionalColumn::None,
+        crate::plot::table::OptionalColumn::Column(index) => LibOptionalColumn::Column(index),
+    }
+}
+
+#[allow(dead_code)]
 fn gradient_step(parameters: &[(String, f64)]) -> f64 {
     let scale = parameters
         .iter()
@@ -818,6 +1185,7 @@ fn gradient_step(parameters: &[(String, f64)]) -> f64 {
     (scale * 0.01).clamp(1.0e-3, 0.25)
 }
 
+#[allow(dead_code)]
 fn finite_gradient(
     f: impl Fn(f64, f64, f64) -> f64,
     x: f64,
@@ -831,6 +1199,7 @@ fn finite_gradient(
     glam::vec3(dx as f32, dy as f32, dz as f32)
 }
 
+#[allow(dead_code)]
 fn finite_divergence(
     f: impl Fn(f64, f64, f64) -> glam::Vec3,
     x: f64,
@@ -844,6 +1213,7 @@ fn finite_divergence(
     ddx + ddy + ddz
 }
 
+#[allow(dead_code)]
 fn finite_curl(
     f: impl Fn(f64, f64, f64) -> glam::Vec3,
     x: f64,
