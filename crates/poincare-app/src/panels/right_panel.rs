@@ -1,4 +1,5 @@
 use eframe::egui;
+use poincare_lib::{CurveInterpolation, CurveInterpolationKind, sample_curve_points};
 use viewport_lib::{AttributeKind, Easing, Projection, ViewPreset};
 
 use crate::App;
@@ -13,6 +14,7 @@ use crate::plot::analysis::{
 use crate::plot::entry::PlotEntry;
 use crate::plot::kind::{PlotKind, StyleCaps, evenly_spaced_isovalues};
 use crate::panels::left_panel::{PlotMarkerKind, paint_plot_marker};
+use crate::plot::table::TableDataSet;
 use crate::ui::domain_editor::{edit_domain, edit_resolution};
 use crate::ui::expr_params::show_expression_params;
 use crate::ui::style_editor::{
@@ -36,7 +38,14 @@ impl App {
                         color,
                         PlotMarkerKind::from_plot_kind(&plot.kind),
                     );
-                    ui.label(egui::RichText::new(&plot.name).strong());
+                    ui.vertical(|ui| {
+                        ui.label(egui::RichText::new(&plot.name).strong());
+                        ui.label(
+                            egui::RichText::new(plot_properties_summary(plot))
+                                .small()
+                                .weak(),
+                        );
+                    });
                 }
             } else {
                 ui.label(egui::RichText::new("No plot selected").weak());
@@ -695,6 +704,63 @@ impl App {
 
         ui.add_space(8.0);
         ui.separator();
+        ui.label("Interpolation");
+        if let Some(groups) = self.interpolation_source_groups(&selected) {
+            let point_count: usize = groups.iter().map(Vec::len).sum();
+            ui.label(
+                egui::RichText::new(format!(
+                    "{} point(s) across {} sequence(s) can be turned into curve geometry.",
+                    point_count,
+                    groups.len()
+                ))
+                .small()
+                .weak(),
+            );
+                    if ui.button("Interpolate...").clicked() {
+                        self.open_interpolate_modal(plot_idx, &selected);
+                    }
+        } else {
+            ui.label(
+                egui::RichText::new(
+                    "Interpolation is available for point and ordered sample plots.",
+                )
+                .small()
+                .weak(),
+            );
+        }
+
+        ui.add_space(8.0);
+        ui.separator();
+        ui.label("Point Extraction");
+        if let Some(groups) = self.polyline_sample_groups(&selected) {
+            let point_count: usize = groups.iter().map(Vec::len).sum();
+            ui.label(
+                egui::RichText::new(format!(
+                    "{} sampled point(s) across {} polyline(s) can be extracted as a point plot.",
+                    point_count,
+                    groups.len()
+                ))
+                .small()
+                .weak(),
+            );
+            if ui.button("Extract Points").clicked() {
+                self.push_analysis_plot(
+                    doc_idx,
+                    self.make_extracted_points_plot(&selected, groups),
+                );
+            }
+        } else {
+            ui.label(
+                egui::RichText::new(
+                    "Point extraction is available for polyline and interpolated curve plots.",
+                )
+                .small()
+                .weak(),
+            );
+        }
+
+        ui.add_space(8.0);
+        ui.separator();
         ui.label("Intersections");
         ui.label("Curves");
         if self.documents[doc_idx].intersection_cache.is_empty() {
@@ -1055,5 +1121,430 @@ impl App {
             );
         }
         self.documents[doc_idx].export_status.clear();
+    }
+
+    pub(crate) fn show_interpolate_modal(&mut self, ctx: &egui::Context) {
+        let Some(mut state) = self.interpolate_modal.clone() else {
+            return;
+        };
+
+        let Some(plot) = self.documents[self.active_document_idx]
+            .plots
+            .get(state.source_plot_idx)
+            .cloned()
+        else {
+            self.interpolate_modal = None;
+            return;
+        };
+
+        let Some(groups) = self.interpolation_source_groups(&plot) else {
+            self.interpolate_modal = None;
+            return;
+        };
+
+        let mut open = true;
+        let mut create_plot = false;
+        let mut cancel_clicked = false;
+        egui::Window::new("Interpolate Plot")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Build a derived curve from {} sequence(s) / {} point(s).",
+                        groups.len(),
+                        groups.iter().map(Vec::len).sum::<usize>()
+                    ))
+                    .small()
+                    .weak(),
+                );
+                ui.add_space(8.0);
+
+                ui.label("Method");
+                egui::ComboBox::from_id_salt("interpolation_method")
+                    .selected_text(interpolation_kind_label(state.interpolation.kind))
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut state.interpolation.kind,
+                            CurveInterpolationKind::Linear,
+                            interpolation_kind_label(CurveInterpolationKind::Linear),
+                        );
+                        ui.selectable_value(
+                            &mut state.interpolation.kind,
+                            CurveInterpolationKind::CatmullRom,
+                            interpolation_kind_label(CurveInterpolationKind::CatmullRom),
+                        );
+                        ui.selectable_value(
+                            &mut state.interpolation.kind,
+                            CurveInterpolationKind::CentripetalCatmullRom,
+                            interpolation_kind_label(
+                                CurveInterpolationKind::CentripetalCatmullRom,
+                            ),
+                        );
+                        ui.selectable_value(
+                            &mut state.interpolation.kind,
+                            CurveInterpolationKind::MovingAverage,
+                            interpolation_kind_label(CurveInterpolationKind::MovingAverage),
+                        );
+                        ui.selectable_value(
+                            &mut state.interpolation.kind,
+                            CurveInterpolationKind::SavitzkyGolay,
+                            interpolation_kind_label(CurveInterpolationKind::SavitzkyGolay),
+                        );
+                    });
+                ui.checkbox(&mut state.interpolation.closed, "Closed loop");
+                ui.add(
+                    egui::Slider::new(
+                        &mut state.interpolation.samples_per_segment,
+                        1..=64,
+                    )
+                    .text("Samples per segment"),
+                );
+                if uses_smoothing_window(state.interpolation.kind) {
+                    ui.add(
+                        egui::Slider::new(&mut state.interpolation.smoothing_window, 3..=25)
+                            .text("Smoothing Window"),
+                    );
+                    state.interpolation.smoothing_window =
+                        normalized_window_value(state.interpolation.smoothing_window);
+                }
+                ui.label(
+                    egui::RichText::new(match state.interpolation.kind {
+                        CurveInterpolationKind::Linear => {
+                            "Linear just connects the samples in order."
+                        }
+                        CurveInterpolationKind::CatmullRom => {
+                            "Catmull-Rom passes through the samples with a smooth cubic spline."
+                        }
+                        CurveInterpolationKind::CentripetalCatmullRom => {
+                            "Centripetal Catmull-Rom reduces overshoot and self-intersection risk."
+                        }
+                        CurveInterpolationKind::MovingAverage => {
+                            "Moving average smooths noisy samples first, then resamples a smooth path."
+                        }
+                        CurveInterpolationKind::SavitzkyGolay => {
+                            "Savitzky-Golay smooths while preserving local shape better than a plain average."
+                        }
+                    })
+                    .small()
+                    .weak(),
+                );
+                ui.add_space(8.0);
+                ui.label("Output Name");
+                ui.text_edit_singleline(&mut state.output_name);
+                if !state.error.is_empty() {
+                    ui.colored_label(egui::Color32::from_rgb(255, 110, 110), &state.error);
+                }
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Create Interpolated Plot").clicked() {
+                        create_plot = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        cancel_clicked = true;
+                    }
+                });
+            });
+
+        if cancel_clicked {
+            open = false;
+        }
+
+        if create_plot {
+            match self.create_interpolated_plot_from_modal(&state, &plot, groups) {
+                Ok(()) => {
+                    self.interpolate_modal = None;
+                    return;
+                }
+                Err(error) => state.error = error,
+            }
+        }
+
+        self.interpolate_modal = open.then_some(state);
+    }
+
+    fn open_interpolate_modal(&mut self, plot_idx: usize, plot: &PlotEntry) {
+        self.interpolate_modal = Some(crate::InterpolateModalState {
+            source_plot_idx: plot_idx,
+            output_name: format!("Interpolated {}", plot.name),
+            interpolation: CurveInterpolation {
+                kind: CurveInterpolationKind::Linear,
+                samples_per_segment: 1,
+                closed: false,
+                smoothing_window: 5,
+            },
+            error: String::new(),
+        });
+    }
+
+    fn interpolation_source_groups(&self, plot: &PlotEntry) -> Option<Vec<Vec<[f32; 3]>>> {
+        match &plot.kind {
+            PlotKind::PointAnnotations { points, .. } => Some(vec![points
+                .iter()
+                .map(|point| point.position)
+                .collect()]),
+            PlotKind::ImportedTable { definition } => match definition.validate().ok()? {
+                TableDataSet::Curve { groups, .. } => Some(
+                    groups
+                        .iter()
+                        .map(|group| group.iter().map(|point| point.to_array()).collect())
+                        .collect(),
+                ),
+                TableDataSet::Scatter { points, .. } => {
+                    Some(vec![points.iter().map(|point| point.to_array()).collect()])
+                }
+                _ => None,
+            },
+            PlotKind::DerivedPolylineGroups { groups } => Some(groups.clone()),
+            PlotKind::InterpolatedCurve { points, .. } => Some(vec![points.clone()]),
+            _ => None,
+        }
+    }
+
+    fn polyline_sample_groups(&self, plot: &PlotEntry) -> Option<Vec<Vec<[f32; 3]>>> {
+        match &plot.kind {
+            PlotKind::ImportedTable { definition } => match definition.validate().ok()? {
+                TableDataSet::Curve { groups, .. } => Some(
+                    groups
+                        .iter()
+                        .map(|group| group.iter().map(|point| point.to_array()).collect())
+                        .collect(),
+                ),
+                _ => None,
+            },
+            PlotKind::DerivedPolylineGroups { groups } => Some(groups.clone()),
+            PlotKind::InterpolatedCurve {
+                points,
+                interpolation,
+            } => {
+                let sampled = sample_curve_points(
+                    &points
+                        .iter()
+                        .map(|point| glam::Vec3::from_array(*point))
+                        .collect::<Vec<_>>(),
+                    *interpolation,
+                );
+                Some(vec![sampled.iter().map(|point| point.to_array()).collect()])
+            }
+            _ => None,
+        }
+    }
+
+    fn make_extracted_points_plot(
+        &self,
+        source: &PlotEntry,
+        groups: Vec<Vec<[f32; 3]>>,
+    ) -> PlotEntry {
+        let positions = groups.into_iter().flatten().collect::<Vec<_>>();
+        PlotEntry {
+            name: format!("Points from {}", source.name),
+            visible: true,
+            domain: source.domain.clone(),
+            resolution: source.resolution,
+            style: poincare_lib::PlotStyle {
+                colour_mode: poincare_lib::ColourMode::Solid([0.35, 0.85, 1.0, 1.0]),
+                point_size: 8.0,
+                ..poincare_lib::PlotStyle::default()
+            },
+            kind: PlotKind::PointAnnotations {
+                points: make_point_annotations(&positions, "Point"),
+                show_labels: false,
+            },
+        }
+    }
+
+    fn create_interpolated_plot_from_modal(
+        &mut self,
+        state: &crate::InterpolateModalState,
+        source_plot: &PlotEntry,
+        groups: Vec<Vec<[f32; 3]>>,
+    ) -> Result<(), String> {
+        let name = state.output_name.trim();
+        if name.is_empty() {
+            return Err("Output name is required.".to_string());
+        }
+        if groups.is_empty() || groups.iter().all(Vec::is_empty) {
+            return Err("The selected plot does not have usable point samples.".to_string());
+        }
+        if groups.iter().all(|group| group.len() < 2) {
+            return Err("At least two points are required to interpolate a curve.".to_string());
+        }
+
+        if groups.len() == 1 {
+            self.push_analysis_plot(
+                self.active_document_idx,
+                PlotEntry {
+                    name: name.to_string(),
+                    visible: true,
+                    domain: source_plot.domain.clone(),
+                    resolution: source_plot.resolution,
+                    style: poincare_lib::PlotStyle {
+                        colour_mode: poincare_lib::ColourMode::Solid([0.95, 0.7, 0.2, 1.0]),
+                        line_width: 2.5,
+                        ..poincare_lib::PlotStyle::default()
+                    },
+                    kind: PlotKind::InterpolatedCurve {
+                        points: groups.into_iter().next().unwrap_or_default(),
+                        interpolation: state.interpolation,
+                    },
+                },
+            );
+        } else {
+            for (group_index, group) in groups.into_iter().enumerate() {
+                if group.len() < 2 {
+                    continue;
+                }
+                self.push_analysis_plot(
+                    self.active_document_idx,
+                    PlotEntry {
+                        name: format!("{name} {}", group_index + 1),
+                        visible: true,
+                        domain: source_plot.domain.clone(),
+                        resolution: source_plot.resolution,
+                        style: poincare_lib::PlotStyle {
+                            colour_mode: poincare_lib::ColourMode::Solid([0.95, 0.7, 0.2, 1.0]),
+                            line_width: 2.5,
+                            ..poincare_lib::PlotStyle::default()
+                        },
+                        kind: PlotKind::InterpolatedCurve {
+                            points: group,
+                            interpolation: state.interpolation,
+                        },
+                    },
+                );
+            }
+        }
+
+        Ok(())
+    }
+}
+
+fn interpolation_kind_label(kind: CurveInterpolationKind) -> &'static str {
+    match kind {
+        CurveInterpolationKind::Linear => "Polyline (Linear)",
+        CurveInterpolationKind::CatmullRom => "Interpolation (Catmull-Rom)",
+        CurveInterpolationKind::CentripetalCatmullRom => {
+            "Interpolation (Centripetal Catmull-Rom)"
+        }
+        CurveInterpolationKind::MovingAverage => "Smoothing (Moving Average)",
+        CurveInterpolationKind::SavitzkyGolay => "Smoothing (Savitzky-Golay)",
+    }
+}
+
+fn uses_smoothing_window(kind: CurveInterpolationKind) -> bool {
+    matches!(
+        kind,
+        CurveInterpolationKind::MovingAverage | CurveInterpolationKind::SavitzkyGolay
+    )
+}
+
+fn normalized_window_value(window: u32) -> u32 {
+    let mut normalized = window.max(3);
+    if normalized % 2 == 0 {
+        normalized += 1;
+    }
+    normalized
+}
+
+fn sampled_curve_positions(points: &[[f32; 3]], interpolation: CurveInterpolation) -> Vec<[f32; 3]> {
+    sample_curve_points(
+        &points
+            .iter()
+            .map(|point| glam::Vec3::from_array(*point))
+            .collect::<Vec<_>>(),
+        interpolation,
+    )
+    .into_iter()
+    .map(|point| point.to_array())
+    .collect()
+}
+
+fn plot_properties_summary(plot: &PlotEntry) -> String {
+    match &plot.kind {
+        PlotKind::ContouredSurface { contour_values, .. } => {
+            format!("Contoured surface, {} contour levels", contour_values.len())
+        }
+        PlotKind::SphericalHarmonic => "Spherical harmonic surface".to_string(),
+        PlotKind::HelixCurve => "Curve".to_string(),
+        PlotKind::ScatterCloud => "Points".to_string(),
+        PlotKind::VectorField => "Vector field".to_string(),
+        PlotKind::GridSurface => "Surface".to_string(),
+        PlotKind::Streamlines { seeds } => format!("Streamlines, {} seed points", seeds.len()),
+        PlotKind::VolumeRender { .. } => "Volume".to_string(),
+        PlotKind::Isosurface { isovalues, .. } => {
+            format!("Isosurface, {} levels", isovalues.len())
+        }
+        PlotKind::ExprCartesian { .. } => "Cartesian surface".to_string(),
+        PlotKind::ExprCurve { .. } => "Parametric curve".to_string(),
+        PlotKind::ExprCartesianLine { .. } => "Cartesian line".to_string(),
+        PlotKind::ExprSpherical { .. } => "Spherical surface".to_string(),
+        PlotKind::ExprCylindrical { .. } => "Cylindrical surface".to_string(),
+        PlotKind::ExprPolar { .. } => "Polar surface".to_string(),
+        PlotKind::ExprParametricSurface { .. } => "Parametric surface".to_string(),
+        PlotKind::ImportedTable { definition } => match definition.validate() {
+            Ok(TableDataSet::SurfaceGrid { xs, ys, .. }) => {
+                format!("Imported surface grid, {}x{} samples", xs.len(), ys.len())
+            }
+            Ok(TableDataSet::Curve { groups, .. }) => {
+                let point_count: usize = groups.iter().map(Vec::len).sum();
+                format!(
+                    "Imported polylines, {} points across {} curve(s)",
+                    point_count,
+                    groups.len()
+                )
+            }
+            Ok(TableDataSet::Scatter { points, .. }) => {
+                format!("Imported points, {} points", points.len())
+            }
+            Ok(TableDataSet::VectorField { samples, .. }) => {
+                format!("Imported vector field, {} samples", samples.len())
+            }
+            Err(_) => format!("Imported {}", definition.target.label().to_lowercase()),
+        },
+        PlotKind::ScalarSlice { contour_values, .. } => {
+            format!("Scalar slice, {} contour levels", contour_values.len())
+        }
+        PlotKind::VectorSlice { .. } => "Vector slice".to_string(),
+        PlotKind::GradientField { .. } => "Gradient field".to_string(),
+        PlotKind::DivergenceField { .. } => "Divergence volume".to_string(),
+        PlotKind::CurlField { .. } => "Curl field".to_string(),
+        PlotKind::PointAnnotations { points, .. } => {
+            format!("Points, {} points", points.len())
+        }
+        PlotKind::ArrowAnnotations { arrows, .. } => {
+            format!("Arrow annotations, {} arrows", arrows.len())
+        }
+        PlotKind::DerivedPolylineGroups { groups } => {
+            let point_count: usize = groups.iter().map(Vec::len).sum();
+            format!(
+                "Polylines, {} points across {} curve(s)",
+                point_count,
+                groups.len()
+            )
+        }
+        PlotKind::InterpolatedCurve {
+            points,
+            interpolation,
+        } => {
+            let sampled_count = sampled_curve_positions(points, *interpolation).len();
+            format!(
+                "Interpolated polyline, {} sampled points from {} control points, {}",
+                sampled_count,
+                points.len(),
+                interpolation_kind_label(interpolation.kind)
+            )
+        }
+        PlotKind::ExprVectorField { .. } => "Vector field".to_string(),
+        PlotKind::ExprVolume { .. } => "Volume".to_string(),
+        PlotKind::ExprIsosurface { isovalues, .. } => {
+            format!("Isosurface, {} levels", isovalues.len())
+        }
+        PlotKind::ExprStreamlines {
+            step_size,
+            max_steps,
+            ..
+        } => format!("Streamlines, step {:.3}, max {} steps", step_size, max_steps),
     }
 }

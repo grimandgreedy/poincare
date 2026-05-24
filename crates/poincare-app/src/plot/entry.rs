@@ -11,7 +11,10 @@ use crate::plot::analysis::{
     AnnotatedArrowsPlot, AnnotatedPointsPlot, PlaneVectorFieldPlot, ScalarSlicePlot,
 };
 use crate::plot::kind::PlotKind;
-use crate::plot::table::{TableDataSet, TableVectorFieldPlot, build_curve_piecewise};
+use crate::plot::table::{
+    TableDataSet, TableVectorFieldPlot, build_curve_piecewise,
+    build_curve_piecewise_with_interpolation,
+};
 
 #[derive(Clone)]
 pub(crate) struct PlotEntry {
@@ -582,6 +585,27 @@ impl PlotEntry {
                     scene.add_with_pick_id(
                         pick_id,
                         build_curve_piecewise(&converted, self.style.clone()),
+                    );
+                }
+            }
+            PlotKind::InterpolatedCurve {
+                points,
+                interpolation,
+            } => {
+                if !points.is_empty() {
+                    let converted = vec![
+                        points
+                            .iter()
+                            .map(|point| glam::Vec3::from_array(*point))
+                            .collect::<Vec<_>>(),
+                    ];
+                    scene.add_with_pick_id(
+                        pick_id,
+                        build_curve_piecewise_with_interpolation(
+                            &converted,
+                            self.style.clone(),
+                            *interpolation,
+                        ),
                     );
                 }
             }

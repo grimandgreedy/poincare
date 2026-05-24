@@ -8,7 +8,7 @@ pub mod surface;
 pub mod vector_field;
 pub mod volume;
 
-pub use curve::Curve3D;
+pub use curve::{Curve3D, CurveInterpolation, CurveInterpolationKind, sample_curve_points};
 pub use isosurface::ContourPlot3D;
 pub use level_set::LevelSet3D;
 pub use piecewise::PiecewisePlot;

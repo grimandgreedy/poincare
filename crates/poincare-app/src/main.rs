@@ -18,7 +18,7 @@ use std::{fs::OpenOptions, io::Write};
 
 use eframe::egui;
 use grimdock::{PanelStyle, PanelTree};
-use poincare_lib::{AxisConfig, ColormapSource, ColourMode};
+use poincare_lib::{AxisConfig, ColormapSource, ColourMode, CurveInterpolation};
 use viewport_lib::BuiltinColourmap;
 use viewport_lib::{
     CameraAnimator, CameraTarget, CameraTrack, Easing, GroundPlaneMode, OrbitCameraController,
@@ -206,7 +206,16 @@ struct App {
     surface_intersection_stitch_distance: f32,
     surface_intersection_make_points: bool,
     surface_intersection_show_point_labels: bool,
+    interpolate_modal: Option<InterpolateModalState>,
     export_job: Option<ExportJob>,
+}
+
+#[derive(Clone)]
+struct InterpolateModalState {
+    source_plot_idx: usize,
+    output_name: String,
+    interpolation: CurveInterpolation,
+    error: String,
 }
 
 struct ExportJob {
@@ -303,6 +312,7 @@ impl App {
             surface_intersection_stitch_distance: 0.05,
             surface_intersection_make_points: true,
             surface_intersection_show_point_labels: true,
+            interpolate_modal: None,
             export_job: None,
         };
         persistence::load_persisted_state(cc.storage, &mut app);
@@ -1230,6 +1240,7 @@ impl eframe::App for App {
 
         ui::equation_editor::show_eq_editor_window(ctx, &mut self.eq_editor);
         self.show_add_plot_modal(ctx);
+        self.show_interpolate_modal(ctx);
         self.show_command_palette(ctx);
         self.show_shortcuts_modal(ctx);
         if self.settings_open {

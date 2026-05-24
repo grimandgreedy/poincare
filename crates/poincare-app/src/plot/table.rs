@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use poincare_lib::{
-    CoordinateSystem, DataBounds, Domain, GlyphInstance, PiecewisePlot, PlotGeometry, PlotObject,
-    PlotStyle, Resolution,
+    CoordinateSystem, CurveInterpolation, DataBounds, Domain, GlyphInstance, PiecewisePlot,
+    PlotGeometry, PlotObject, PlotStyle, Resolution,
 };
 use serde::{Deserialize, Serialize};
 
@@ -782,6 +782,14 @@ impl BoundsAccumulator {
 }
 
 pub(crate) fn build_curve_piecewise(groups: &[Vec<glam::Vec3>], style: PlotStyle) -> PiecewisePlot {
+    build_curve_piecewise_with_interpolation(groups, style, CurveInterpolation::default())
+}
+
+pub(crate) fn build_curve_piecewise_with_interpolation(
+    groups: &[Vec<glam::Vec3>],
+    style: PlotStyle,
+    interpolation: CurveInterpolation,
+) -> PiecewisePlot {
     let mut plot = PiecewisePlot::new();
     for points in groups {
         if points.is_empty() {
@@ -790,7 +798,8 @@ pub(crate) fn build_curve_piecewise(groups: &[Vec<glam::Vec3>], style: PlotStyle
         let bounds = bounds_for_points(points);
         plot.add_piece(
             bounds,
-            poincare_lib::Curve3D::from_points(points).with_style(style.clone()),
+            poincare_lib::Curve3D::from_points_interpolated(points, interpolation)
+                .with_style(style.clone()),
         );
     }
     plot
