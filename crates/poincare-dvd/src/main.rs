@@ -175,7 +175,7 @@ impl eframe::egui_wgpu::CallbackTrait for ViewportCallback {
         callback_resources: &mut eframe::egui_wgpu::CallbackResources,
     ) -> Vec<eframe::wgpu::CommandBuffer> {
         if let Some(renderer) = callback_resources.get_mut::<ViewportRenderer>() {
-            return renderer.prepare_callback(device, queue, &self.frame);
+            renderer.prepare(device, queue, &self.frame);
         }
         Vec::new()
     }
@@ -187,7 +187,7 @@ impl eframe::egui_wgpu::CallbackTrait for ViewportCallback {
         callback_resources: &eframe::egui_wgpu::CallbackResources,
     ) {
         if let Some(renderer) = callback_resources.get::<ViewportRenderer>() {
-            renderer.paint_callback(render_pass, &self.frame);
+            renderer.paint(render_pass, &self.frame);
         }
     }
 }

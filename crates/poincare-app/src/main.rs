@@ -879,6 +879,12 @@ impl App {
             mode: self.documents[self.active_document_idx].ground_plane_mode,
             height: self.documents[self.active_document_idx].ground_plane_height,
             colour: self.documents[self.active_document_idx].ground_plane_color,
+            tile_colour2: [
+                self.documents[self.active_document_idx].ground_plane_color[0] * 0.82,
+                self.documents[self.active_document_idx].ground_plane_color[1] * 0.82,
+                self.documents[self.active_document_idx].ground_plane_color[2] * 0.82,
+                self.documents[self.active_document_idx].ground_plane_color[3],
+            ],
             tile_size: self.documents[self.active_document_idx].ground_plane_tile_size,
             shadow_colour: [0.0, 0.0, 0.0, 1.0],
             shadow_opacity: 0.35,
