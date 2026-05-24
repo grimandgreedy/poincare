@@ -12,6 +12,7 @@ use crate::plot::analysis::{
 };
 use crate::plot::entry::PlotEntry;
 use crate::plot::kind::{PlotKind, StyleCaps, evenly_spaced_isovalues};
+use crate::panels::left_panel::{PlotMarkerKind, paint_plot_marker};
 use crate::ui::domain_editor::{edit_domain, edit_resolution};
 use crate::ui::expr_params::show_expression_params;
 use crate::ui::style_editor::{
@@ -27,9 +28,14 @@ impl App {
             if let Some(index) = selected_plot {
                 if let Some(plot) = self.documents[doc_idx].plots.get(index) {
                     let color = self.representative_plot_color(plot);
-                    let (dot_rect, _) =
-                        ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
-                    ui.painter().circle_filled(dot_rect.center(), 5.0, color);
+                    let (marker_rect, _) =
+                        ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
+                    paint_plot_marker(
+                        ui.painter(),
+                        marker_rect,
+                        color,
+                        PlotMarkerKind::from_plot_kind(&plot.kind),
+                    );
                     ui.label(egui::RichText::new(&plot.name).strong());
                 }
             } else {

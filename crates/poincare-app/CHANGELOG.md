@@ -4,6 +4,14 @@ All notable changes to this crate will be documented in this file.
 
 This project uses internal pre-release versioning. Until `1.0.0`, breaking changes may be released in minor versions.
 
+## [Dev, Unreleased Changes]
+
+### Improvements
+- Add indicators for plot type -- surface, points, line, volume, vector, streamline
+
+
+
+
 ## [0.5.0]
 
 ### Features
