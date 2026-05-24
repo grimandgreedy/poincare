@@ -632,6 +632,7 @@ pub(crate) fn build_plot_entry_from_inputs(
 }
 
 /// Build seed points from a SeedMode given a domain.
+#[allow(dead_code)]
 pub(crate) fn generate_seeds(mode: &SeedMode, domain: &Domain) -> Vec<glam::Vec3> {
     match mode {
         SeedMode::Grid { nx, ny, nz } => {

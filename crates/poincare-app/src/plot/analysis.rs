@@ -1,41 +1,11 @@
+#![allow(dead_code)]
+
+pub(crate) use poincare_lib::{ArrowAnnotation, PointAnnotation, SliceAxis};
 use poincare_lib::{
-    CoordinateSystem, DataBounds, Domain, GlyphInstance, PlotComponent, PlotGeometry,
-    PlotObject, PlotStyle, Resolution, Scatter3D,
+    CoordinateSystem, DataBounds, Domain, GlyphInstance, PlotComponent, PlotGeometry, PlotObject,
+    PlotStyle, Resolution, Scatter3D,
 };
-use serde::{Deserialize, Serialize};
 use viewport_lib::{AttributeData, IsolineItem, LabelItem, MeshData, extract_isolines};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) enum SliceAxis {
-    X,
-    Y,
-    Z,
-}
-
-impl SliceAxis {
-    pub(crate) const ALL: [Self; 3] = [Self::X, Self::Y, Self::Z];
-
-    pub(crate) fn label(self) -> &'static str {
-        match self {
-            Self::X => "X",
-            Self::Y => "Y",
-            Self::Z => "Z",
-        }
-    }
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub(crate) struct PointAnnotation {
-    pub(crate) position: [f32; 3],
-    pub(crate) label: String,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub(crate) struct ArrowAnnotation {
-    pub(crate) origin: [f32; 3],
-    pub(crate) vector: [f32; 3],
-    pub(crate) label: String,
-}
 
 pub(crate) struct ScalarSlicePlot {
     pub(crate) axis: SliceAxis,

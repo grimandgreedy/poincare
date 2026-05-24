@@ -7,7 +7,7 @@ use viewport_lib::{Aabb, Camera, GroundPlaneMode};
 use crate::picking::ProbeHit;
 use crate::picking::segment_segment_closest;
 use crate::plot::analysis::SliceAxis;
-use crate::plot::entry::PlotEntry;
+use crate::plot::entry::{PlotEntry, build_graph_spec};
 use crate::plot::kind::DomainLabels;
 use crate::plot::sweep::ParameterSweep;
 use crate::plot::table::TableDataSet;
@@ -241,20 +241,16 @@ impl Document {
     /// Build the CPU-side scene from the current plot list.
     /// Returns `None` if the scene is not dirty.
     /// The caller is responsible for GPU upload and clearing `scene_dirty`.
-    pub(crate) fn build_scene_data(&self) -> Option<GraphScene> {
+    pub(crate) fn build_scene_data(&self) -> Option<Result<GraphScene, poincare_lib::GraphBuildError>> {
         if !self.scene_dirty {
             return None;
         }
-        let mut scene = GraphScene::new();
-        scene.axis_config = self.axis_config.clone();
-        for (plot_idx, plot) in self.plots.iter().enumerate() {
-            if !plot.visible {
-                continue;
-            }
-            // Pick IDs are one-based so `0` remains the "not pickable" sentinel.
-            plot.add_to_scene_with_pick_id(&mut scene, (plot_idx + 1) as u64);
-        }
-        Some(scene)
+        Some(self.graph_spec().build_scene())
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn graph_spec(&self) -> poincare_lib::GraphSpec {
+        build_graph_spec(&self.plots, self.axis_config.clone())
     }
 
     /// Approximate scene extent (half-diagonal) for adaptive snap radii.

@@ -435,8 +435,16 @@ impl App {
     }
 
     pub(crate) fn rebuild_scene(&mut self, frame: &mut eframe::Frame) {
-        let Some(mut scene) = self.documents[self.active_document_idx].build_scene_data() else {
+        let Some(scene_result) = self.documents[self.active_document_idx].build_scene_data() else {
             return;
+        };
+        let mut scene = match scene_result {
+            Ok(scene) => scene,
+            Err(err) => {
+                self.documents[self.active_document_idx].export_status =
+                    format!("Scene rebuild failed: {err}");
+                return;
+            }
         };
         let Some(render_state) = frame.wgpu_render_state() else {
             return;
