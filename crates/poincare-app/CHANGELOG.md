@@ -2,9 +2,7 @@
 
 All notable changes to this crate will be documented in this file.
 
-This project uses internal pre-release versioning. Until `1.0.0`, breaking changes may be released in minor versions.
-
-## [Dev, Unreleased Changes]
+## [0.6.0]
 
 ### Improvements
 - Replaced the left-pane colour dots with plot-type markers for points, curves, streamlines, surfaces, isosurfaces, volumes, and vector fields, and reused those markers in the plot-properties header.
