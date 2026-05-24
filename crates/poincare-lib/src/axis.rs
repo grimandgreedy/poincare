@@ -12,6 +12,7 @@
 //! to [`FrameData::polylines`] before submission.
 
 use glam::{Mat4, Vec2, Vec3};
+use serde::{Deserialize, Serialize};
 use viewport_lib::{LabelItem, PolylineItem};
 
 use crate::domain::Domain;
@@ -33,7 +34,7 @@ pub enum Axis3 {
 // ---------------------------------------------------------------------------
 
 /// Configuration for the labelled axis box rendered around every graph.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AxisConfig {
     /// Draw the 12-edge wireframe bounding box.
     pub show_box: bool,

@@ -13,6 +13,17 @@ pub(crate) struct PlotEntry {
 }
 
 impl PlotEntry {
+    pub(crate) fn from_plot_spec(spec: PlotSpec) -> Self {
+        Self {
+            name: spec.name,
+            visible: spec.visible,
+            domain: spec.domain,
+            resolution: spec.resolution,
+            style: spec.style,
+            kind: spec.definition,
+        }
+    }
+
     pub(crate) fn to_plot_spec(&self) -> PlotSpec {
         PlotSpec {
             name: self.name.clone(),
