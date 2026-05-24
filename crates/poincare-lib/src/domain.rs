@@ -3,7 +3,7 @@ use std::ops::RangeInclusive;
 /// The plotting domain — the range of each axis over which plots are evaluated.
 ///
 /// Default is [-10, 10] on all axes.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Domain {
     pub x: RangeInclusive<f64>,
     pub y: RangeInclusive<f64>,
@@ -24,7 +24,7 @@ impl Default for Domain {
 ///
 /// `PlotObject::natural_bounds()` returns `None` for analytical functions
 /// where auto-fitting from output doesn't make semantic sense.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DataBounds {
     pub x: RangeInclusive<f64>,
     pub y: RangeInclusive<f64>,
