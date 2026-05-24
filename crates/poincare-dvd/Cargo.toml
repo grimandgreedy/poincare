@@ -1,0 +1,17 @@
+[package]
+name = "poincare-dvd"
+version = "0.1.0"
+edition = "2024"
+description = "Minimal second-client proof for poincare-lib + viewport-lib"
+license = "MIT"
+
+[[bin]]
+name = "poincare-dvd"
+path = "src/main.rs"
+
+[dependencies]
+poincare-lib = { workspace = true }
+viewport-lib = { workspace = true }
+eframe = { version = "=0.33.3", default-features = false, features = ["wgpu", "default_fonts", "x11"] }
+egui = { version = "=0.33.3" }
+glam = { workspace = true }
