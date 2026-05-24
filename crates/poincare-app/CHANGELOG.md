@@ -12,6 +12,8 @@ This project uses internal pre-release versioning. Until `1.0.0`, breaking chang
 - Added an `Interpolation` workflow in the `Analysis` tab for point and ordered-sample plots, with derived interpolated-curve plot generation and persisted method settings.
 - Added smoothing-oriented curve methods in the interpolation modal, including `Smoothing (Moving Average)` and `Smoothing (Savitzky-Golay)`, backed by `poincare-lib` curve sampling support.
 - Added `Extract Points` in the `Analysis` tab for polyline-like plots, including imported curves, derived polylines, and interpolated curves.
+- Expanded `Curve Analysis` in the `Analysis` tab with derivative, integral, tangent, arc-length, curvature, normal, and binormal derived-curve outputs, including graph-space handling for Cartesian line plots.
+- Added a modal-driven `Differentiate by Axis...` curve-analysis workflow for sampled and expression-backed curves, with explicit axis choices for outputs such as `dy/dx` and `dz/dx`.
 
 
 

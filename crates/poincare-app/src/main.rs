@@ -167,6 +167,7 @@ struct App {
     pending_save: bool,
     pending_save_as: bool,
     confirm_close_idx: Option<usize>,
+    confirm_delete_plot_idx: Option<usize>,
     confirm_quit: bool,
     force_quit: bool,
     orbit_controller: OrbitCameraController,
@@ -207,6 +208,7 @@ struct App {
     surface_intersection_make_points: bool,
     surface_intersection_show_point_labels: bool,
     interpolate_modal: Option<InterpolateModalState>,
+    axis_derivative_modal: Option<AxisDerivativeModalState>,
     export_job: Option<ExportJob>,
 }
 
@@ -215,6 +217,15 @@ struct InterpolateModalState {
     source_plot_idx: usize,
     output_name: String,
     interpolation: CurveInterpolation,
+    error: String,
+}
+
+#[derive(Clone)]
+struct AxisDerivativeModalState {
+    source_plot_idx: usize,
+    numerator_axis: usize,
+    denominator_axis: usize,
+    output_name: String,
     error: String,
 }
 
@@ -273,6 +284,7 @@ impl App {
             pending_save: false,
             pending_save_as: false,
             confirm_close_idx: None,
+            confirm_delete_plot_idx: None,
             confirm_quit: false,
             force_quit: false,
             orbit_controller: OrbitCameraController::viewport_primitives(),
@@ -313,6 +325,7 @@ impl App {
             surface_intersection_make_points: true,
             surface_intersection_show_point_labels: true,
             interpolate_modal: None,
+            axis_derivative_modal: None,
             export_job: None,
         };
         persistence::load_persisted_state(cc.storage, &mut app);
@@ -581,6 +594,15 @@ impl App {
     }
 
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {
+        if self.confirm_delete_plot_idx.is_some() {
+            if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
+                self.confirm_delete_selected_plot();
+            } else if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+                self.confirm_delete_plot_idx = None;
+            }
+            return;
+        }
+
         // File shortcuts — consume before checking wants_keyboard_input so they
         // work even when a text field has focus.
         if ctx.input_mut(|i| {
@@ -619,6 +641,11 @@ impl App {
         }
 
         if ctx.wants_keyboard_input() {
+            return;
+        }
+
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::X)) {
+            self.request_delete_selected_plot();
             return;
         }
 
@@ -1241,6 +1268,7 @@ impl eframe::App for App {
         ui::equation_editor::show_eq_editor_window(ctx, &mut self.eq_editor);
         self.show_add_plot_modal(ctx);
         self.show_interpolate_modal(ctx);
+        self.show_axis_derivative_modal(ctx);
         self.show_command_palette(ctx);
         self.show_shortcuts_modal(ctx);
         if self.settings_open {
@@ -1275,6 +1303,40 @@ impl eframe::App for App {
                 self.close_document(close_idx);
             } else if cancelled {
                 self.confirm_close_idx = None;
+            }
+        }
+
+        if let Some(plot_idx) = self.confirm_delete_plot_idx {
+            let plot_name = self.documents[self.active_document_idx]
+                .plots
+                .get(plot_idx)
+                .map(|plot| plot.name.clone())
+                .unwrap_or_else(|| "selected plot".to_string());
+            let mut confirmed = false;
+            let mut cancelled = false;
+            egui::Window::new("Delete Plot")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ctx, |ui| {
+                    ui.label(format!("Delete plot \"{plot_name}\"?"));
+                    ui.label(egui::RichText::new("Press Enter to delete or Escape to cancel.").small().weak());
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        let yes = ui.button("Yes");
+                        yes.request_focus();
+                        if yes.clicked() {
+                            confirmed = true;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            cancelled = true;
+                        }
+                    });
+                });
+            if confirmed {
+                self.confirm_delete_selected_plot();
+            } else if cancelled {
+                self.confirm_delete_plot_idx = None;
             }
         }
 

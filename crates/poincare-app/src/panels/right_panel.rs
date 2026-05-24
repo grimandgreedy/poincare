@@ -741,10 +741,39 @@ impl App {
                     );
                 }
             });
+            ui.horizontal(|ui| {
+                if ui.button("Differentiate by Axis...").clicked() {
+                    self.open_axis_derivative_modal(plot_idx, &selected);
+                }
+                if ui.button("Create Arc Length Curve").clicked() {
+                    self.push_analysis_plot(
+                        doc_idx,
+                        self.make_curve_arc_length_plot(&selected, &groups),
+                    );
+                }
+                if ui.button("Create Curvature Curve").clicked() {
+                    self.push_analysis_plot(
+                        doc_idx,
+                        self.make_curve_curvature_plot(&selected, &groups),
+                    );
+                }
+                if ui.button("Create Normal Curve").clicked() {
+                    self.push_analysis_plot(
+                        doc_idx,
+                        self.make_curve_normal_plot(&selected, &groups),
+                    );
+                }
+                if ui.button("Create Binormal Curve").clicked() {
+                    self.push_analysis_plot(
+                        doc_idx,
+                        self.make_curve_binormal_plot(&selected, &groups),
+                    );
+                }
+            });
         } else {
             ui.label(
                 egui::RichText::new(
-                    "Derivative and tangent plots are available for curve and polyline plots.",
+                    "Curve calculus tools are available for curve and polyline plots. Use the axis-derivative modal for outputs like dy/dx or dz/dx.",
                 )
                 .small()
                 .weak(),
@@ -1314,6 +1343,108 @@ impl App {
         self.interpolate_modal = open.then_some(state);
     }
 
+    pub(crate) fn show_axis_derivative_modal(&mut self, ctx: &egui::Context) {
+        let Some(mut state) = self.axis_derivative_modal.clone() else {
+            return;
+        };
+
+        let Some(plot) = self.documents[self.active_document_idx]
+            .plots
+            .get(state.source_plot_idx)
+            .cloned()
+        else {
+            self.axis_derivative_modal = None;
+            return;
+        };
+
+        let Some(groups) = self.curve_sample_groups(&plot) else {
+            self.axis_derivative_modal = None;
+            return;
+        };
+
+        let mut open = true;
+        let mut create_plot = false;
+        let mut cancel_clicked = false;
+        egui::Window::new("Differentiate by Axis")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Create a scalar derivative plot from {} sampled curve(s).",
+                        groups.len()
+                    ))
+                    .small()
+                    .weak(),
+                );
+                ui.add_space(8.0);
+
+                egui::ComboBox::from_id_salt("axis_derivative_numerator")
+                    .selected_text(axis_derivative_label(state.numerator_axis))
+                    .show_ui(ui, |ui| {
+                        for axis in 0..3 {
+                            ui.selectable_value(
+                                &mut state.numerator_axis,
+                                axis,
+                                axis_derivative_label(axis),
+                            );
+                        }
+                    });
+                egui::ComboBox::from_id_salt("axis_derivative_denominator")
+                    .selected_text(axis_derivative_against_label(state.denominator_axis))
+                    .show_ui(ui, |ui| {
+                        for axis in 0..3 {
+                            ui.selectable_value(
+                                &mut state.denominator_axis,
+                                axis,
+                                axis_derivative_against_label(axis),
+                            );
+                        }
+                    });
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Will create {}.",
+                        axis_derivative_formula(state.numerator_axis, state.denominator_axis)
+                    ))
+                    .small()
+                    .weak(),
+                );
+                ui.add_space(8.0);
+                ui.label("Output Name");
+                ui.text_edit_singleline(&mut state.output_name);
+                if !state.error.is_empty() {
+                    ui.colored_label(egui::Color32::from_rgb(255, 110, 110), &state.error);
+                }
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Create Derivative Plot").clicked() {
+                        create_plot = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        cancel_clicked = true;
+                    }
+                });
+            });
+
+        if cancel_clicked {
+            open = false;
+        }
+
+        if create_plot {
+            match self.create_axis_derivative_plot_from_modal(&state, &plot, &groups) {
+                Ok(()) => {
+                    self.axis_derivative_modal = None;
+                    return;
+                }
+                Err(error) => state.error = error,
+            }
+        }
+
+        self.axis_derivative_modal = open.then_some(state);
+    }
+
     fn open_interpolate_modal(&mut self, plot_idx: usize, plot: &PlotEntry) {
         self.interpolate_modal = Some(crate::InterpolateModalState {
             source_plot_idx: plot_idx,
@@ -1324,6 +1455,23 @@ impl App {
                 closed: false,
                 smoothing_window: 5,
             },
+            error: String::new(),
+        });
+    }
+
+    fn open_axis_derivative_modal(&mut self, plot_idx: usize, plot: &PlotEntry) {
+        let numerator_axis = 1;
+        let denominator_axis = 0;
+        self.axis_derivative_modal = Some(crate::AxisDerivativeModalState {
+            source_plot_idx: plot_idx,
+            numerator_axis,
+            denominator_axis,
+            output_name: format!(
+                "d{}/d{} {}",
+                axis_name(numerator_axis),
+                axis_name(denominator_axis),
+                plot.name
+            ),
             error: String::new(),
         });
     }
@@ -1592,6 +1740,130 @@ impl App {
         }
     }
 
+    fn make_curve_arc_length_plot(&self, source: &PlotEntry, groups: &[Vec<[f32; 3]>]) -> PlotEntry {
+        let derived_groups = match &source.kind {
+            PlotKind::ExprCartesianLine {
+                dep_var,
+                ind_var,
+                ..
+            } => groups
+                .iter()
+                .map(|group| {
+                    scalar_plot_cartesian_line_group(
+                        group,
+                        dep_var.as_str(),
+                        ind_var.as_str(),
+                        &cumulative_arc_lengths(group),
+                    )
+                })
+                .filter(|group| group.len() >= 2)
+                .collect(),
+            _ => groups
+                .iter()
+                .map(|group| scalar_curve_group(group, &cumulative_arc_lengths(group)))
+                .filter(|group| group.len() >= 2)
+                .collect(),
+        };
+
+        PlotEntry {
+            name: format!("Arc Length {}", source.name),
+            visible: true,
+            domain: source.domain.clone(),
+            resolution: source.resolution,
+            style: poincare_lib::PlotStyle {
+                colour_mode: poincare_lib::ColourMode::Solid([0.95, 0.85, 0.3, 1.0]),
+                line_width: 2.25,
+                ..poincare_lib::PlotStyle::default()
+            },
+            kind: PlotKind::DerivedPolylineGroups {
+                groups: derived_groups,
+            },
+        }
+    }
+
+    fn make_curve_curvature_plot(&self, source: &PlotEntry, groups: &[Vec<[f32; 3]>]) -> PlotEntry {
+        let derived_groups = match &source.kind {
+            PlotKind::ExprCartesianLine {
+                dep_var,
+                ind_var,
+                ..
+            } => groups
+                .iter()
+                .map(|group| {
+                    scalar_plot_cartesian_line_group(
+                        group,
+                        dep_var.as_str(),
+                        ind_var.as_str(),
+                        &curvature_values(group),
+                    )
+                })
+                .filter(|group| group.len() >= 2)
+                .collect(),
+            _ => groups
+                .iter()
+                .map(|group| scalar_curve_group(group, &curvature_values(group)))
+                .filter(|group| group.len() >= 2)
+                .collect(),
+        };
+
+        PlotEntry {
+            name: format!("Curvature {}", source.name),
+            visible: true,
+            domain: source.domain.clone(),
+            resolution: source.resolution,
+            style: poincare_lib::PlotStyle {
+                colour_mode: poincare_lib::ColourMode::Solid([0.8, 0.45, 1.0, 1.0]),
+                line_width: 2.25,
+                ..poincare_lib::PlotStyle::default()
+            },
+            kind: PlotKind::DerivedPolylineGroups {
+                groups: derived_groups,
+            },
+        }
+    }
+
+    fn make_curve_normal_plot(&self, source: &PlotEntry, groups: &[Vec<[f32; 3]>]) -> PlotEntry {
+        PlotEntry {
+            name: format!("Normal {}", source.name),
+            visible: true,
+            domain: source.domain.clone(),
+            resolution: source.resolution,
+            style: poincare_lib::PlotStyle {
+                colour_mode: poincare_lib::ColourMode::Solid([0.3, 0.8, 1.0, 1.0]),
+                line_width: 2.25,
+                ..poincare_lib::PlotStyle::default()
+            },
+            kind: PlotKind::DerivedPolylineGroups {
+                groups: groups
+                    .iter()
+                    .map(|group| normal_curve_group(group))
+                    .filter(|group| group.len() >= 2)
+                    .collect(),
+            },
+        }
+    }
+
+    fn make_curve_binormal_plot(&self, source: &PlotEntry, groups: &[Vec<[f32; 3]>]) -> PlotEntry {
+        PlotEntry {
+            name: format!("Binormal {}", source.name),
+            visible: true,
+            domain: source.domain.clone(),
+            resolution: source.resolution,
+            style: poincare_lib::PlotStyle {
+                colour_mode: poincare_lib::ColourMode::Solid([1.0, 0.45, 0.65, 1.0]),
+                line_width: 2.25,
+                ..poincare_lib::PlotStyle::default()
+            },
+            kind: PlotKind::DerivedPolylineGroups {
+                groups: groups
+                    .iter()
+                    .map(|group| binormal_curve_group(group))
+                    .filter(|group| group.len() >= 2)
+                    .collect(),
+            },
+        }
+    }
+
     fn make_extracted_points_plot(
         &self,
         source: &PlotEntry,
@@ -1679,6 +1951,48 @@ impl App {
 
         Ok(())
     }
+
+    fn create_axis_derivative_plot_from_modal(
+        &mut self,
+        state: &crate::AxisDerivativeModalState,
+        source_plot: &PlotEntry,
+        groups: &[Vec<[f32; 3]>],
+    ) -> Result<(), String> {
+        if state.numerator_axis == state.denominator_axis {
+            return Err("Numerator and denominator axes must be different.".to_string());
+        }
+        let name = state.output_name.trim();
+        if name.is_empty() {
+            return Err("Output name is required.".to_string());
+        }
+        let derived_groups: Vec<Vec<[f32; 3]>> = groups
+            .iter()
+            .map(|group| axis_derivative_group(group, state.numerator_axis, state.denominator_axis))
+            .filter(|group| group.len() >= 2)
+            .collect();
+        if derived_groups.is_empty() {
+            return Err("Could not compute an axis derivative from the selected curve.".to_string());
+        }
+
+        self.push_analysis_plot(
+            self.active_document_idx,
+            PlotEntry {
+                name: name.to_string(),
+                visible: true,
+                domain: source_plot.domain.clone(),
+                resolution: source_plot.resolution,
+                style: poincare_lib::PlotStyle {
+                    colour_mode: poincare_lib::ColourMode::Solid([1.0, 0.7, 0.25, 1.0]),
+                    line_width: 2.25,
+                    ..poincare_lib::PlotStyle::default()
+                },
+                kind: PlotKind::DerivedPolylineGroups {
+                    groups: derived_groups,
+                },
+            },
+        );
+        Ok(())
+    }
 }
 
 fn interpolation_kind_label(kind: CurveInterpolationKind) -> &'static str {
@@ -1691,6 +2005,38 @@ fn interpolation_kind_label(kind: CurveInterpolationKind) -> &'static str {
         CurveInterpolationKind::MovingAverage => "Smoothing (Moving Average)",
         CurveInterpolationKind::SavitzkyGolay => "Smoothing (Savitzky-Golay)",
     }
+}
+
+fn axis_derivative_label(axis: usize) -> &'static str {
+    match axis {
+        0 => "Differentiate X",
+        1 => "Differentiate Y",
+        _ => "Differentiate Z",
+    }
+}
+
+fn axis_derivative_against_label(axis: usize) -> &'static str {
+    match axis {
+        0 => "Against X",
+        1 => "Against Y",
+        _ => "Against Z",
+    }
+}
+
+fn axis_name(axis: usize) -> &'static str {
+    match axis {
+        0 => "x",
+        1 => "y",
+        _ => "z",
+    }
+}
+
+fn axis_derivative_formula(numerator_axis: usize, denominator_axis: usize) -> String {
+    format!(
+        "d{}/d{} as a 2D graph in the XY plane",
+        axis_name(numerator_axis),
+        axis_name(denominator_axis)
+    )
 }
 
 fn uses_smoothing_window(kind: CurveInterpolationKind) -> bool {
@@ -1758,6 +2104,93 @@ fn integral_curve_group(group: &[[f32; 3]]) -> Vec<[f32; 3]> {
     out
 }
 
+fn cumulative_arc_lengths(group: &[[f32; 3]]) -> Vec<f32> {
+    if group.is_empty() {
+        return Vec::new();
+    }
+    let mut out = Vec::with_capacity(group.len());
+    let mut total = 0.0_f32;
+    out.push(total);
+    for pair in group.windows(2) {
+        let a = glam::Vec3::from_array(pair[0]);
+        let b = glam::Vec3::from_array(pair[1]);
+        total += b.distance(a);
+        out.push(total);
+    }
+    out
+}
+
+fn curvature_values(group: &[[f32; 3]]) -> Vec<f32> {
+    if group.len() < 3 {
+        return vec![0.0; group.len()];
+    }
+    let mut values = vec![0.0_f32; group.len()];
+    for index in 1..(group.len() - 1) {
+        let a = glam::Vec3::from_array(group[index - 1]);
+        let b = glam::Vec3::from_array(group[index]);
+        let c = glam::Vec3::from_array(group[index + 1]);
+        let ab = b - a;
+        let bc = c - b;
+        let ac = c - a;
+        let denom = ab.length() * bc.length() * ac.length();
+        if denom > 1.0e-6 {
+            values[index] = 2.0 * ab.cross(ac).length() / denom;
+        }
+    }
+    values[0] = values[1];
+    values[group.len() - 1] = values[group.len() - 2];
+    values
+}
+
+fn scalar_curve_group(group: &[[f32; 3]], values: &[f32]) -> Vec<[f32; 3]> {
+    if group.len() != values.len() || group.len() < 2 {
+        return Vec::new();
+    }
+    let denom = (group.len() - 1) as f32;
+    values
+        .iter()
+        .enumerate()
+        .map(|(index, value)| glam::Vec3::new(index as f32 / denom, *value, 0.0).to_array())
+        .collect()
+}
+
+fn scalar_plot_cartesian_line_group(
+    group: &[[f32; 3]],
+    dep_var: &str,
+    ind_var: &str,
+    values: &[f32],
+) -> Vec<[f32; 3]> {
+    if group.len() != values.len() || group.len() < 2 {
+        return Vec::new();
+    }
+    group
+        .iter()
+        .zip(values.iter())
+        .filter_map(|(point, value)| {
+            let independent = cartesian_axis_value(glam::Vec3::from_array(*point), ind_var)?;
+            Some(cartesian_line_point(dep_var, ind_var, independent, *value).to_array())
+        })
+        .collect()
+}
+
+fn axis_derivative_group(
+    group: &[[f32; 3]],
+    numerator_axis: usize,
+    denominator_axis: usize,
+) -> Vec<[f32; 3]> {
+    if group.len() < 2 {
+        return Vec::new();
+    }
+    (0..group.len())
+        .filter_map(|index| {
+            let point = glam::Vec3::from_array(group[index]);
+            let denominator = axis_value(point, denominator_axis);
+            let derivative = axis_derivative_value(group, index, numerator_axis, denominator_axis)?;
+            Some(glam::Vec3::new(denominator, derivative, 0.0).to_array())
+        })
+        .collect()
+}
+
 fn derivative_cartesian_line_group(
     group: &[[f32; 3]],
     dep_var: &str,
@@ -1805,12 +2238,49 @@ fn scalar_derivative(
     Some((db - da) / denom)
 }
 
+fn axis_derivative_value(
+    group: &[[f32; 3]],
+    index: usize,
+    numerator_axis: usize,
+    denominator_axis: usize,
+) -> Option<f32> {
+    if group.len() < 2 {
+        return None;
+    }
+    let (a, b) = if index == 0 {
+        (0, 1)
+    } else if index + 1 == group.len() {
+        (group.len() - 2, group.len() - 1)
+    } else {
+        (index - 1, index + 1)
+    };
+    let pa = glam::Vec3::from_array(group[a]);
+    let pb = glam::Vec3::from_array(group[b]);
+    let na = axis_value(pa, numerator_axis);
+    let nb = axis_value(pb, numerator_axis);
+    let da = axis_value(pa, denominator_axis);
+    let db = axis_value(pb, denominator_axis);
+    let denom = db - da;
+    if denom.abs() <= 1.0e-6 {
+        return Some(0.0);
+    }
+    Some((nb - na) / denom)
+}
+
 fn cartesian_axis_value(point: glam::Vec3, axis: &str) -> Option<f32> {
     match axis {
         "x" => Some(point.x),
         "y" => Some(point.y),
         "z" => Some(point.z),
         _ => None,
+    }
+}
+
+fn axis_value(point: glam::Vec3, axis: usize) -> f32 {
+    match axis {
+        0 => point.x,
+        1 => point.y,
+        _ => point.z,
     }
 }
 
@@ -1861,6 +2331,49 @@ fn integral_cartesian_line_group(
         out.push(cartesian_line_point(dep_var, ind_var, ib, accum).to_array());
     }
     out
+}
+
+fn normal_curve_group(group: &[[f32; 3]]) -> Vec<[f32; 3]> {
+    if group.len() < 3 {
+        return Vec::new();
+    }
+    let tangents = tangent_vectors(group);
+    tangents
+        .iter()
+        .enumerate()
+        .map(|(index, _)| {
+            let dt = if index == 0 {
+                tangents[1] - tangents[0]
+            } else if index + 1 == tangents.len() {
+                tangents[index] - tangents[index - 1]
+            } else {
+                (tangents[index + 1] - tangents[index - 1]) * 0.5
+            };
+            dt.normalize_or_zero().to_array()
+        })
+        .collect()
+}
+
+fn binormal_curve_group(group: &[[f32; 3]]) -> Vec<[f32; 3]> {
+    if group.len() < 3 {
+        return Vec::new();
+    }
+    let tangents = tangent_vectors(group);
+    let normals = normal_curve_group(group);
+    tangents
+        .iter()
+        .zip(normals.iter())
+        .map(|(tangent, normal)| tangent.cross(glam::Vec3::from_array(*normal)).normalize_or_zero().to_array())
+        .collect()
+}
+
+fn tangent_vectors(group: &[[f32; 3]]) -> Vec<glam::Vec3> {
+    if group.len() < 2 {
+        return Vec::new();
+    }
+    (0..group.len())
+        .map(|index| finite_difference(group, index).normalize_or_zero())
+        .collect()
 }
 
 fn sampled_curve_positions(points: &[[f32; 3]], interpolation: CurveInterpolation) -> Vec<[f32; 3]> {
