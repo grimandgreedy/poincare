@@ -31,6 +31,7 @@ impl PlotMarkerKind {
             PlotKind::HelixCurve
             | PlotKind::ExprCurve { .. }
             | PlotKind::ExprCartesianLine { .. }
+            | PlotKind::InterpolatedCurve { .. }
             | PlotKind::DerivedPolylineGroups { .. } => Self::Curve,
             PlotKind::Streamlines { .. } | PlotKind::ExprStreamlines { .. } => Self::Streamline,
             PlotKind::ContouredSurface { .. }
@@ -228,7 +229,23 @@ fn expression_summary(kind: &PlotKind) -> Option<String> {
         | PlotKind::ExprIsosurface { expression, .. }
         | PlotKind::ExprStreamlines { expression, .. } => Some(expression.clone()),
         PlotKind::ImportedTable { definition } => Some(format!("Imported {}", definition.target.label())),
+        PlotKind::InterpolatedCurve { interpolation, .. } => Some(format!(
+            "Interpolated curve ({})",
+            interpolation_kind_label(interpolation.kind)
+        )),
         _ => None,
+    }
+}
+
+fn interpolation_kind_label(kind: poincare_lib::CurveInterpolationKind) -> &'static str {
+    match kind {
+        poincare_lib::CurveInterpolationKind::Linear => "Polyline (Linear)",
+        poincare_lib::CurveInterpolationKind::CatmullRom => "Interpolation (Catmull-Rom)",
+        poincare_lib::CurveInterpolationKind::CentripetalCatmullRom => {
+            "Interpolation (Centripetal Catmull-Rom)"
+        }
+        poincare_lib::CurveInterpolationKind::MovingAverage => "Smoothing (Moving Average)",
+        poincare_lib::CurveInterpolationKind::SavitzkyGolay => "Smoothing (Savitzky-Golay)",
     }
 }
 

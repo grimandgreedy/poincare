@@ -7,7 +7,11 @@ This project uses internal pre-release versioning. Until `1.0.0`, breaking chang
 ## [Dev, Unreleased Changes]
 
 ### Improvements
-- Add indicators for plot type -- surface, points, line, volume, vector, streamline
+- Replaced the left-pane colour dots with plot-type markers for points, curves, streamlines, surfaces, isosurfaces, volumes, and vector fields, and reused those markers in the plot-properties header.
+- Added plot-properties summaries that show each selected plot's type plus available sample counts, including point totals for point/polyline-style plots and imported table datasets.
+- Added an `Interpolation` workflow in the `Analysis` tab for point and ordered-sample plots, with derived interpolated-curve plot generation and persisted method settings.
+- Added smoothing-oriented curve methods in the interpolation modal, including `Smoothing (Moving Average)` and `Smoothing (Savitzky-Golay)`, backed by `poincare-lib` curve sampling support.
+- Added `Extract Points` in the `Analysis` tab for polyline-like plots, including imported curves, derived polylines, and interpolated curves.
 
 
 

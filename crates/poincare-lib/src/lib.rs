@@ -40,8 +40,9 @@ pub use expr_parser::{
 pub use label::WorldLabel;
 pub use plot_object::{GlyphInstance, PlotComponent, PlotGeometry, PlotObject};
 pub use plots::{
-    ContourPlot3D, Curve3D, DensityPlot3D, LevelSet3D, PiecewisePlot, Scatter3D, StreamPlot3D,
-    Surface3D, VectorField3D,
+    ContourPlot3D, Curve3D, CurveInterpolation, CurveInterpolationKind, DensityPlot3D,
+    LevelSet3D, PiecewisePlot, Scatter3D, StreamPlot3D, Surface3D, VectorField3D,
+    sample_curve_points,
 };
 pub use resolution::Resolution;
 pub use scene::{GraphScene, PointPickData, PolylinePickData, ProbePickData, SurfacePickData};

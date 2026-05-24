@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use eframe::Storage;
 use poincare_lib::{
-    AxisConfig, ColormapSource, ColourMode, Domain, GlyphType, MatcapSource, ParamVisSettings,
-    PlotStyle, Resolution, ShadingMode, SurfaceFaceQuantity, SurfaceLicSettings,
-    SurfaceLicVectorField, TransferFunction,
+    AxisConfig, ColormapSource, ColourMode, CurveInterpolation, CurveInterpolationKind, Domain,
+    GlyphType, MatcapSource, ParamVisSettings, PlotStyle, Resolution, ShadingMode,
+    SurfaceFaceQuantity, SurfaceLicSettings, SurfaceLicVectorField, TransferFunction,
 };
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -387,6 +387,10 @@ enum PersistedPlotKind {
     DerivedPolylineGroups {
         groups: Vec<Vec<[f32; 3]>>,
     },
+    InterpolatedCurve {
+        points: Vec<[f32; 3]>,
+        interpolation: PersistedCurveInterpolation,
+    },
     ExprVectorField {
         expression: String,
         parameters: Vec<(String, f64)>,
@@ -410,6 +414,64 @@ enum PersistedPlotKind {
         step_size: f32,
         max_steps: u32,
     },
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize)]
+enum PersistedCurveInterpolationKind {
+    Linear,
+    CatmullRom,
+    CentripetalCatmullRom,
+    MovingAverage,
+    SavitzkyGolay,
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize)]
+struct PersistedCurveInterpolation {
+    kind: PersistedCurveInterpolationKind,
+    samples_per_segment: u32,
+    closed: bool,
+    #[serde(default = "default_curve_smoothing_window")]
+    smoothing_window: u32,
+}
+
+impl PersistedCurveInterpolation {
+    fn from_curve_interpolation(interpolation: CurveInterpolation) -> Self {
+        Self {
+            kind: match interpolation.kind {
+                CurveInterpolationKind::Linear => PersistedCurveInterpolationKind::Linear,
+                CurveInterpolationKind::CatmullRom => PersistedCurveInterpolationKind::CatmullRom,
+                CurveInterpolationKind::CentripetalCatmullRom => {
+                    PersistedCurveInterpolationKind::CentripetalCatmullRom
+                }
+                CurveInterpolationKind::MovingAverage => PersistedCurveInterpolationKind::MovingAverage,
+                CurveInterpolationKind::SavitzkyGolay => PersistedCurveInterpolationKind::SavitzkyGolay,
+            },
+            samples_per_segment: interpolation.samples_per_segment,
+            closed: interpolation.closed,
+            smoothing_window: interpolation.smoothing_window,
+        }
+    }
+
+    fn to_curve_interpolation(self) -> CurveInterpolation {
+        CurveInterpolation {
+            kind: match self.kind {
+                PersistedCurveInterpolationKind::Linear => CurveInterpolationKind::Linear,
+                PersistedCurveInterpolationKind::CatmullRom => CurveInterpolationKind::CatmullRom,
+                PersistedCurveInterpolationKind::CentripetalCatmullRom => {
+                    CurveInterpolationKind::CentripetalCatmullRom
+                }
+                PersistedCurveInterpolationKind::MovingAverage => CurveInterpolationKind::MovingAverage,
+                PersistedCurveInterpolationKind::SavitzkyGolay => CurveInterpolationKind::SavitzkyGolay,
+            },
+            samples_per_segment: self.samples_per_segment,
+            closed: self.closed,
+            smoothing_window: self.smoothing_window,
+        }
+    }
+}
+
+fn default_curve_smoothing_window() -> u32 {
+    5
 }
 
 // ---------------------------------------------------------------------------
@@ -1081,6 +1143,15 @@ impl PersistedPlotKind {
             PlotKind::DerivedPolylineGroups { groups } => Self::DerivedPolylineGroups {
                 groups: groups.clone(),
             },
+            PlotKind::InterpolatedCurve {
+                points,
+                interpolation,
+            } => Self::InterpolatedCurve {
+                points: points.clone(),
+                interpolation: PersistedCurveInterpolation::from_curve_interpolation(
+                    *interpolation,
+                ),
+            },
             PlotKind::ExprVectorField {
                 expression,
                 parameters,
@@ -1276,6 +1347,13 @@ impl PersistedPlotKind {
             },
             Self::DerivedPolylineGroups { groups } => PlotKind::DerivedPolylineGroups {
                 groups: groups.clone(),
+            },
+            Self::InterpolatedCurve {
+                points,
+                interpolation,
+            } => PlotKind::InterpolatedCurve {
+                points: points.clone(),
+                interpolation: interpolation.to_curve_interpolation(),
             },
             Self::ExprVectorField {
                 expression,

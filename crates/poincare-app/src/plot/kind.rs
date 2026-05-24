@@ -1,4 +1,4 @@
-use poincare_lib::PlotStyle;
+use poincare_lib::{CurveInterpolation, PlotStyle};
 
 use crate::plot::analysis::{ArrowAnnotation, PointAnnotation, SliceAxis};
 use crate::plot::table::{TableImportDefinition, TablePlotTarget};
@@ -175,6 +175,10 @@ pub(crate) enum PlotKind {
     DerivedPolylineGroups {
         groups: Vec<Vec<[f32; 3]>>,
     },
+    InterpolatedCurve {
+        points: Vec<[f32; 3]>,
+        interpolation: CurveInterpolation,
+    },
     /// Vector field (vx(x,y,z), vy(x,y,z), vz(x,y,z)).
     ExprVectorField {
         expression: String,
@@ -227,6 +231,7 @@ impl PlotKind {
             | Self::ExprCurve { .. }
             | Self::ExprCartesianLine { .. }
             | Self::DerivedPolylineGroups { .. }
+            | Self::InterpolatedCurve { .. }
             | Self::ExprStreamlines { .. } => StyleCaps {
                 mesh: false,
                 line: true,
@@ -307,6 +312,7 @@ impl PlotKind {
             | Self::VectorSlice { .. }
             | Self::PointAnnotations { .. }
             | Self::ArrowAnnotations { .. }
+            | Self::InterpolatedCurve { .. }
             | Self::DerivedPolylineGroups { .. } => DomainLabels::None,
             Self::VectorField
             | Self::Streamlines { .. }
@@ -329,6 +335,7 @@ impl PlotKind {
             Self::ScatterCloud
                 | Self::Streamlines { .. }
                 | Self::ImportedTable { .. }
+                | Self::InterpolatedCurve { .. }
                 | Self::PointAnnotations { .. }
                 | Self::ArrowAnnotations { .. }
                 | Self::DerivedPolylineGroups { .. }
