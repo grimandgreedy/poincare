@@ -1,5 +1,8 @@
 use eframe::egui;
-use poincare_lib::{CurveInterpolation, CurveInterpolationKind, sample_curve_points};
+use poincare_lib::{
+    CurveInterpolation, CurveInterpolationKind, eval_curve_point, eval_with_vars,
+    parse_curve_expr, parse_expr_with_vars, sample_curve_points,
+};
 use viewport_lib::{AttributeKind, Easing, Projection, ViewPreset};
 
 use crate::App;
@@ -704,6 +707,44 @@ impl App {
 
         ui.add_space(8.0);
         ui.separator();
+        ui.label("Curve Analysis");
+        if let Some(groups) = self.curve_sample_groups(&selected) {
+            let point_count: usize = groups.iter().map(Vec::len).sum();
+            ui.label(
+                egui::RichText::new(format!(
+                    "{} sampled point(s) across {} curve(s) are available for derivative and tangent plots.",
+                    point_count,
+                    groups.len()
+                ))
+                .small()
+                .weak(),
+            );
+            ui.horizontal(|ui| {
+                if ui.button("Create Derivative Curve").clicked() {
+                    self.push_analysis_plot(
+                        doc_idx,
+                        self.make_curve_derivative_plot(&selected, &groups),
+                    );
+                }
+                if ui.button("Create Tangent Curve").clicked() {
+                    self.push_analysis_plot(
+                        doc_idx,
+                        self.make_curve_tangent_plot(&selected, &groups),
+                    );
+                }
+            });
+        } else {
+            ui.label(
+                egui::RichText::new(
+                    "Derivative and tangent plots are available for curve and polyline plots.",
+                )
+                .small()
+                .weak(),
+            );
+        }
+
+        ui.add_space(8.0);
+        ui.separator();
         ui.label("Interpolation");
         if let Some(groups) = self.interpolation_source_groups(&selected) {
             let point_count: usize = groups.iter().map(Vec::len).sum();
@@ -1285,6 +1326,9 @@ impl App {
                 .iter()
                 .map(|point| point.position)
                 .collect()]),
+            PlotKind::ExprCurve { .. }
+            | PlotKind::ExprCartesianLine { .. }
+            | PlotKind::HelixCurve => self.curve_sample_groups(plot),
             PlotKind::ImportedTable { definition } => match definition.validate().ok()? {
                 TableDataSet::Curve { groups, .. } => Some(
                     groups
@@ -1305,6 +1349,9 @@ impl App {
 
     fn polyline_sample_groups(&self, plot: &PlotEntry) -> Option<Vec<Vec<[f32; 3]>>> {
         match &plot.kind {
+            PlotKind::ExprCurve { .. }
+            | PlotKind::ExprCartesianLine { .. }
+            | PlotKind::HelixCurve => self.curve_sample_groups(plot),
             PlotKind::ImportedTable { definition } => match definition.validate().ok()? {
                 TableDataSet::Curve { groups, .. } => Some(
                     groups
@@ -1329,6 +1376,162 @@ impl App {
                 Some(vec![sampled.iter().map(|point| point.to_array()).collect()])
             }
             _ => None,
+        }
+    }
+
+    fn curve_sample_groups(&self, plot: &PlotEntry) -> Option<Vec<Vec<[f32; 3]>>> {
+        match &plot.kind {
+            PlotKind::HelixCurve => {
+                use std::f64::consts::PI;
+                let steps = plot.resolution.u.max(2) as usize;
+                let points = (0..steps)
+                    .map(|i| {
+                        let t = 20.0 * PI * i as f64 / (steps - 1) as f64;
+                        glam::Vec3::new((t.cos() * 3.0) as f32, (t.sin() * 3.0) as f32, (t * 0.15) as f32)
+                            .to_array()
+                    })
+                    .collect();
+                Some(vec![points])
+            }
+            PlotKind::ExprCurve {
+                expression,
+                parameters,
+                t_range,
+            } => {
+                let parsed = parse_curve_expr(expression).ok()?;
+                let steps = plot.resolution.u.max(2) as usize;
+                let (t0, t1) = *t_range;
+                let points = (0..steps)
+                    .map(|i| {
+                        let t = t0 + (i as f64 / (steps - 1) as f64) * (t1 - t0);
+                        let p = eval_curve_point(&parsed, t, parameters);
+                        glam::Vec3::new(p.x as f32, p.y as f32, p.z as f32).to_array()
+                    })
+                    .collect();
+                Some(vec![points])
+            }
+            PlotKind::ExprCartesianLine {
+                dep_var,
+                ind_var,
+                expression,
+                parameters,
+            } => {
+                let parsed = parse_expr_with_vars(expression, &[ind_var.as_str()]).ok()?;
+                let steps = plot.resolution.u.max(2) as usize;
+                let (t0, t1) = (*plot.domain.x.start(), *plot.domain.x.end());
+                let dep = dep_var.clone();
+                let ind = ind_var.clone();
+                let points = (0..steps)
+                    .map(|i| {
+                        let t = t0 + (i as f64 / (steps - 1) as f64) * (t1 - t0);
+                        let vars: Vec<(&str, f64)> = parameters
+                            .iter()
+                            .map(|(n, v)| (n.as_str(), *v))
+                            .chain(std::iter::once((ind.as_str(), t)))
+                            .collect();
+                        let val = eval_with_vars(&parsed, &vars);
+                        let p = match (dep.as_str(), ind.as_str()) {
+                            ("y", "x") => glam::Vec3::new(t as f32, val as f32, 0.0),
+                            ("z", "x") => glam::Vec3::new(t as f32, 0.0, val as f32),
+                            ("z", "y") => glam::Vec3::new(0.0, t as f32, val as f32),
+                            ("x", "y") => glam::Vec3::new(val as f32, t as f32, 0.0),
+                            ("x", "z") => glam::Vec3::new(val as f32, 0.0, t as f32),
+                            ("y", "z") => glam::Vec3::new(0.0, val as f32, t as f32),
+                            _ => glam::Vec3::new(t as f32, val as f32, 0.0),
+                        };
+                        p.to_array()
+                    })
+                    .collect();
+                Some(vec![points])
+            }
+            PlotKind::ImportedTable { definition } => match definition.validate().ok()? {
+                TableDataSet::Curve { groups, .. } => Some(
+                    groups
+                        .iter()
+                        .map(|group| group.iter().map(|point| point.to_array()).collect())
+                        .collect(),
+                ),
+                _ => None,
+            },
+            PlotKind::DerivedPolylineGroups { groups } => Some(groups.clone()),
+            PlotKind::InterpolatedCurve {
+                points,
+                interpolation,
+            } => {
+                let sampled = sampled_curve_positions(points, *interpolation);
+                Some(vec![sampled])
+            }
+            _ => None,
+        }
+    }
+
+    fn make_curve_derivative_plot(&self, source: &PlotEntry, groups: &[Vec<[f32; 3]>]) -> PlotEntry {
+        if let PlotKind::ExprCartesianLine {
+            dep_var,
+            ind_var,
+            ..
+        } = &source.kind
+        {
+            return PlotEntry {
+                name: format!("Derivative {}", source.name),
+                visible: true,
+                domain: source.domain.clone(),
+                resolution: source.resolution,
+                style: poincare_lib::PlotStyle {
+                    colour_mode: poincare_lib::ColourMode::Solid([1.0, 0.55, 0.25, 1.0]),
+                    line_width: 2.25,
+                    ..poincare_lib::PlotStyle::default()
+                },
+                kind: PlotKind::DerivedPolylineGroups {
+                    groups: groups
+                        .iter()
+                        .map(|group| {
+                            derivative_cartesian_line_group(group, dep_var.as_str(), ind_var.as_str())
+                        })
+                        .filter(|group| group.len() >= 2)
+                        .collect(),
+                },
+            };
+        }
+
+        PlotEntry {
+            name: format!("Derivative {}", source.name),
+            visible: true,
+            domain: source.domain.clone(),
+            resolution: source.resolution,
+            style: poincare_lib::PlotStyle {
+                colour_mode: poincare_lib::ColourMode::Solid([1.0, 0.55, 0.25, 1.0]),
+                line_width: 2.25,
+                ..poincare_lib::PlotStyle::default()
+            },
+            kind: PlotKind::DerivedPolylineGroups {
+                groups: groups
+                    .iter()
+                    .map(|group| derivative_curve_group(group))
+                    .filter(|group| group.len() >= 2)
+                    .collect(),
+            },
+        }
+    }
+
+    fn make_curve_tangent_plot(&self, source: &PlotEntry, groups: &[Vec<[f32; 3]>]) -> PlotEntry {
+        PlotEntry {
+            name: format!("Tangent {}", source.name),
+            visible: true,
+            domain: source.domain.clone(),
+            resolution: source.resolution,
+            style: poincare_lib::PlotStyle {
+                colour_mode: poincare_lib::ColourMode::Solid([0.25, 0.85, 0.45, 1.0]),
+                line_width: 2.25,
+                ..poincare_lib::PlotStyle::default()
+            },
+            kind: PlotKind::DerivedPolylineGroups {
+                groups: groups
+                    .iter()
+                    .map(|group| tangent_curve_group(group))
+                    .filter(|group| group.len() >= 2)
+                    .collect(),
+            },
         }
     }
 
@@ -1446,6 +1649,107 @@ fn normalized_window_value(window: u32) -> u32 {
         normalized += 1;
     }
     normalized
+}
+
+fn derivative_curve_group(group: &[[f32; 3]]) -> Vec<[f32; 3]> {
+    if group.len() < 2 {
+        return Vec::new();
+    }
+    (0..group.len())
+        .map(|index| finite_difference(group, index).to_array())
+        .collect()
+}
+
+fn tangent_curve_group(group: &[[f32; 3]]) -> Vec<[f32; 3]> {
+    if group.len() < 2 {
+        return Vec::new();
+    }
+    (0..group.len())
+        .map(|index| finite_difference(group, index).normalize_or_zero().to_array())
+        .collect()
+}
+
+fn finite_difference(group: &[[f32; 3]], index: usize) -> glam::Vec3 {
+    let current = glam::Vec3::from_array(group[index]);
+    if index == 0 {
+        let next = glam::Vec3::from_array(group[1]);
+        return next - current;
+    }
+    if index + 1 == group.len() {
+        let prev = glam::Vec3::from_array(group[index - 1]);
+        return current - prev;
+    }
+    let prev = glam::Vec3::from_array(group[index - 1]);
+    let next = glam::Vec3::from_array(group[index + 1]);
+    (next - prev) * 0.5
+}
+
+fn derivative_cartesian_line_group(
+    group: &[[f32; 3]],
+    dep_var: &str,
+    ind_var: &str,
+) -> Vec<[f32; 3]> {
+    if group.len() < 2 {
+        return Vec::new();
+    }
+    (0..group.len())
+        .filter_map(|index| {
+            let current = glam::Vec3::from_array(group[index]);
+            let current_ind = cartesian_axis_value(current, ind_var)?;
+            let derivative = scalar_derivative(group, index, dep_var, ind_var)?;
+            Some(cartesian_line_point(dep_var, ind_var, current_ind, derivative).to_array())
+        })
+        .collect()
+}
+
+fn scalar_derivative(
+    group: &[[f32; 3]],
+    index: usize,
+    dep_var: &str,
+    ind_var: &str,
+) -> Option<f32> {
+    if group.len() < 2 {
+        return None;
+    }
+    let (a, b) = if index == 0 {
+        (0, 1)
+    } else if index + 1 == group.len() {
+        (group.len() - 2, group.len() - 1)
+    } else {
+        (index - 1, index + 1)
+    };
+    let pa = glam::Vec3::from_array(group[a]);
+    let pb = glam::Vec3::from_array(group[b]);
+    let da = cartesian_axis_value(pa, dep_var)?;
+    let db = cartesian_axis_value(pb, dep_var)?;
+    let ia = cartesian_axis_value(pa, ind_var)?;
+    let ib = cartesian_axis_value(pb, ind_var)?;
+    let denom = ib - ia;
+    if denom.abs() <= 1.0e-6 {
+        return Some(0.0);
+    }
+    Some((db - da) / denom)
+}
+
+fn cartesian_axis_value(point: glam::Vec3, axis: &str) -> Option<f32> {
+    match axis {
+        "x" => Some(point.x),
+        "y" => Some(point.y),
+        "z" => Some(point.z),
+        _ => None,
+    }
+}
+
+fn cartesian_line_point(dep_var: &str, ind_var: &str, independent: f32, dependent: f32) -> glam::Vec3 {
+    match (dep_var, ind_var) {
+        ("y", "x") => glam::Vec3::new(independent, dependent, 0.0),
+        ("z", "x") => glam::Vec3::new(independent, 0.0, dependent),
+        ("z", "y") => glam::Vec3::new(0.0, independent, dependent),
+        ("x", "y") => glam::Vec3::new(dependent, independent, 0.0),
+        ("x", "z") => glam::Vec3::new(dependent, 0.0, independent),
+        ("y", "z") => glam::Vec3::new(0.0, dependent, independent),
+        _ => glam::Vec3::new(independent, dependent, 0.0),
+    }
 }
 
 fn sampled_curve_positions(points: &[[f32; 3]], interpolation: CurveInterpolation) -> Vec<[f32; 3]> {
