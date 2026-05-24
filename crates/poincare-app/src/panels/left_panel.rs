@@ -61,6 +61,18 @@ impl PlotMarkerKind {
             },
         }
     }
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Point => "Point Plot",
+            Self::Curve => "Curve Plot",
+            Self::Streamline => "Streamline Plot",
+            Self::Surface => "Surface Plot",
+            Self::Isosurface => "Isosurface Plot",
+            Self::Volume => "Volume Plot",
+            Self::VectorField => "Vector Field Plot",
+        }
+    }
 }
 
 pub(crate) fn paint_plot_marker(
@@ -400,7 +412,7 @@ impl App {
                         .inner_margin(egui::Margin::same(8))
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
-                                let (marker_rect, _) = ui.allocate_exact_size(
+                                let (marker_rect, marker_response) = ui.allocate_exact_size(
                                     egui::vec2(14.0, 14.0),
                                     egui::Sense::hover(),
                                 );
@@ -410,6 +422,7 @@ impl App {
                                     marker_color,
                                     marker_kind,
                                 );
+                                marker_response.on_hover_text(marker_kind.label());
 
                                 if is_renaming {
                                     let response = ui.add(

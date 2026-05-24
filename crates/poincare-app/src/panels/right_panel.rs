@@ -33,14 +33,16 @@ impl App {
             if let Some(index) = selected_plot {
                 if let Some(plot) = self.documents[doc_idx].plots.get(index) {
                     let color = self.representative_plot_color(plot);
-                    let (marker_rect, _) =
+                    let marker_kind = PlotMarkerKind::from_plot_kind(&plot.kind);
+                    let (marker_rect, marker_response) =
                         ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
                     paint_plot_marker(
                         ui.painter(),
                         marker_rect,
                         color,
-                        PlotMarkerKind::from_plot_kind(&plot.kind),
+                        marker_kind,
                     );
+                    marker_response.on_hover_text(marker_kind.label());
                     ui.vertical(|ui| {
                         ui.label(egui::RichText::new(&plot.name).strong());
                         ui.label(
@@ -724,6 +726,12 @@ impl App {
                     self.push_analysis_plot(
                         doc_idx,
                         self.make_curve_derivative_plot(&selected, &groups),
+                    );
+                }
+                if ui.button("Create Integral Curve").clicked() {
+                    self.push_analysis_plot(
+                        doc_idx,
+                        self.make_curve_integral_plot(&selected, &groups),
                     );
                 }
                 if ui.button("Create Tangent Curve").clicked() {
@@ -1535,6 +1543,55 @@ impl App {
         }
     }
 
+    fn make_curve_integral_plot(&self, source: &PlotEntry, groups: &[Vec<[f32; 3]>]) -> PlotEntry {
+        if let PlotKind::ExprCartesianLine {
+            dep_var,
+            ind_var,
+            ..
+        } = &source.kind
+        {
+            return PlotEntry {
+                name: format!("Integral {}", source.name),
+                visible: true,
+                domain: source.domain.clone(),
+                resolution: source.resolution,
+                style: poincare_lib::PlotStyle {
+                    colour_mode: poincare_lib::ColourMode::Solid([0.45, 0.7, 1.0, 1.0]),
+                    line_width: 2.25,
+                    ..poincare_lib::PlotStyle::default()
+                },
+                kind: PlotKind::DerivedPolylineGroups {
+                    groups: groups
+                        .iter()
+                        .map(|group| {
+                            integral_cartesian_line_group(group, dep_var.as_str(), ind_var.as_str())
+                        })
+                        .filter(|group| group.len() >= 2)
+                        .collect(),
+                },
+            };
+        }
+
+        PlotEntry {
+            name: format!("Integral {}", source.name),
+            visible: true,
+            domain: source.domain.clone(),
+            resolution: source.resolution,
+            style: poincare_lib::PlotStyle {
+                colour_mode: poincare_lib::ColourMode::Solid([0.45, 0.7, 1.0, 1.0]),
+                line_width: 2.25,
+                ..poincare_lib::PlotStyle::default()
+            },
+            kind: PlotKind::DerivedPolylineGroups {
+                groups: groups
+                    .iter()
+                    .map(|group| integral_curve_group(group))
+                    .filter(|group| group.len() >= 2)
+                    .collect(),
+            },
+        }
+    }
+
     fn make_extracted_points_plot(
         &self,
         source: &PlotEntry,
@@ -1684,6 +1741,23 @@ fn finite_difference(group: &[[f32; 3]], index: usize) -> glam::Vec3 {
     (next - prev) * 0.5
 }
 
+fn integral_curve_group(group: &[[f32; 3]]) -> Vec<[f32; 3]> {
+    if group.len() < 2 {
+        return Vec::new();
+    }
+    let mut out = Vec::with_capacity(group.len());
+    let mut accum = glam::Vec3::ZERO;
+    out.push(accum.to_array());
+    let dt = 1.0_f32 / (group.len() - 1) as f32;
+    for pair in group.windows(2) {
+        let a = glam::Vec3::from_array(pair[0]);
+        let b = glam::Vec3::from_array(pair[1]);
+        accum += (a + b) * 0.5 * dt;
+        out.push(accum.to_array());
+    }
+    out
+}
+
 fn derivative_cartesian_line_group(
     group: &[[f32; 3]],
     dep_var: &str,
@@ -1750,6 +1824,43 @@ fn cartesian_line_point(dep_var: &str, ind_var: &str, independent: f32, dependen
         ("y", "z") => glam::Vec3::new(0.0, dependent, independent),
         _ => glam::Vec3::new(independent, dependent, 0.0),
     }
+}
+
+fn integral_cartesian_line_group(
+    group: &[[f32; 3]],
+    dep_var: &str,
+    ind_var: &str,
+) -> Vec<[f32; 3]> {
+    if group.len() < 2 {
+        return Vec::new();
+    }
+    let mut out = Vec::with_capacity(group.len());
+    let start_independent = cartesian_axis_value(glam::Vec3::from_array(group[0]), ind_var).unwrap_or(0.0);
+    let mut accum = 0.0_f32;
+    out.push(cartesian_line_point(dep_var, ind_var, start_independent, accum).to_array());
+    for pair in group.windows(2) {
+        let a = glam::Vec3::from_array(pair[0]);
+        let b = glam::Vec3::from_array(pair[1]);
+        let ia = match cartesian_axis_value(a, ind_var) {
+            Some(value) => value,
+            None => continue,
+        };
+        let ib = match cartesian_axis_value(b, ind_var) {
+            Some(value) => value,
+            None => continue,
+        };
+        let da = match cartesian_axis_value(a, dep_var) {
+            Some(value) => value,
+            None => continue,
+        };
+        let db = match cartesian_axis_value(b, dep_var) {
+            Some(value) => value,
+            None => continue,
+        };
+        accum += (da + db) * 0.5 * (ib - ia);
+        out.push(cartesian_line_point(dep_var, ind_var, ib, accum).to_array());
+    }
+    out
 }
 
 fn sampled_curve_positions(points: &[[f32; 3]], interpolation: CurveInterpolation) -> Vec<[f32; 3]> {
