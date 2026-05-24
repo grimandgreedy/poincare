@@ -1,6 +1,7 @@
 use std::ops::RangeInclusive;
 
 use glam::Vec3;
+use serde::{Deserialize, Serialize};
 
 use crate::coordinate::{CoordinateSystem, ParametricDomain};
 use crate::domain::{DataBounds, Domain};
@@ -8,7 +9,7 @@ use crate::plot_object::{PlotGeometry, PlotObject};
 use crate::resolution::Resolution;
 use crate::style::PlotStyle;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CurveInterpolationKind {
     Linear,
     CatmullRom,
@@ -17,7 +18,7 @@ pub enum CurveInterpolationKind {
     SavitzkyGolay,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CurveInterpolation {
     pub kind: CurveInterpolationKind,
     pub samples_per_segment: u32,

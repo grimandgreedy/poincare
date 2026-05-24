@@ -6,7 +6,7 @@ use crate::{AxisConfig, CurveInterpolation, Domain, PlotStyle, Resolution};
 ///
 /// This is the declarative layer that higher-level clients should build and edit.
 /// Later phases can compile this into concrete `PlotObject`s / `GraphScene`.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GraphSpec {
     pub axis_config: AxisConfig,
     pub plots: Vec<PlotSpec>,
@@ -28,7 +28,7 @@ impl Default for GraphSpec {
 }
 
 /// Declarative plot entry owned by `poincare-lib`.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlotSpec {
     pub name: String,
     pub visible: bool,
@@ -39,7 +39,7 @@ pub struct PlotSpec {
 }
 
 /// Canonical plot-definition enum for reusable graphing and analysis layers.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum PlotDefinition {
     ContouredSurface {
         contour_values: Vec<f32>,

@@ -1,3 +1,4 @@
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use viewport_lib::{
     AttributeKind, BuiltinColourmap, BuiltinMatcap, ColourmapId, GlyphType, ParamVis,
     ParamVisMode,
@@ -22,6 +23,12 @@ impl Default for TransferFunction {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+struct PersistedTransferFunction {
+    opacity_scale: f32,
+    threshold: Option<(f32, f32)>,
+}
+
 /// Colour source for a plot.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ColourMode {
@@ -44,6 +51,19 @@ pub enum ColourMode {
         name: String,
         /// Attribute interpolation domain.
         kind: AttributeKind,
+    },
+}
+
+#[derive(Serialize, Deserialize)]
+enum PersistedColourMode {
+    Solid([f32; 4]),
+    Colormap {
+        colormap: u8,
+        scalar_range: Option<(f32, f32)>,
+    },
+    ByAttribute {
+        name: String,
+        kind: u8,
     },
 }
 
@@ -115,6 +135,12 @@ pub struct ParamVisSettings {
     pub scale: f32,
 }
 
+#[derive(Serialize, Deserialize)]
+struct PersistedParamVis {
+    mode: u8,
+    scale: f32,
+}
+
 impl Default for ParamVisSettings {
     fn default() -> Self {
         Self {
@@ -173,6 +199,14 @@ pub struct SurfaceLicSettings {
     pub strength: f32,
 }
 
+#[derive(Serialize, Deserialize)]
+struct PersistedSurfaceLic {
+    vector_field: u8,
+    steps: u32,
+    step_size: f32,
+    strength: f32,
+}
+
 impl Default for SurfaceLicSettings {
     fn default() -> Self {
         Self {
@@ -219,6 +253,24 @@ pub struct PlotStyle {
     pub surface_lic: Option<SurfaceLicSettings>,
 }
 
+#[derive(Serialize, Deserialize)]
+struct PersistedPlotStyle {
+    colour_mode: PersistedColourMode,
+    opacity: f32,
+    two_sided: bool,
+    line_width: f32,
+    point_size: f32,
+    glyph_scale: f32,
+    glyph_type: u8,
+    shading: u8,
+    tube_radius: Option<f32>,
+    transfer_function: Option<PersistedTransferFunction>,
+    matcap: Option<u8>,
+    param_vis: Option<PersistedParamVis>,
+    face_quantity: Option<u8>,
+    surface_lic: Option<PersistedSurfaceLic>,
+}
+
 impl Default for PlotStyle {
     fn default() -> Self {
         Self {
@@ -237,5 +289,397 @@ impl Default for PlotStyle {
             face_quantity: None,
             surface_lic: None,
         }
+    }
+}
+
+impl Serialize for TransferFunction {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        PersistedTransferFunction {
+            opacity_scale: self.opacity_scale,
+            threshold: self.threshold,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for TransferFunction {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let persisted = PersistedTransferFunction::deserialize(deserializer)?;
+        Ok(Self {
+            opacity_scale: persisted.opacity_scale,
+            threshold: persisted.threshold,
+        })
+    }
+}
+
+impl Serialize for ColourMode {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let persisted = match self {
+            Self::Solid(rgba) => PersistedColourMode::Solid(*rgba),
+            Self::Colormap {
+                colormap,
+                scalar_range,
+            } => PersistedColourMode::Colormap {
+                colormap: match colormap {
+                    ColormapSource::Builtin(preset) => builtin_colormap_to_u8(*preset),
+                    ColormapSource::Uploaded(_) => builtin_colormap_to_u8(BuiltinColourmap::Viridis),
+                },
+                scalar_range: *scalar_range,
+            },
+            Self::ByAttribute { name, kind } => PersistedColourMode::ByAttribute {
+                name: name.clone(),
+                kind: attribute_kind_to_u8(*kind),
+            },
+        };
+        persisted.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for ColourMode {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let persisted = PersistedColourMode::deserialize(deserializer)?;
+        Ok(match persisted {
+            PersistedColourMode::Solid(rgba) => Self::Solid(rgba),
+            PersistedColourMode::Colormap {
+                colormap,
+                scalar_range,
+            } => Self::Colormap {
+                colormap: ColormapSource::Builtin(u8_to_builtin_colormap(colormap)),
+                scalar_range,
+            },
+            PersistedColourMode::ByAttribute { name, kind } => Self::ByAttribute {
+                name,
+                kind: u8_to_attribute_kind(kind),
+            },
+        })
+    }
+}
+
+impl Serialize for ParamVisSettings {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        PersistedParamVis {
+            mode: param_vis_mode_to_u8(self.mode),
+            scale: self.scale,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for ParamVisSettings {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let persisted = PersistedParamVis::deserialize(deserializer)?;
+        Ok(Self {
+            mode: u8_to_param_vis_mode(persisted.mode),
+            scale: persisted.scale,
+        })
+    }
+}
+
+impl Serialize for SurfaceLicSettings {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        PersistedSurfaceLic {
+            vector_field: surface_lic_vector_field_to_u8(self.vector_field),
+            steps: self.steps,
+            step_size: self.step_size,
+            strength: self.strength,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for SurfaceLicSettings {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let persisted = PersistedSurfaceLic::deserialize(deserializer)?;
+        Ok(Self {
+            vector_field: u8_to_surface_lic_vector_field(persisted.vector_field),
+            steps: persisted.steps,
+            step_size: persisted.step_size,
+            strength: persisted.strength,
+        })
+    }
+}
+
+impl Serialize for PlotStyle {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        PersistedPlotStyle {
+            colour_mode: match &self.colour_mode {
+                ColourMode::Solid(rgba) => PersistedColourMode::Solid(*rgba),
+                ColourMode::Colormap {
+                    colormap,
+                    scalar_range,
+                } => PersistedColourMode::Colormap {
+                    colormap: match colormap {
+                        ColormapSource::Builtin(preset) => builtin_colormap_to_u8(*preset),
+                        ColormapSource::Uploaded(_) => builtin_colormap_to_u8(BuiltinColourmap::Viridis),
+                    },
+                    scalar_range: *scalar_range,
+                },
+                ColourMode::ByAttribute { name, kind } => PersistedColourMode::ByAttribute {
+                    name: name.clone(),
+                    kind: attribute_kind_to_u8(*kind),
+                },
+            },
+            opacity: self.opacity,
+            two_sided: self.two_sided,
+            line_width: self.line_width,
+            point_size: self.point_size,
+            glyph_scale: self.glyph_scale,
+            glyph_type: glyph_type_to_u8(self.glyph_type),
+            shading: shading_to_u8(self.shading),
+            tube_radius: self.tube_radius,
+            transfer_function: self
+                .transfer_function
+                .as_ref()
+                .map(|tf| PersistedTransferFunction {
+                    opacity_scale: tf.opacity_scale,
+                    threshold: tf.threshold,
+                }),
+            matcap: self.matcap.map(|m| match m {
+                MatcapSource::Builtin(preset) => builtin_matcap_to_u8(preset),
+            }),
+            param_vis: self.param_vis.map(|pv| PersistedParamVis {
+                mode: param_vis_mode_to_u8(pv.mode),
+                scale: pv.scale,
+            }),
+            face_quantity: self.face_quantity.map(surface_face_quantity_to_u8),
+            surface_lic: self.surface_lic.as_ref().map(|lic| PersistedSurfaceLic {
+                vector_field: surface_lic_vector_field_to_u8(lic.vector_field),
+                steps: lic.steps,
+                step_size: lic.step_size,
+                strength: lic.strength,
+            }),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for PlotStyle {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let persisted = PersistedPlotStyle::deserialize(deserializer)?;
+        Ok(Self {
+            colour_mode: match persisted.colour_mode {
+                PersistedColourMode::Solid(rgba) => ColourMode::Solid(rgba),
+                PersistedColourMode::Colormap {
+                    colormap,
+                    scalar_range,
+                } => ColourMode::Colormap {
+                    colormap: ColormapSource::Builtin(u8_to_builtin_colormap(colormap)),
+                    scalar_range,
+                },
+                PersistedColourMode::ByAttribute { name, kind } => ColourMode::ByAttribute {
+                    name,
+                    kind: u8_to_attribute_kind(kind),
+                },
+            },
+            opacity: persisted.opacity,
+            two_sided: persisted.two_sided,
+            line_width: persisted.line_width,
+            point_size: persisted.point_size,
+            glyph_scale: persisted.glyph_scale,
+            glyph_type: u8_to_glyph_type(persisted.glyph_type),
+            shading: u8_to_shading(persisted.shading),
+            tube_radius: persisted.tube_radius,
+            transfer_function: persisted.transfer_function.map(|tf| TransferFunction {
+                opacity_scale: tf.opacity_scale,
+                threshold: tf.threshold,
+            }),
+            matcap: persisted
+                .matcap
+                .map(|m| MatcapSource::Builtin(u8_to_builtin_matcap(m))),
+            param_vis: persisted.param_vis.map(|pv| ParamVisSettings {
+                mode: u8_to_param_vis_mode(pv.mode),
+                scale: pv.scale,
+            }),
+            face_quantity: persisted.face_quantity.map(u8_to_surface_face_quantity),
+            surface_lic: persisted.surface_lic.map(|lic| SurfaceLicSettings {
+                vector_field: u8_to_surface_lic_vector_field(lic.vector_field),
+                steps: lic.steps,
+                step_size: lic.step_size,
+                strength: lic.strength,
+            }),
+        })
+    }
+}
+
+fn builtin_colormap_to_u8(value: BuiltinColourmap) -> u8 {
+    match value {
+        BuiltinColourmap::Viridis => 0,
+        BuiltinColourmap::Plasma => 1,
+        BuiltinColourmap::Greyscale => 2,
+        BuiltinColourmap::Coolwarm => 3,
+        BuiltinColourmap::Rainbow => 4,
+        BuiltinColourmap::Magma => 5,
+        BuiltinColourmap::Inferno => 6,
+        BuiltinColourmap::Turbo => 7,
+        BuiltinColourmap::Jet => 8,
+        BuiltinColourmap::RdBu => 9,
+    }
+}
+
+fn u8_to_builtin_colormap(value: u8) -> BuiltinColourmap {
+    match value {
+        1 => BuiltinColourmap::Plasma,
+        2 => BuiltinColourmap::Greyscale,
+        3 => BuiltinColourmap::Coolwarm,
+        4 => BuiltinColourmap::Rainbow,
+        5 => BuiltinColourmap::Magma,
+        6 => BuiltinColourmap::Inferno,
+        7 => BuiltinColourmap::Turbo,
+        8 => BuiltinColourmap::Jet,
+        9 => BuiltinColourmap::RdBu,
+        _ => BuiltinColourmap::Viridis,
+    }
+}
+
+fn attribute_kind_to_u8(value: AttributeKind) -> u8 {
+    match value {
+        AttributeKind::Vertex => 0,
+        AttributeKind::Cell => 1,
+        AttributeKind::Face => 2,
+        AttributeKind::FaceColour => 3,
+        AttributeKind::Edge => 4,
+        AttributeKind::Halfedge => 5,
+        AttributeKind::Corner => 6,
+    }
+}
+
+fn u8_to_attribute_kind(value: u8) -> AttributeKind {
+    match value {
+        1 => AttributeKind::Cell,
+        2 => AttributeKind::Face,
+        3 => AttributeKind::FaceColour,
+        4 => AttributeKind::Edge,
+        5 => AttributeKind::Halfedge,
+        6 => AttributeKind::Corner,
+        _ => AttributeKind::Vertex,
+    }
+}
+
+fn shading_to_u8(value: ShadingMode) -> u8 {
+    match value {
+        ShadingMode::Flat => 0,
+        ShadingMode::Smooth => 1,
+        ShadingMode::Unlit => 2,
+    }
+}
+
+fn u8_to_shading(value: u8) -> ShadingMode {
+    match value {
+        0 => ShadingMode::Flat,
+        2 => ShadingMode::Unlit,
+        _ => ShadingMode::Smooth,
+    }
+}
+
+fn glyph_type_to_u8(value: GlyphType) -> u8 {
+    match value {
+        GlyphType::Arrow => 0,
+        GlyphType::Sphere => 1,
+        GlyphType::Cube => 2,
+    }
+}
+
+fn u8_to_glyph_type(value: u8) -> GlyphType {
+    match value {
+        1 => GlyphType::Sphere,
+        2 => GlyphType::Cube,
+        _ => GlyphType::Arrow,
+    }
+}
+
+fn builtin_matcap_to_u8(value: BuiltinMatcap) -> u8 {
+    value as u8
+}
+
+fn u8_to_builtin_matcap(value: u8) -> BuiltinMatcap {
+    match value {
+        1 => BuiltinMatcap::Wax,
+        2 => BuiltinMatcap::Candy,
+        3 => BuiltinMatcap::Flat,
+        4 => BuiltinMatcap::Ceramic,
+        5 => BuiltinMatcap::Jade,
+        6 => BuiltinMatcap::Mud,
+        7 => BuiltinMatcap::Normal,
+        _ => BuiltinMatcap::Clay,
+    }
+}
+
+fn param_vis_mode_to_u8(value: ParamVisMode) -> u8 {
+    match value {
+        ParamVisMode::Checker => 0,
+        ParamVisMode::Grid => 1,
+        ParamVisMode::LocalChecker => 2,
+        ParamVisMode::LocalRadial => 3,
+    }
+}
+
+fn u8_to_param_vis_mode(value: u8) -> ParamVisMode {
+    match value {
+        1 => ParamVisMode::Grid,
+        2 => ParamVisMode::LocalChecker,
+        3 => ParamVisMode::LocalRadial,
+        _ => ParamVisMode::Checker,
+    }
+}
+
+fn surface_face_quantity_to_u8(value: SurfaceFaceQuantity) -> u8 {
+    match value {
+        SurfaceFaceQuantity::AngleDistortion => 0,
+        SurfaceFaceQuantity::AreaDistortion => 1,
+    }
+}
+
+fn u8_to_surface_face_quantity(value: u8) -> SurfaceFaceQuantity {
+    match value {
+        1 => SurfaceFaceQuantity::AreaDistortion,
+        _ => SurfaceFaceQuantity::AngleDistortion,
+    }
+}
+
+fn surface_lic_vector_field_to_u8(value: SurfaceLicVectorField) -> u8 {
+    match value {
+        SurfaceLicVectorField::TangentU => 0,
+        SurfaceLicVectorField::TangentV => 1,
+        SurfaceLicVectorField::Diagonal => 2,
+        SurfaceLicVectorField::Saddle => 3,
+    }
+}
+
+fn u8_to_surface_lic_vector_field(value: u8) -> SurfaceLicVectorField {
+    match value {
+        1 => SurfaceLicVectorField::TangentV,
+        2 => SurfaceLicVectorField::Diagonal,
+        3 => SurfaceLicVectorField::Saddle,
+        _ => SurfaceLicVectorField::TangentU,
     }
 }
