@@ -228,7 +228,22 @@ impl App {
         }
     }
 
-    fn delete_selected_plot(&mut self) {
+    pub(crate) fn request_delete_selected_plot(&mut self) {
+        if let Some(idx) = self.documents[self.active_document_idx].selected_plot {
+            self.confirm_delete_plot_idx = Some(idx);
+        }
+    }
+
+    pub(crate) fn confirm_delete_selected_plot(&mut self) {
+        let Some(idx) = self.confirm_delete_plot_idx.take() else {
+            return;
+        };
+        if idx >= self.documents[self.active_document_idx].plots.len() {
+            return;
+        }
+        if self.documents[self.active_document_idx].selected_plot != Some(idx) {
+            self.documents[self.active_document_idx].selected_plot = Some(idx);
+        }
         if let Some(idx) = self.documents[self.active_document_idx].selected_plot {
             self.documents[self.active_document_idx].plots.remove(idx);
             let n = self.documents[self.active_document_idx].plots.len();
@@ -273,7 +288,7 @@ impl App {
             PaletteCommand::Undo => self.undo_active_document(),
             PaletteCommand::Redo => self.redo_active_document(),
             PaletteCommand::DuplicatePlot => self.duplicate_selected_plot(),
-            PaletteCommand::DeletePlot => self.delete_selected_plot(),
+            PaletteCommand::DeletePlot => self.request_delete_selected_plot(),
             PaletteCommand::Camera(command) => self.run_camera_command(command),
             PaletteCommand::LoadPreset(preset) => self.load_preset(preset),
             PaletteCommand::LoadExample(example) => self.load_example_plot(example),
