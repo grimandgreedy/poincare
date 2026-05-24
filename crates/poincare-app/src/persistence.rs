@@ -1007,7 +1007,7 @@ impl PersistedPlotKind {
             PlotKind::VectorField => Self::VectorField,
             PlotKind::GridSurface => Self::GridSurface,
             PlotKind::Streamlines { seeds } => Self::Streamlines {
-                seeds: seeds.iter().map(|s| s.to_array()).collect(),
+                seeds: seeds.clone(),
             },
             PlotKind::VolumeRender { resolution } => Self::VolumeRender {
                 resolution: *resolution,
@@ -1212,7 +1212,7 @@ impl PersistedPlotKind {
             Self::VectorField => PlotKind::VectorField,
             Self::GridSurface => PlotKind::GridSurface,
             Self::Streamlines { seeds } => PlotKind::Streamlines {
-                seeds: seeds.iter().map(|s| glam::Vec3::from_array(*s)).collect(),
+                seeds: seeds.clone(),
             },
             Self::VolumeRender { resolution } => PlotKind::VolumeRender {
                 resolution: *resolution,

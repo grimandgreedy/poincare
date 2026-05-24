@@ -170,7 +170,7 @@ impl ExamplePlot {
                     for ix in 0..3 {
                         let x = -2.0 + ix as f32 * 2.0;
                         let y = -2.0 + iy as f32 * 2.0;
-                        seeds.push(glam::Vec3::new(x, y, 0.0));
+                        seeds.push([x, y, 0.0]);
                     }
                 }
                 PlotEntry {

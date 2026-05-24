@@ -1,19 +1,25 @@
+pub mod annotation;
 pub mod curve;
 pub mod isosurface;
 pub mod level_set;
 pub mod piecewise;
 pub mod scatter;
+pub mod slice;
 pub mod stream;
 pub mod surface;
+pub mod table;
 pub mod vector_field;
 pub mod volume;
 
+pub use annotation::{AnnotatedArrowsPlot, AnnotatedPointsPlot};
 pub use curve::{Curve3D, CurveInterpolation, CurveInterpolationKind, sample_curve_points};
 pub use isosurface::ContourPlot3D;
 pub use level_set::LevelSet3D;
 pub use piecewise::PiecewisePlot;
 pub use scatter::Scatter3D;
+pub use slice::{PlaneVectorFieldPlot, ScalarSlicePlot, default_slice_position};
 pub use stream::StreamPlot3D;
 pub use surface::Surface3D;
+pub use table::{TableVectorFieldPlot, TableVectorSample};
 pub use vector_field::VectorField3D;
 pub use volume::DensityPlot3D;

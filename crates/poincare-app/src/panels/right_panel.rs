@@ -15,7 +15,7 @@ use crate::plot::analysis::{
     make_arrow_annotation, make_point_annotations,
 };
 use crate::plot::entry::PlotEntry;
-use crate::plot::kind::{PlotKind, StyleCaps, evenly_spaced_isovalues};
+use crate::plot::kind::{PlotKind, PlotKindExt, StyleCaps, evenly_spaced_isovalues};
 use crate::panels::left_panel::{PlotMarkerKind, paint_plot_marker};
 use crate::plot::table::TableDataSet;
 use crate::ui::domain_editor::{edit_domain, edit_resolution};
@@ -1582,7 +1582,7 @@ impl App {
                         let t = t0 + (i as f64 / (steps - 1) as f64) * (t1 - t0);
                         let vars: Vec<(&str, f64)> = parameters
                             .iter()
-                            .map(|(n, v)| (n.as_str(), *v))
+                            .map(|(n, v): &(String, f64)| (n.as_str(), *v))
                             .chain(std::iter::once((ind.as_str(), t)))
                             .collect();
                         let val = eval_with_vars(&parsed, &vars);

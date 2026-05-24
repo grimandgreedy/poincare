@@ -8,7 +8,7 @@ use crate::picking::ProbeHit;
 use crate::picking::segment_segment_closest;
 use crate::plot::analysis::SliceAxis;
 use crate::plot::entry::{PlotEntry, build_graph_spec};
-use crate::plot::kind::DomainLabels;
+use crate::plot::kind::{DomainLabels, PlotKind, PlotKindExt};
 use crate::plot::sweep::ParameterSweep;
 use crate::plot::table::TableDataSet;
 
@@ -516,7 +516,7 @@ fn scene_bounds(scene: &GraphScene) -> Option<Aabb> {
 }
 
 pub(crate) fn plot_bounds(plot: &PlotEntry) -> Option<Aabb> {
-    if let crate::plot::kind::PlotKind::ImportedTable { definition } = &plot.kind {
+    if let PlotKind::ImportedTable { definition } = &plot.kind {
         if let Ok(dataset) = definition.validate() {
             let bounds = match dataset {
                 TableDataSet::SurfaceGrid { xs, ys, zs } => {
@@ -562,8 +562,8 @@ pub(crate) fn plot_bounds(plot: &PlotEntry) -> Option<Aabb> {
         }
     }
     match &plot.kind {
-        crate::plot::kind::PlotKind::ScalarSlice { axis, position, .. }
-        | crate::plot::kind::PlotKind::VectorSlice { axis, position, .. } => {
+        PlotKind::ScalarSlice { axis, position, .. }
+        | PlotKind::VectorSlice { axis, position, .. } => {
             let (min, max) = match axis {
                 SliceAxis::X => (
                     glam::vec3(*position as f32, *plot.domain.y.start() as f32, *plot.domain.z.start() as f32),
@@ -580,17 +580,17 @@ pub(crate) fn plot_bounds(plot: &PlotEntry) -> Option<Aabb> {
             };
             return Some(Aabb { min, max });
         }
-        crate::plot::kind::PlotKind::PointAnnotations { points, .. } => {
+        PlotKind::PointAnnotations { points, .. } => {
             return bounds_from_positions(points.iter().map(|point| glam::Vec3::from_array(point.position)));
         }
-        crate::plot::kind::PlotKind::ArrowAnnotations { arrows, .. } => {
+        PlotKind::ArrowAnnotations { arrows, .. } => {
             return bounds_from_positions(arrows.iter().flat_map(|arrow| {
                 let origin = glam::Vec3::from_array(arrow.origin);
                 let tip = origin + glam::Vec3::from_array(arrow.vector);
                 [origin, tip]
             }));
         }
-        crate::plot::kind::PlotKind::DerivedPolylineGroups { groups } => {
+        PlotKind::DerivedPolylineGroups { groups } => {
             return bounds_from_positions(groups.iter().flat_map(|group| {
                 group.iter().map(|point| glam::Vec3::from_array(*point))
             }));

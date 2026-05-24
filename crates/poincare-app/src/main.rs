@@ -31,6 +31,7 @@ use document::{
     default_export_dir, default_export_filename, export_mode_for_format,
 };
 use plot::entry::PlotEntry;
+use plot::kind::PlotKindExt;
 use plot::selected_type::SelectedPlotType;
 use plot::table::{TableImportDefinition, TablePlotTarget};
 use ui::equation_editor::EquationEditor;
