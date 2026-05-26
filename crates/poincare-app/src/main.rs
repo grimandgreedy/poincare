@@ -18,7 +18,10 @@ use std::{fs::OpenOptions, io::Write};
 
 use eframe::egui;
 use grimdock::{PanelStyle, PanelTree};
-use poincare_lib::{AxisConfig, ColormapSource, ColourMode, CurveInterpolation, parse_curve_expr, parse_expr_with_vars};
+use poincare_lib::{
+    AxisConfig, ColormapSource, ColourMode, CurveInterpolation, parse_curve_expr,
+    parse_expr_with_vars,
+};
 use viewport_lib::BuiltinColourmap;
 use viewport_lib::{
     CameraAnimator, CameraTarget, CameraTrack, Easing, GroundPlaneMode, OrbitCameraController,
@@ -798,10 +801,8 @@ impl App {
         let format = self.documents[doc_idx].export_format;
         let duration = track.duration().max(0.0);
         let frame_count = ((duration * fps as f64).ceil() as u32).max(2);
-        let output_path = normalized_export_path(
-            self.documents[doc_idx].export_path.trim(),
-            format,
-        );
+        let output_path =
+            normalized_export_path(self.documents[doc_idx].export_path.trim(), format);
         self.documents[doc_idx].export_path = output_path.to_string_lossy().into_owned();
 
         let temp_dir = std::env::temp_dir().join(format!(
@@ -1222,9 +1223,9 @@ impl App {
 
         match cmd.spawn() {
             Ok(child) => Ok(child),
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Err(
-                "Export failed: ffmpeg was not found on PATH.".to_string(),
-            ),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                Err("Export failed: ffmpeg was not found on PATH.".to_string())
+            }
             Err(err) => Err(format!("Export failed: {err}")),
         }
     }
@@ -1287,20 +1288,25 @@ impl App {
                     export_camera.set_fov_y(*first_fov);
                     export_camera.set_aspect_ratio(*width as f32, *height as f32);
 
-                    let pixels = match self.render_export_pixels(frame, &export_camera, *width, *height) {
-                        Ok(pixels) => pixels,
-                        Err(err) => {
-                            let _ = std::fs::remove_dir_all(temp_dir);
-                            self.documents[job.doc_idx].export_status = err.clone();
-                            self.documents[job.doc_idx].export_progress = None;
-                            return;
-                        }
-                    };
+                    let pixels =
+                        match self.render_export_pixels(frame, &export_camera, *width, *height) {
+                            Ok(pixels) => pixels,
+                            Err(err) => {
+                                let _ = std::fs::remove_dir_all(temp_dir);
+                                self.documents[job.doc_idx].export_status = err.clone();
+                                self.documents[job.doc_idx].export_progress = None;
+                                return;
+                            }
+                        };
 
                     let frame_path = temp_dir.join(format!("frame_{:05}.png", *next_frame));
-                    if let Err(err) =
-                        image::save_buffer(&frame_path, &pixels, *width, *height, image::ColorType::Rgba8)
-                    {
+                    if let Err(err) = image::save_buffer(
+                        &frame_path,
+                        &pixels,
+                        *width,
+                        *height,
+                        image::ColorType::Rgba8,
+                    ) {
                         let _ = std::fs::remove_dir_all(temp_dir);
                         self.documents[job.doc_idx].export_status = format!("Export failed: {err}");
                         self.documents[job.doc_idx].export_progress = None;
@@ -1495,9 +1501,8 @@ fn apply_expression_edit(kind: &mut PlotKind, text: &str) -> bool {
                     .chain(parsed.1.parameters.iter())
                     .chain(parsed.2.parameters.iter())
                     .filter_map(|(name, default)| {
-                        seen.insert(name.clone()).then(|| {
-                            (name.clone(), old.get(name).copied().unwrap_or(*default))
-                        })
+                        seen.insert(name.clone())
+                            .then(|| (name.clone(), old.get(name).copied().unwrap_or(*default)))
                     })
                     .collect();
             }
@@ -1627,24 +1632,28 @@ fn data_editor_payload_from_plot_kind(kind: &PlotKind) -> Option<DataEditorPaylo
         PlotKind::ImportedTable { definition } => {
             Some(DataEditorPayload::ImportedTable(definition.clone()))
         }
-        PlotKind::PointAnnotations { points, show_labels } => {
-            Some(DataEditorPayload::PointAnnotations {
-                raw_text: serialize_point_annotations(points),
-                show_labels: *show_labels,
-                error: None,
-            })
-        }
-        PlotKind::ArrowAnnotations { arrows, show_labels } => {
-            Some(DataEditorPayload::ArrowAnnotations {
-                raw_text: serialize_arrow_annotations(arrows),
-                show_labels: *show_labels,
-                error: None,
-            })
-        }
-        PlotKind::DerivedPolylineGroups { groups } => Some(DataEditorPayload::DerivedPolylineGroups {
-            raw_text: serialize_polyline_groups(groups),
+        PlotKind::PointAnnotations {
+            points,
+            show_labels,
+        } => Some(DataEditorPayload::PointAnnotations {
+            raw_text: serialize_point_annotations(points),
+            show_labels: *show_labels,
             error: None,
         }),
+        PlotKind::ArrowAnnotations {
+            arrows,
+            show_labels,
+        } => Some(DataEditorPayload::ArrowAnnotations {
+            raw_text: serialize_arrow_annotations(arrows),
+            show_labels: *show_labels,
+            error: None,
+        }),
+        PlotKind::DerivedPolylineGroups { groups } => {
+            Some(DataEditorPayload::DerivedPolylineGroups {
+                raw_text: serialize_polyline_groups(groups),
+                error: None,
+            })
+        }
         _ => None,
     }
 }
@@ -1677,8 +1686,12 @@ fn data_editor_payload_is_dirty(current: &DataEditorPayload, original: &DataEdit
             },
         ) => a_text != b_text || a_show != b_show,
         (
-            DataEditorPayload::DerivedPolylineGroups { raw_text: a_text, .. },
-            DataEditorPayload::DerivedPolylineGroups { raw_text: b_text, .. },
+            DataEditorPayload::DerivedPolylineGroups {
+                raw_text: a_text, ..
+            },
+            DataEditorPayload::DerivedPolylineGroups {
+                raw_text: b_text, ..
+            },
         ) => a_text != b_text,
         _ => true,
     }
@@ -1809,12 +1822,20 @@ fn edit_imported_table_payload(
                     .selected_text(definition.delimiter.label())
                     .show_ui(ui, |ui| {
                         for delimiter in crate::plot::table::TableDelimiter::ALL {
-                            ui.selectable_value(&mut definition.delimiter, delimiter, delimiter.label());
+                            ui.selectable_value(
+                                &mut definition.delimiter,
+                                delimiter,
+                                delimiter.label(),
+                            );
                         }
                     });
                 ui.checkbox(&mut definition.header_row, "Header row");
             });
-            ui.label(egui::RichText::new(definition.source_summary()).small().weak());
+            ui.label(
+                egui::RichText::new(definition.source_summary())
+                    .small()
+                    .weak(),
+            );
             let delimiter = delimiter_char(definition.delimiter);
             edit_text_or_cells(
                 ui,
@@ -1867,9 +1888,19 @@ fn edit_text_or_cells(
         DataEditorMode::Cells => {
             let mut rows = parse_rows_for_cells(raw_text, delimiter);
             if rows.is_empty() && !fallback_headers.is_empty() {
-                rows.push(fallback_headers.iter().map(|value| (*value).to_string()).collect());
+                rows.push(
+                    fallback_headers
+                        .iter()
+                        .map(|value| (*value).to_string())
+                        .collect(),
+                );
             }
-            let column_count = rows.iter().map(Vec::len).max().unwrap_or(fallback_headers.len()).max(1);
+            let column_count = rows
+                .iter()
+                .map(Vec::len)
+                .max()
+                .unwrap_or(fallback_headers.len())
+                .max(1);
             for row in &mut rows {
                 row.resize(column_count, String::new());
             }
@@ -1963,7 +1994,10 @@ fn apply_data_editor_payload(kind: &mut PlotKind, payload: &DataEditorPayload) -
             true
         }
         (
-            PlotKind::PointAnnotations { points, show_labels },
+            PlotKind::PointAnnotations {
+                points,
+                show_labels,
+            },
             DataEditorPayload::PointAnnotations {
                 raw_text,
                 show_labels: next_show_labels,
@@ -1978,7 +2012,10 @@ fn apply_data_editor_payload(kind: &mut PlotKind, payload: &DataEditorPayload) -
             Err(_) => false,
         },
         (
-            PlotKind::ArrowAnnotations { arrows, show_labels },
+            PlotKind::ArrowAnnotations {
+                arrows,
+                show_labels,
+            },
             DataEditorPayload::ArrowAnnotations {
                 raw_text,
                 show_labels: next_show_labels,
@@ -2043,9 +2080,9 @@ fn serialize_polyline_groups(groups: &[Vec<[f32; 3]>]) -> String {
         .iter()
         .enumerate()
         .flat_map(|(group_idx, group)| {
-            group.iter().map(move |point| {
-                format!("{group_idx}\t{}\t{}\t{}", point[0], point[1], point[2])
-            })
+            group
+                .iter()
+                .map(move |point| format!("{group_idx}\t{}\t{}\t{}", point[0], point[1], point[2]))
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -2149,9 +2186,13 @@ fn parse_rows_for_cells(raw_text: &str, delimiter: char) -> Vec<Vec<String>> {
         .filter(|line| !line.trim().is_empty())
         .map(|line| {
             if delimiter == ' ' {
-                line.split_whitespace().map(|cell| cell.trim().to_string()).collect()
+                line.split_whitespace()
+                    .map(|cell| cell.trim().to_string())
+                    .collect()
             } else {
-                line.split(delimiter).map(|cell| cell.trim().to_string()).collect()
+                line.split(delimiter)
+                    .map(|cell| cell.trim().to_string())
+                    .collect()
             }
         })
         .collect()
@@ -2166,9 +2207,14 @@ fn serialize_rows_from_cells(rows: &[Vec<String>], delimiter: char) -> String {
 }
 
 fn parse_f32_cell(value: &str, line_idx: usize, label: &str) -> Result<f32, String> {
-    value
-        .parse::<f32>()
-        .map_err(|_| format!("Line {} has invalid {} value `{}`", line_idx + 1, label, value))
+    value.parse::<f32>().map_err(|_| {
+        format!(
+            "Line {} has invalid {} value `{}`",
+            line_idx + 1,
+            label,
+            value
+        )
+    })
 }
 
 impl eframe::App for App {
@@ -2369,7 +2415,11 @@ impl eframe::App for App {
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                 .show(ctx, |ui| {
                     ui.label(format!("Delete plot \"{plot_name}\"?"));
-                    ui.label(egui::RichText::new("Press Enter to delete or Escape to cancel.").small().weak());
+                    ui.label(
+                        egui::RichText::new("Press Enter to delete or Escape to cancel.")
+                            .small()
+                            .weak(),
+                    );
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
                         let yes = ui.button("Yes");

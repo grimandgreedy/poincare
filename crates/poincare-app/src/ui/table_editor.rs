@@ -1,8 +1,6 @@
 use eframe::egui;
 
-use crate::plot::table::{
-    OptionalColumn, TableColumnMapping, TableImportDefinition,
-};
+use crate::plot::table::{OptionalColumn, TableColumnMapping, TableImportDefinition};
 
 pub(crate) fn edit_table_import(ui: &mut egui::Ui, definition: &mut TableImportDefinition) -> bool {
     let mut dirty = false;
@@ -36,18 +34,18 @@ pub(crate) fn edit_table_import(ui: &mut egui::Ui, definition: &mut TableImportD
         }
     });
 
-    ui.label(egui::RichText::new(definition.source_summary()).small().weak());
+    ui.label(
+        egui::RichText::new(definition.source_summary())
+            .small()
+            .weak(),
+    );
     ui.horizontal(|ui| {
         egui::ComboBox::from_label("Delimiter")
             .selected_text(definition.delimiter.label())
             .show_ui(ui, |ui| {
                 for delimiter in crate::plot::table::TableDelimiter::ALL {
                     dirty |= ui
-                        .selectable_value(
-                            &mut definition.delimiter,
-                            delimiter,
-                            delimiter.label(),
-                        )
+                        .selectable_value(&mut definition.delimiter, delimiter, delimiter.label())
                         .changed();
                 }
             });
@@ -63,7 +61,13 @@ pub(crate) fn edit_table_import(ui: &mut egui::Ui, definition: &mut TableImportD
         preview.rows.len()
     ));
 
-    edit_mapping(ui, definition, &preview.headers, preview.column_count, &mut dirty);
+    edit_mapping(
+        ui,
+        definition,
+        &preview.headers,
+        preview.column_count,
+        &mut dirty,
+    );
 
     ui.add_space(6.0);
     ui.label("Source Data");
@@ -218,7 +222,11 @@ fn optional_column_combo(
                 .changed();
             for index in 0..column_count.max(headers.len()) {
                 *dirty |= ui
-                    .selectable_value(value, OptionalColumn::Column(index), column_label(index, headers))
+                    .selectable_value(
+                        value,
+                        OptionalColumn::Column(index),
+                        column_label(index, headers),
+                    )
                     .changed();
             }
         });

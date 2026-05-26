@@ -1,7 +1,5 @@
 use crate::diagnostics::ParseDiagnostic;
-use crate::{
-    ParsedExpr, eval_with_vars, parse_curve_expr, parse_expr_with_vars,
-};
+use crate::{ParsedExpr, eval_with_vars, parse_curve_expr, parse_expr_with_vars};
 
 fn merge_parameters<'a>(parts: impl IntoIterator<Item = &'a ParsedExpr>) -> Vec<(String, f64)> {
     let mut merged = Vec::new();
@@ -49,7 +47,10 @@ impl ScalarFieldExpr {
         let parsed = parse_expr_with_vars(source, coord_vars).map_err(ParseDiagnostic::new)?;
         Ok(Self {
             source: source.to_string(),
-            coord_vars: coord_vars.iter().map(|value| (*value).to_string()).collect(),
+            coord_vars: coord_vars
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect(),
             parsed,
         })
     }
@@ -85,11 +86,19 @@ pub struct VectorFieldExpr {
 
 impl VectorFieldExpr {
     pub fn parse(source: &str, coord_vars: &[&str]) -> Result<Self, ParseDiagnostic> {
-        let components = parse_pipe_components(source, coord_vars, ["vx", "vy", "vz"], "vector field expression")?;
+        let components = parse_pipe_components(
+            source,
+            coord_vars,
+            ["vx", "vy", "vz"],
+            "vector field expression",
+        )?;
         let parameters = merge_parameters(components.iter());
         Ok(Self {
             source: source.to_string(),
-            coord_vars: coord_vars.iter().map(|value| (*value).to_string()).collect(),
+            coord_vars: coord_vars
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect(),
             components,
             parameters,
         })
@@ -121,8 +130,12 @@ pub struct ParametricSurfaceExpr {
 
 impl ParametricSurfaceExpr {
     pub fn parse(source: &str) -> Result<Self, ParseDiagnostic> {
-        let components =
-            parse_pipe_components(source, &["u", "v"], ["x", "y", "z"], "parametric surface expression")?;
+        let components = parse_pipe_components(
+            source,
+            &["u", "v"],
+            ["x", "y", "z"],
+            "parametric surface expression",
+        )?;
         let parameters = merge_parameters(components.iter());
         Ok(Self {
             source: source.to_string(),

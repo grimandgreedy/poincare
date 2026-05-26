@@ -189,7 +189,10 @@ pub(crate) fn paint_plot_marker(
         }
         PlotMarkerKind::VectorField => {
             painter.line_segment(
-                [egui::pos2(left, bottom), egui::pos2(right - w * 0.14, top + h * 0.14)],
+                [
+                    egui::pos2(left, bottom),
+                    egui::pos2(right - w * 0.14, top + h * 0.14),
+                ],
                 stroke,
             );
             painter.line_segment(
@@ -240,7 +243,9 @@ fn expression_summary(kind: &PlotKind) -> Option<String> {
         | PlotKind::ExprVolume { expression, .. }
         | PlotKind::ExprIsosurface { expression, .. }
         | PlotKind::ExprStreamlines { expression, .. } => Some(expression.clone()),
-        PlotKind::ImportedTable { definition } => Some(format!("Imported {}", definition.target.label())),
+        PlotKind::ImportedTable { definition } => {
+            Some(format!("Imported {}", definition.target.label()))
+        }
         PlotKind::InterpolatedCurve { interpolation, .. } => Some(format!(
             "Interpolated curve ({})",
             interpolation_kind_label(interpolation.kind)
@@ -281,7 +286,9 @@ impl App {
     }
 
     fn add_plot_modal_is_empty(&self) -> bool {
-        self.add_expr_fields.iter().all(|field| field.trim().is_empty())
+        self.add_expr_fields
+            .iter()
+            .all(|field| field.trim().is_empty())
             && self.add_iso_values_text.trim() == "1.0, 2.0, 3.0"
             && self.add_table_import.raw_text.trim().is_empty()
     }
@@ -402,8 +409,7 @@ impl App {
                         let plot = &self.documents[self.active_document_idx].plots[index];
                         (
                             plot.name.clone(),
-                            expression_summary(&plot.kind)
-                                .unwrap_or_else(|| plot.name.clone()),
+                            expression_summary(&plot.kind).unwrap_or_else(|| plot.name.clone()),
                             self.representative_plot_color(plot),
                             PlotMarkerKind::from_plot_kind(&plot.kind),
                         )

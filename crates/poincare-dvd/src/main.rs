@@ -58,12 +58,13 @@ impl DvdApp {
                 .callback_resources
                 .get_mut::<ViewportRenderer>()
                 .ok_or_else(|| "viewport renderer missing".to_string())?;
-            scene.upload_meshes(
-                &wgpu_state.device,
-                &wgpu_state.queue,
-                renderer.resources_mut(),
-            )
-            .map_err(|err| format!("Failed to upload meshes: {err}"))?;
+            scene
+                .upload_meshes(
+                    &wgpu_state.device,
+                    &wgpu_state.queue,
+                    renderer.resources_mut(),
+                )
+                .map_err(|err| format!("Failed to upload meshes: {err}"))?;
         }
 
         Ok(Self {
@@ -76,7 +77,12 @@ impl DvdApp {
         })
     }
 
-    fn tick_viewport(&mut self, bounds: egui::Rect, dt: f32, viewport_size: egui::Vec2) -> egui::Rect {
+    fn tick_viewport(
+        &mut self,
+        bounds: egui::Rect,
+        dt: f32,
+        viewport_size: egui::Vec2,
+    ) -> egui::Rect {
         let max_x = (bounds.width() - viewport_size.x).max(0.0);
         let max_y = (bounds.height() - viewport_size.y).max(0.0);
 
@@ -144,10 +150,11 @@ impl eframe::App for DvdApp {
                 frame_data.viewport.background_colour = Some([0.03, 0.03, 0.05, 1.0]);
                 frame_data.viewport.show_grid = true;
 
-                ui.painter().add(eframe::egui_wgpu::Callback::new_paint_callback(
-                    viewport_rect,
-                    ViewportCallback { frame: frame_data },
-                ));
+                ui.painter()
+                    .add(eframe::egui_wgpu::Callback::new_paint_callback(
+                        viewport_rect,
+                        ViewportCallback { frame: frame_data },
+                    ));
 
                 let label_rect = viewport_rect.expand(6.0);
                 ui.painter().text(

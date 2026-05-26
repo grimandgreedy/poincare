@@ -84,11 +84,23 @@ pub fn generate_seeds(mode: &SeedMode, domain: &Domain) -> Vec<glam::Vec3> {
             let z1 = *domain.z.end() as f32;
             let mut seeds = Vec::with_capacity(nx * ny * nz);
             for iz in 0..nz {
-                let z = if nz <= 1 { (z0 + z1) * 0.5 } else { z0 + (z1 - z0) * iz as f32 / (nz - 1) as f32 };
+                let z = if nz <= 1 {
+                    (z0 + z1) * 0.5
+                } else {
+                    z0 + (z1 - z0) * iz as f32 / (nz - 1) as f32
+                };
                 for iy in 0..ny {
-                    let y = if ny <= 1 { (y0 + y1) * 0.5 } else { y0 + (y1 - y0) * iy as f32 / (ny - 1) as f32 };
+                    let y = if ny <= 1 {
+                        (y0 + y1) * 0.5
+                    } else {
+                        y0 + (y1 - y0) * iy as f32 / (ny - 1) as f32
+                    };
                     for ix in 0..nx {
-                        let x = if nx <= 1 { (x0 + x1) * 0.5 } else { x0 + (x1 - x0) * ix as f32 / (nx - 1) as f32 };
+                        let x = if nx <= 1 {
+                            (x0 + x1) * 0.5
+                        } else {
+                            x0 + (x1 - x0) * ix as f32 / (nx - 1) as f32
+                        };
                         seeds.push(glam::Vec3::new(x, y, z));
                     }
                 }

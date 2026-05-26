@@ -1,4 +1,5 @@
 use eframe::egui;
+use poincare_lib::{AnalysisKind, available_analyses};
 use viewport_lib::{Projection, ViewPreset};
 
 use crate::App;
@@ -23,9 +24,30 @@ enum PaletteCommand {
     Redo,
     DuplicatePlot,
     DeletePlot,
+    SelectedPlotAnalysis(SelectedPlotAnalysisAction),
     Camera(CameraCommand),
     LoadPreset(PlotPreset),
     LoadExample(ExamplePlot),
+}
+
+#[derive(Clone, Copy)]
+enum SelectedPlotAnalysisAction {
+    ScalarSliceZ,
+    GradientField,
+    VectorSliceZ,
+    DivergenceField,
+    CurlField,
+    DifferentiateCurve,
+    IntegralCurve,
+    TangentField,
+    AxisDerivativeCurve,
+    ArcLengthCurve,
+    CurvatureCurve,
+    NormalField,
+    BinormalField,
+    FitCurve,
+    InterpolateCurve,
+    ExtractPoints,
 }
 
 struct PaletteItem {
@@ -289,10 +311,210 @@ impl App {
             PaletteCommand::Redo => self.redo_active_document(),
             PaletteCommand::DuplicatePlot => self.duplicate_selected_plot(),
             PaletteCommand::DeletePlot => self.request_delete_selected_plot(),
+            PaletteCommand::SelectedPlotAnalysis(action) => {
+                self.execute_selected_plot_analysis_command(action)
+            }
             PaletteCommand::Camera(command) => self.run_camera_command(command),
             PaletteCommand::LoadPreset(preset) => self.load_preset(preset),
             PaletteCommand::LoadExample(example) => self.load_example_plot(example),
         }
+    }
+
+    fn execute_selected_plot_analysis_command(&mut self, action: SelectedPlotAnalysisAction) {
+        let doc_idx = self.active_document_idx;
+        let Some(plot_idx) = self.documents[doc_idx].selected_plot else {
+            return;
+        };
+        let plot = self.documents[doc_idx].plots[plot_idx].clone();
+        let plot_spec = plot.to_plot_spec();
+        match action {
+            SelectedPlotAnalysisAction::ScalarSliceZ => self.run_single_plot_analysis(
+                doc_idx,
+                &plot_spec,
+                AnalysisKind::ScalarSlice,
+                vec![("axis".to_string(), "z".to_string())],
+            ),
+            SelectedPlotAnalysisAction::GradientField => self.run_single_plot_analysis(
+                doc_idx,
+                &plot_spec,
+                AnalysisKind::GradientField,
+                vec![],
+            ),
+            SelectedPlotAnalysisAction::VectorSliceZ => self.run_single_plot_analysis(
+                doc_idx,
+                &plot_spec,
+                AnalysisKind::VectorSlice,
+                vec![("axis".to_string(), "z".to_string())],
+            ),
+            SelectedPlotAnalysisAction::DivergenceField => self.run_single_plot_analysis(
+                doc_idx,
+                &plot_spec,
+                AnalysisKind::DivergenceField,
+                vec![],
+            ),
+            SelectedPlotAnalysisAction::CurlField => {
+                self.run_single_plot_analysis(doc_idx, &plot_spec, AnalysisKind::CurlField, vec![])
+            }
+            SelectedPlotAnalysisAction::DifferentiateCurve => self.run_single_plot_analysis(
+                doc_idx,
+                &plot_spec,
+                AnalysisKind::DifferentiateCurve,
+                vec![],
+            ),
+            SelectedPlotAnalysisAction::IntegralCurve => self.run_single_plot_analysis(
+                doc_idx,
+                &plot_spec,
+                AnalysisKind::IntegralCurve,
+                vec![],
+            ),
+            SelectedPlotAnalysisAction::TangentField => self.run_single_plot_analysis(
+                doc_idx,
+                &plot_spec,
+                AnalysisKind::TangentField,
+                vec![],
+            ),
+            SelectedPlotAnalysisAction::AxisDerivativeCurve => {
+                self.open_axis_derivative_modal(plot_idx, &plot)
+            }
+            SelectedPlotAnalysisAction::ArcLengthCurve => self.run_single_plot_analysis(
+                doc_idx,
+                &plot_spec,
+                AnalysisKind::ArcLengthCurve,
+                vec![],
+            ),
+            SelectedPlotAnalysisAction::CurvatureCurve => self.run_single_plot_analysis(
+                doc_idx,
+                &plot_spec,
+                AnalysisKind::CurvatureCurve,
+                vec![],
+            ),
+            SelectedPlotAnalysisAction::NormalField => self.run_single_plot_analysis(
+                doc_idx,
+                &plot_spec,
+                AnalysisKind::NormalField,
+                vec![],
+            ),
+            SelectedPlotAnalysisAction::BinormalField => self.run_single_plot_analysis(
+                doc_idx,
+                &plot_spec,
+                AnalysisKind::BinormalField,
+                vec![],
+            ),
+            SelectedPlotAnalysisAction::FitCurve => self.open_fit_curve_modal(plot_idx, &plot),
+            SelectedPlotAnalysisAction::InterpolateCurve => {
+                self.open_interpolate_modal(plot_idx, &plot)
+            }
+            SelectedPlotAnalysisAction::ExtractPoints => self.run_single_plot_analysis(
+                doc_idx,
+                &plot_spec,
+                AnalysisKind::ExtractPoints,
+                vec![],
+            ),
+        }
+    }
+
+    fn selected_plot_analysis_items(&self) -> Vec<PaletteItem> {
+        let doc_idx = self.active_document_idx;
+        let Some(plot_idx) = self.documents[doc_idx].selected_plot else {
+            return Vec::new();
+        };
+        let plot = &self.documents[doc_idx].plots[plot_idx];
+        let plot_spec = plot.to_plot_spec();
+        let capabilities = available_analyses(&plot_spec);
+        let has_analysis = |kind| capabilities.iter().any(|cap| cap.kind == kind);
+        let plot_name = plot.name.clone();
+        let mut items = Vec::new();
+
+        let mut push = |label: &str, action: SelectedPlotAnalysisAction, enabled: bool| {
+            items.push(PaletteItem {
+                label: format!("Analysis: {label} ({plot_name})"),
+                command: PaletteCommand::SelectedPlotAnalysis(action),
+                enabled,
+            });
+        };
+
+        push(
+            "Add Z Slice",
+            SelectedPlotAnalysisAction::ScalarSliceZ,
+            has_analysis(AnalysisKind::ScalarSlice),
+        );
+        push(
+            "Add Gradient Field",
+            SelectedPlotAnalysisAction::GradientField,
+            has_analysis(AnalysisKind::GradientField),
+        );
+        push(
+            "Add Z Vector Slice",
+            SelectedPlotAnalysisAction::VectorSliceZ,
+            has_analysis(AnalysisKind::VectorSlice),
+        );
+        push(
+            "Add Divergence Volume",
+            SelectedPlotAnalysisAction::DivergenceField,
+            has_analysis(AnalysisKind::DivergenceField),
+        );
+        push(
+            "Add Curl Field",
+            SelectedPlotAnalysisAction::CurlField,
+            has_analysis(AnalysisKind::CurlField),
+        );
+        push(
+            "Create Derivative Curve",
+            SelectedPlotAnalysisAction::DifferentiateCurve,
+            has_analysis(AnalysisKind::DifferentiateCurve),
+        );
+        push(
+            "Create Integral Curve",
+            SelectedPlotAnalysisAction::IntegralCurve,
+            has_analysis(AnalysisKind::IntegralCurve),
+        );
+        push(
+            "Create Tangent Curve",
+            SelectedPlotAnalysisAction::TangentField,
+            has_analysis(AnalysisKind::TangentField),
+        );
+        push(
+            "Differentiate by Axis…",
+            SelectedPlotAnalysisAction::AxisDerivativeCurve,
+            has_analysis(AnalysisKind::AxisDerivativeCurve),
+        );
+        push(
+            "Create Arc Length Curve",
+            SelectedPlotAnalysisAction::ArcLengthCurve,
+            has_analysis(AnalysisKind::ArcLengthCurve),
+        );
+        push(
+            "Create Curvature Curve",
+            SelectedPlotAnalysisAction::CurvatureCurve,
+            has_analysis(AnalysisKind::CurvatureCurve),
+        );
+        push(
+            "Create Normal Curve",
+            SelectedPlotAnalysisAction::NormalField,
+            has_analysis(AnalysisKind::NormalField),
+        );
+        push(
+            "Create Binormal Curve",
+            SelectedPlotAnalysisAction::BinormalField,
+            has_analysis(AnalysisKind::BinormalField),
+        );
+        push(
+            "Fit Curve…",
+            SelectedPlotAnalysisAction::FitCurve,
+            has_analysis(AnalysisKind::FitCurve),
+        );
+        push(
+            "Interpolate…",
+            SelectedPlotAnalysisAction::InterpolateCurve,
+            has_analysis(AnalysisKind::InterpolateCurve),
+        );
+        push(
+            "Extract Points",
+            SelectedPlotAnalysisAction::ExtractPoints,
+            has_analysis(AnalysisKind::ExtractPoints),
+        );
+
+        items
     }
 
     fn command_palette_items(&self) -> Vec<PaletteItem> {
@@ -453,6 +675,7 @@ impl App {
                     enabled: true,
                 }),
         );
+        items.extend(self.selected_plot_analysis_items());
 
         items
     }
@@ -467,11 +690,12 @@ impl App {
         let mut execute: Option<PaletteCommand> = None;
         let mut query_changed = false;
         let query = self.command_palette_query.to_lowercase();
-        let items: Vec<PaletteItem> = self
+        let mut items: Vec<PaletteItem> = self
             .command_palette_items()
             .into_iter()
             .filter(|item| item.label.to_lowercase().contains(&query))
             .collect();
+        items.sort_by_key(|item| !item.enabled);
 
         if self.command_palette_selected >= items.len() {
             self.command_palette_selected = 0;

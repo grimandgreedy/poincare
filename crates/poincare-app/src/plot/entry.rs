@@ -36,7 +36,10 @@ impl PlotEntry {
     }
 }
 
-pub(crate) fn build_graph_spec(entries: &[PlotEntry], axis_config: poincare_lib::AxisConfig) -> GraphSpec {
+pub(crate) fn build_graph_spec(
+    entries: &[PlotEntry],
+    axis_config: poincare_lib::AxisConfig,
+) -> GraphSpec {
     GraphSpec {
         axis_config,
         plots: entries.iter().map(PlotEntry::to_plot_spec).collect(),

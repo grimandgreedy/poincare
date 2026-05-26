@@ -195,18 +195,9 @@ pub struct ArrowAnnotation {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SeedMode {
-    Grid {
-        nx: u32,
-        ny: u32,
-        nz: u32,
-    },
-    Plane {
-        axis: usize,
-        offset: f32,
-    },
-    ManualCsv {
-        csv_text: String,
-    },
+    Grid { nx: u32, ny: u32, nz: u32 },
+    Plane { axis: usize, offset: f32 },
+    ManualCsv { csv_text: String },
 }
 
 impl Default for SeedMode {

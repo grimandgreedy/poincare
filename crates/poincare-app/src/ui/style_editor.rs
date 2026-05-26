@@ -1,7 +1,6 @@
 use eframe::egui;
 use poincare_lib::{
-    ColormapSource, ColourMode, GlyphType, MatcapSource, ParamVisSettings, PlotStyle,
-    ShadingMode,
+    ColormapSource, ColourMode, GlyphType, MatcapSource, ParamVisSettings, PlotStyle, ShadingMode,
     SurfaceFaceQuantity, SurfaceLicSettings, SurfaceLicVectorField,
 };
 use viewport_lib::{AttributeKind, BuiltinColourmap, BuiltinMatcap, ParamVisMode};

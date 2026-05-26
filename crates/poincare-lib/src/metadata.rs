@@ -61,26 +61,28 @@ impl PlotDefinition {
         let default_resolution = Some(Resolution::default());
 
         match self {
-            Self::ContouredSurface { .. } | Self::GridSurface | Self::ExprCartesian { .. } => PlotMetadata {
-                style_caps: StyleCapabilities {
-                    mesh: true,
-                    line: false,
-                    point: false,
-                    glyph: false,
-                },
-                domain_editor: DomainEditorMetadata::Two {
-                    primary: "X".to_string(),
-                    secondary: "Y".to_string(),
-                },
-                default_domain,
-                default_resolution,
-                default_style,
-                uses_resolution: true,
-                uses_seed_resolution: false,
-                supports_surface_intersection: true,
-                coordinate_semantics: CoordinateSemantics::CartesianSurface,
-                required_variables: vec!["x".to_string(), "y".to_string()],
-            },
+            Self::ContouredSurface { .. } | Self::GridSurface | Self::ExprCartesian { .. } => {
+                PlotMetadata {
+                    style_caps: StyleCapabilities {
+                        mesh: true,
+                        line: false,
+                        point: false,
+                        glyph: false,
+                    },
+                    domain_editor: DomainEditorMetadata::Two {
+                        primary: "X".to_string(),
+                        secondary: "Y".to_string(),
+                    },
+                    default_domain,
+                    default_resolution,
+                    default_style,
+                    uses_resolution: true,
+                    uses_seed_resolution: false,
+                    supports_surface_intersection: true,
+                    coordinate_semantics: CoordinateSemantics::CartesianSurface,
+                    required_variables: vec!["x".to_string(), "y".to_string()],
+                }
+            }
             Self::SphericalHarmonic | Self::ExprSpherical { .. } => PlotMetadata {
                 style_caps: StyleCapabilities {
                     mesh: true,
@@ -228,7 +230,9 @@ impl PlotDefinition {
                     glyph: true,
                 },
                 domain_editor: match self {
-                    Self::VectorSlice { .. } | Self::ArrowAnnotations { .. } => DomainEditorMetadata::Fixed,
+                    Self::VectorSlice { .. } | Self::ArrowAnnotations { .. } => {
+                        DomainEditorMetadata::Fixed
+                    }
                     _ => DomainEditorMetadata::Three {
                         x: "X".to_string(),
                         y: "Y".to_string(),
@@ -244,7 +248,11 @@ impl PlotDefinition {
                 uses_resolution: !matches!(self, Self::ArrowAnnotations { .. }),
                 uses_seed_resolution: matches!(
                     self,
-                    Self::VectorField | Self::ExprVectorField { .. } | Self::VectorSlice { .. } | Self::GradientField { .. } | Self::CurlField { .. }
+                    Self::VectorField
+                        | Self::ExprVectorField { .. }
+                        | Self::VectorSlice { .. }
+                        | Self::GradientField { .. }
+                        | Self::CurlField { .. }
                 ),
                 supports_surface_intersection: false,
                 coordinate_semantics: match self {
@@ -256,28 +264,33 @@ impl PlotDefinition {
                     _ => vec!["x".to_string(), "y".to_string(), "z".to_string()],
                 },
             },
-            Self::Streamlines { .. } | Self::VolumeRender { .. } | Self::Isosurface { .. } => PlotMetadata {
-                style_caps: StyleCapabilities {
-                    mesh: matches!(self, Self::Isosurface { .. }),
-                    line: matches!(self, Self::Streamlines { .. }),
-                    point: false,
-                    glyph: false,
-                },
-                domain_editor: DomainEditorMetadata::Three {
-                    x: "X".to_string(),
-                    y: "Y".to_string(),
-                    z: "Z".to_string(),
-                },
-                default_domain,
-                default_resolution,
-                default_style,
-                uses_resolution: !matches!(self, Self::Streamlines { .. }),
-                uses_seed_resolution: false,
-                supports_surface_intersection: matches!(self, Self::Isosurface { .. }),
-                coordinate_semantics: CoordinateSemantics::CartesianVolume,
-                required_variables: Vec::new(),
-            },
-            Self::ExprVolume { .. } | Self::ExprIsosurface { .. } | Self::ExprStreamlines { .. } | Self::DivergenceField { .. } => PlotMetadata {
+            Self::Streamlines { .. } | Self::VolumeRender { .. } | Self::Isosurface { .. } => {
+                PlotMetadata {
+                    style_caps: StyleCapabilities {
+                        mesh: matches!(self, Self::Isosurface { .. }),
+                        line: matches!(self, Self::Streamlines { .. }),
+                        point: false,
+                        glyph: false,
+                    },
+                    domain_editor: DomainEditorMetadata::Three {
+                        x: "X".to_string(),
+                        y: "Y".to_string(),
+                        z: "Z".to_string(),
+                    },
+                    default_domain,
+                    default_resolution,
+                    default_style,
+                    uses_resolution: !matches!(self, Self::Streamlines { .. }),
+                    uses_seed_resolution: false,
+                    supports_surface_intersection: matches!(self, Self::Isosurface { .. }),
+                    coordinate_semantics: CoordinateSemantics::CartesianVolume,
+                    required_variables: Vec::new(),
+                }
+            }
+            Self::ExprVolume { .. }
+            | Self::ExprIsosurface { .. }
+            | Self::ExprStreamlines { .. }
+            | Self::DivergenceField { .. } => PlotMetadata {
                 style_caps: StyleCapabilities {
                     mesh: matches!(self, Self::ExprIsosurface { .. }),
                     line: matches!(self, Self::ExprStreamlines { .. }),
@@ -331,7 +344,10 @@ impl PlotDefinition {
                 default_style,
                 uses_resolution: false,
                 uses_seed_resolution: false,
-                supports_surface_intersection: matches!(definition.target, TablePlotTarget::SurfaceGrid),
+                supports_surface_intersection: matches!(
+                    definition.target,
+                    TablePlotTarget::SurfaceGrid
+                ),
                 coordinate_semantics: CoordinateSemantics::ImportedData,
                 required_variables: Vec::new(),
             },
@@ -364,7 +380,9 @@ impl PlotDefinition {
                 supports_surface_intersection: matches!(self, Self::ScalarSlice { .. }),
                 coordinate_semantics: CoordinateSemantics::Fixed,
                 required_variables: match self {
-                    Self::ScalarSlice { .. } => vec!["x".to_string(), "y".to_string(), "z".to_string()],
+                    Self::ScalarSlice { .. } => {
+                        vec!["x".to_string(), "y".to_string(), "z".to_string()]
+                    }
                     _ => Vec::new(),
                 },
             },

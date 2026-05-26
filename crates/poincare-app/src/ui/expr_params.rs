@@ -290,9 +290,27 @@ pub(crate) fn show_expression_params(
             });
             ui.label("Volume Resolution");
             ui.horizontal(|ui| {
-                dirty |= ui.add(egui::DragValue::new(&mut vol_resolution[0]).range(8..=256).prefix("X ")).changed();
-                dirty |= ui.add(egui::DragValue::new(&mut vol_resolution[1]).range(8..=256).prefix("Y ")).changed();
-                dirty |= ui.add(egui::DragValue::new(&mut vol_resolution[2]).range(8..=256).prefix("Z ")).changed();
+                dirty |= ui
+                    .add(
+                        egui::DragValue::new(&mut vol_resolution[0])
+                            .range(8..=256)
+                            .prefix("X "),
+                    )
+                    .changed();
+                dirty |= ui
+                    .add(
+                        egui::DragValue::new(&mut vol_resolution[1])
+                            .range(8..=256)
+                            .prefix("Y "),
+                    )
+                    .changed();
+                dirty |= ui
+                    .add(
+                        egui::DragValue::new(&mut vol_resolution[2])
+                            .range(8..=256)
+                            .prefix("Z "),
+                    )
+                    .changed();
             });
             dirty |= show_param_sliders(ui, parameters, slider_dragging, sweep_map);
         }
@@ -313,7 +331,10 @@ pub(crate) fn show_expression_params(
             });
             dirty |= show_param_sliders(ui, parameters, slider_dragging, sweep_map);
         }
-        PlotKind::PointAnnotations { points, show_labels } => {
+        PlotKind::PointAnnotations {
+            points,
+            show_labels,
+        } => {
             dirty |= ui.checkbox(show_labels, "Show labels").changed();
             ui.label(format!("{} point annotation(s)", points.len()));
             egui::ScrollArea::vertical()
@@ -327,7 +348,10 @@ pub(crate) fn show_expression_params(
                     }
                 });
         }
-        PlotKind::ArrowAnnotations { arrows, show_labels } => {
+        PlotKind::ArrowAnnotations {
+            arrows,
+            show_labels,
+        } => {
             dirty |= ui.checkbox(show_labels, "Show labels").changed();
             ui.label(format!("{} arrow annotation(s)", arrows.len()));
             egui::ScrollArea::vertical()
