@@ -280,6 +280,12 @@ impl App {
         }
     }
 
+    fn add_plot_modal_is_empty(&self) -> bool {
+        self.add_expr_fields.iter().all(|field| field.trim().is_empty())
+            && self.add_iso_values_text.trim() == "1.0, 2.0, 3.0"
+            && self.add_table_import.raw_text.trim().is_empty()
+    }
+
     fn plot_row_menu(
         &mut self,
         ui: &mut egui::Ui,
@@ -366,7 +372,14 @@ impl App {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 let plot_count = self.documents[self.active_document_idx].plots.len();
+                let selection_key = (
+                    self.active_document_idx,
+                    self.documents[self.active_document_idx].selected_plot,
+                );
+                let should_scroll_to_selection =
+                    self.last_scrolled_plot_selection != Some(selection_key);
                 if plot_count == 0 {
+                    self.last_scrolled_plot_selection = Some(selection_key);
                     ui.add_space(12.0);
                     ui.label(
                         egui::RichText::new("No plots yet. Use + to add one.")
@@ -467,9 +480,13 @@ impl App {
                     row_response.response.context_menu(|ui| {
                         self.plot_row_menu(ui, index, plot_count, &mut pending_action);
                     });
+                    if should_scroll_to_selection && is_selected {
+                        row_response.response.scroll_to_me(None);
+                    }
 
                     ui.add_space(6.0);
                 }
+                self.last_scrolled_plot_selection = Some(selection_key);
 
                 if let Some(index) = apply_rename {
                     let new_name = self.rename_buf.trim().to_string();
@@ -580,6 +597,7 @@ impl App {
 
         let mut open = self.add_plot_open;
         let mut close_after_submit = false;
+        let escape_pressed = ctx.input(|i| i.key_pressed(egui::Key::Escape));
         egui::Window::new("Add Plot")
             .open(&mut open)
             .collapsible(false)
@@ -592,6 +610,9 @@ impl App {
                 });
             });
         if close_after_submit {
+            open = false;
+        }
+        if escape_pressed && self.add_plot_modal_is_empty() {
             open = false;
         }
         self.add_plot_open = open;

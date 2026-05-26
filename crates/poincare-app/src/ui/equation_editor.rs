@@ -39,8 +39,11 @@ pub(crate) struct EquationEditor {
     pub(crate) open: bool,
     pub(crate) target_id: Option<egui::Id>,
     pub(crate) edit_buf: String,
+    pub(crate) original_buf: String,
     pub(crate) selected_tab: usize,
     pub(crate) committed: Option<(egui::Id, String)>,
+    pub(crate) committed_selected_plot: Option<String>,
+    pub(crate) confirm_close: bool,
     pub(crate) focus_input: bool,
     /// When true, show filtered Auto-mode template chips in the dialog.
     pub(crate) show_auto_templates: bool,
@@ -52,8 +55,11 @@ impl Default for EquationEditor {
             open: false,
             target_id: None,
             edit_buf: String::new(),
+            original_buf: String::new(),
             selected_tab: 0,
             committed: None,
+            committed_selected_plot: None,
+            confirm_close: false,
             focus_input: false,
             show_auto_templates: false,
         }
@@ -61,6 +67,10 @@ impl Default for EquationEditor {
 }
 
 impl EquationEditor {
+    pub(crate) fn has_unsaved_changes(&self) -> bool {
+        self.edit_buf != self.original_buf
+    }
+
     /// If a committed expression targets `id`, take and return it.
     pub(crate) fn take_committed_for(&mut self, id: egui::Id) -> Option<String> {
         if matches!(&self.committed, Some((cid, _)) if *cid == id) {
@@ -68,6 +78,10 @@ impl EquationEditor {
         } else {
             None
         }
+    }
+
+    pub(crate) fn take_committed_selected_plot(&mut self) -> Option<String> {
+        self.committed_selected_plot.take()
     }
 }
 
@@ -120,6 +134,8 @@ pub(crate) fn equation_row_ed(
                 eq_ed.open = true;
                 eq_ed.target_id = Some(row_id);
                 eq_ed.edit_buf = buf.clone();
+                eq_ed.original_buf = buf.clone();
+                eq_ed.confirm_close = false;
                 eq_ed.focus_input = true;
                 eq_ed.show_auto_templates = auto_templates;
             }
@@ -230,6 +246,9 @@ pub(crate) fn show_eq_editor_window(ctx: &egui::Context, eq_ed: &mut EquationEdi
     };
 
     let mut open = true;
+    let escape_pressed = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+    let enter_pressed = ctx.input(|i| i.key_pressed(egui::Key::Enter));
+    let mut request_close = false;
     egui::Window::new("Equation Editor")
         .id(egui::Id::new("eq_editor_window"))
         .open(&mut open)
@@ -248,9 +267,7 @@ pub(crate) fn show_eq_editor_window(ctx: &egui::Context, eq_ed: &mut EquationEdi
                     .hint_text("enter expression…"),
             );
             if te_resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                if let Some(target_id) = eq_ed.target_id {
-                    eq_ed.committed = Some((target_id, eq_ed.edit_buf.clone()));
-                }
+                commit_editor(eq_ed);
                 eq_ed.open = false;
             }
             if eq_ed.focus_input {
@@ -429,7 +446,7 @@ pub(crate) fn show_eq_editor_window(ctx: &egui::Context, eq_ed: &mut EquationEdi
                     .add_sized([90.0, 30.0], egui::Button::new("Cancel"))
                     .clicked()
                 {
-                    eq_ed.open = false;
+                    request_close = true;
                 }
                 ui.add_space(6.0);
                 if ui
@@ -439,15 +456,80 @@ pub(crate) fn show_eq_editor_window(ctx: &egui::Context, eq_ed: &mut EquationEdi
                     )
                     .clicked()
                 {
-                    if let Some(target_id) = eq_ed.target_id {
-                        eq_ed.committed = Some((target_id, eq_ed.edit_buf.clone()));
-                    }
+                    commit_editor(eq_ed);
                     eq_ed.open = false;
+                    eq_ed.confirm_close = false;
                 }
             });
         });
 
+    if escape_pressed && !eq_ed.confirm_close {
+        request_close = true;
+    }
     if !open {
-        eq_ed.open = false;
+        request_close = true;
+    }
+    if request_close {
+        if eq_ed.has_unsaved_changes() {
+            eq_ed.confirm_close = true;
+            eq_ed.open = true;
+        } else {
+            eq_ed.open = false;
+            eq_ed.confirm_close = false;
+        }
+    }
+    if eq_ed.confirm_close {
+        let mut discard = false;
+        let mut save = false;
+        let mut cancel = false;
+        egui::Window::new("Discard changes?")
+            .id(egui::Id::new("eq_editor_discard_confirm"))
+            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.label("Discard unsaved changes?");
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    let discard_button = ui.add_sized([90.0, 30.0], egui::Button::new("discard"));
+                    discard_button.request_focus();
+                    if discard_button.clicked() || enter_pressed {
+                        discard = true;
+                    }
+                    if ui
+                        .add_sized([90.0, 30.0], egui::Button::new("save"))
+                        .clicked()
+                    {
+                        save = true;
+                    }
+                    if ui
+                        .add_sized([90.0, 30.0], egui::Button::new("cancel"))
+                        .clicked()
+                        || escape_pressed
+                    {
+                        cancel = true;
+                    }
+                });
+            });
+        if discard {
+            eq_ed.open = false;
+            eq_ed.confirm_close = false;
+            eq_ed.edit_buf = eq_ed.original_buf.clone();
+        } else if save {
+            commit_editor(eq_ed);
+            eq_ed.open = false;
+            eq_ed.confirm_close = false;
+        } else if cancel {
+            eq_ed.confirm_close = false;
+            eq_ed.open = true;
+        }
+    }
+}
+
+fn commit_editor(eq_ed: &mut EquationEditor) {
+    if let Some(target_id) = eq_ed.target_id {
+        eq_ed.committed = Some((target_id, eq_ed.edit_buf.clone()));
+    } else {
+        eq_ed.committed_selected_plot = Some(eq_ed.edit_buf.clone());
     }
 }

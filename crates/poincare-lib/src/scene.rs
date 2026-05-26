@@ -1,10 +1,10 @@
 use glam::Vec3;
 
 use viewport_lib::{
-    AppearanceSettings, AttributeKind, AttributeRef, Camera, ColourmapId, FrameData, GlyphItem,
-    LabelItem, LightKind, LightSource, LightingSettings, Material, MeshId, PickId,
+    AttributeKind, AttributeRef, Camera, ColourmapId, FrameData, GlyphItem, ItemSettings,
+    LabelItem, LicOverlay, LightKind, LightSource, LightingSettings, Material, MeshId, PickId,
     PointCloudItem, PolylineItem, RenderCamera, SceneRenderItem, StreamtubeItem,
-    SurfaceLICConfig, SurfaceLICItem, SurfaceSubmission, ViewportError, ViewportGpuResources,
+    SurfaceLICConfig, SurfaceSubmission, ViewportError, ViewportGpuResources,
     VolumeData, VolumeId, VolumeItem,
 };
 
@@ -190,39 +190,21 @@ impl GraphScene {
                 plot.surfaces.iter().map(move |surface| {
                     let mut item = SceneRenderItem::default();
                     item.mesh_id = surface.mesh_index;
-                    item.selected = is_selected;
+                    item.settings = settings_from_style(&surface.style);
+                    item.settings.selected = is_selected;
+                    item.settings.pick_id = PickId(pick_id);
                     item.material = material_from_style(&surface.style, surface.matcap_id);
-                    item.appearance = appearance_from_style(&surface.style);
                     if surface.style.two_sided {
                         item.material.backface_policy = viewport_lib::BackfacePolicy::Identical;
                     }
                     apply_surface_colour_mode(&mut item, &surface.style, surface.colourmap_id);
-                    item.pick_id = PickId(pick_id);
-                    item
-                })
-            })
-            .collect();
-
-        let lic_items: Vec<SurfaceLICItem> = self
-            .cached_plots
-            .iter()
-            .flat_map(|plot| {
-                plot.surfaces.iter().filter_map(|surface| {
-                    let lic = surface.style.surface_lic.as_ref()?;
-                    let attribute = lic.vector_field.attribute_name();
-                    if !surface
-                        .lic_vector_attributes
-                        .iter()
-                        .any(|name| name == attribute)
-                    {
-                        return None;
+                    if let Some(lic) = &surface.style.surface_lic {
+                        let attribute = lic.vector_field.attribute_name();
+                        if surface.lic_vector_attributes.iter().any(|n| n == attribute) {
+                            item.lic = Some(LicOverlay::new(attribute, surface_lic_config(lic)));
+                        }
                     }
-                    Some(SurfaceLICItem::new(
-                        surface.mesh_index,
-                        attribute,
-                        glam::Mat4::IDENTITY.to_cols_array_2d(),
-                        surface_lic_config(lic),
-                    ))
+                    item
                 })
             })
             .collect();
@@ -239,13 +221,13 @@ impl GraphScene {
                         return None;
                     }
                     let mut item = PolylineItem::default();
-                    item.id = pick_id;
-                    item.selected = is_selected;
+                    item.settings = settings_from_style(&polyline.style);
+                    item.settings.pick_id = PickId(pick_id);
+                    item.settings.selected = is_selected;
                     item.positions = polyline.positions.iter().map(|p| p.to_array()).collect();
                     item.strip_lengths = polyline.strip_lengths.clone();
                     item.default_colour = default_colour_rgba(&polyline.style);
                     item.line_width = polyline.style.line_width;
-                    item.appearance = appearance_from_style(&polyline.style);
                     apply_polyline_colour_mode(
                         &mut item,
                         &polyline.style,
@@ -270,12 +252,12 @@ impl GraphScene {
                         return None;
                     }
                     let mut item = PointCloudItem::default();
-                    item.id = pick_id;
-                    item.selected = is_selected;
+                    item.settings = settings_from_style(&points.style);
+                    item.settings.pick_id = PickId(pick_id);
+                    item.settings.selected = is_selected;
                     item.positions = points.positions.iter().map(|p| p.to_array()).collect();
                     item.point_size = points.style.point_size;
                     item.default_colour = default_colour_rgba(&points.style);
-                    item.appearance = appearance_from_style(&points.style);
                     apply_point_colour_mode(
                         &mut item,
                         &points.style,
@@ -300,8 +282,9 @@ impl GraphScene {
                         return None;
                     }
                     let mut item = GlyphItem::default();
-                    item.id = pick_id;
-                    item.selected = is_selected;
+                    item.settings = settings_from_style(&glyphs.style);
+                    item.settings.pick_id = PickId(pick_id);
+                    item.settings.selected = is_selected;
                     item.positions = glyphs
                         .instances
                         .iter()
@@ -318,8 +301,7 @@ impl GraphScene {
                     item.default_colour = default_colour_rgba(&glyphs.style);
                     item.use_default_colour =
                         matches!(glyphs.style.colour_mode, ColourMode::Solid(_));
-                    item.appearance = appearance_from_style(&glyphs.style);
-                    item.appearance.unlit = true;
+                    item.settings.unlit = true;
                     apply_glyph_colour_mode(
                         &mut item,
                         &glyphs.style,
@@ -344,13 +326,13 @@ impl GraphScene {
                         return None;
                     }
                     let mut item = StreamtubeItem::default();
-                    item.id = pick_id;
-                    item.selected = is_selected;
+                    item.settings = settings_from_style(&st.style);
+                    item.settings.pick_id = PickId(pick_id);
+                    item.settings.selected = is_selected;
                     item.positions = st.positions.iter().map(|p| p.to_array()).collect();
                     item.strip_lengths = st.strip_lengths.clone();
                     item.radius = st.radius;
                     item.colour = default_colour_rgba(&st.style);
-                    item.appearance = appearance_from_style(&st.style);
                     Some(item)
                 })
             })
@@ -378,9 +360,7 @@ impl GraphScene {
 
                     let mut item = VolumeItem::default();
                     item.volume_id = vol.volume_id;
-                    item.pick_id = pick_id;
                     item.volume_data = Some(vol.volume_data.clone());
-                    item.selected = is_selected;
                     item.bbox_min = vol.origin;
                     item.bbox_max = bbox_max;
                     item.scalar_range = vol.scalar_range;
@@ -388,7 +368,9 @@ impl GraphScene {
                     item.threshold_min = threshold_min;
                     item.threshold_max = threshold_max;
                     item.enable_shading = true;
-                    item.appearance = appearance_from_style(&vol.style);
+                    item.settings = settings_from_style(&vol.style);
+                    item.settings.pick_id = PickId(pick_id);
+                    item.settings.selected = is_selected;
                     item
                 })
             })
@@ -432,7 +414,7 @@ impl GraphScene {
         );
         let ticks_per_axis = [tick_x, tick_y, tick_z];
 
-        let lic_active = !lic_items.is_empty();
+        let lic_active = scene_items.iter().any(|i| i.lic.is_some());
         if !lic_active {
             let mut axis_polylines = axis::build_axis_polyline_projected(
                 &axis_domain,
@@ -463,11 +445,10 @@ impl GraphScene {
         let mut frame = FrameData::default();
         frame.camera.render_camera = RenderCamera::from_camera(camera);
         frame.effects.lighting = hemisphere_lighting();
-        if !lic_items.is_empty() {
+        if lic_active {
             frame.effects.post_process.enabled = true;
         }
         frame.scene.surfaces = SurfaceSubmission::Flat(scene_items.into());
-        frame.scene.lic_items = lic_items;
         frame.scene.polylines = polylines;
         frame.scene.point_clouds = point_clouds;
         frame.scene.glyphs = glyphs;
@@ -676,11 +657,11 @@ fn material_from_style(style: &PlotStyle, matcap_id: Option<viewport_lib::Matcap
     material
 }
 
-fn appearance_from_style(style: &PlotStyle) -> AppearanceSettings {
-    let mut appearance = AppearanceSettings::default();
-    appearance.opacity = style.opacity.clamp(0.0, 1.0);
-    appearance.unlit = matches!(style.shading, ShadingMode::Unlit);
-    appearance
+fn settings_from_style(style: &PlotStyle) -> ItemSettings {
+    let mut settings = ItemSettings::default();
+    settings.opacity = style.opacity.clamp(0.0, 1.0);
+    settings.unlit = matches!(style.shading, ShadingMode::Unlit);
+    settings
 }
 
 fn surface_lic_config(settings: &SurfaceLicSettings) -> SurfaceLICConfig {

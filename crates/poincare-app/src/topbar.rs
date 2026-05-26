@@ -584,6 +584,10 @@ impl App {
                         ("Cmd/Ctrl+K", "Open command palette"),
                         ("Cmd/Ctrl+Z", "Undo"),
                         ("Cmd/Ctrl+Shift+Z", "Redo"),
+                        ("E", "Edit selected plot"),
+                        ("V", "Toggle selected plot visibility"),
+                        ("J", "Select next plot"),
+                        ("K", "Select previous plot"),
                     ],
                 );
                 ui.separator();

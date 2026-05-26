@@ -13,6 +13,7 @@ use crate::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AnalysisKind {
     InterpolateCurve,
+    FitCurve,
     DifferentiateCurve,
     AxisDerivativeCurve,
     IntegralCurve,
@@ -183,6 +184,7 @@ pub fn run_analysis(plot: &PlotSpec, request: &AnalysisRequest) -> Result<Analys
         AnalysisKind::DivergenceField => vec![make_divergence_plot(plot)?],
         AnalysisKind::CurlField => vec![make_curl_plot(plot)?],
         AnalysisKind::DifferentiateCurve => vec![make_curve_derivative_plot(plot)?],
+        AnalysisKind::FitCurve => return make_curve_fit_output(plot, build_curve_fit_options(&params)),
         AnalysisKind::AxisDerivativeCurve => vec![make_axis_derivative_plot(
             plot,
             parse_axis_index(params.get("numerator_axis").map(String::as_str)).unwrap_or(1),
@@ -226,6 +228,21 @@ fn capabilities_for_metadata(metadata: &PlotMetadata) -> Vec<AnalysisCapability>
                     "samples_per_segment",
                     "closed",
                     "smoothing_window",
+                ],
+            },
+            AnalysisCapability {
+                kind: AnalysisKind::FitCurve,
+                target_kind: AnalysisTargetKind::SampledData,
+                output_kind: AnalysisOutputKind::Composite,
+                parameters: vec![
+                    "fit_method",
+                    "output_name",
+                    "degree",
+                    "harmonics",
+                    "smoothing_window",
+                    "samples_per_segment",
+                    "show_control_points",
+                    "show_residual_plot",
                 ],
             },
             AnalysisCapability {
@@ -936,6 +953,216 @@ fn curve_sample_groups(plot: &PlotSpec) -> Result<Vec<Vec<[f32; 3]>>, AnalysisEr
     }
 }
 
+fn fit_curve_group(
+    source: &PlotSpec,
+    group: &[[f32; 3]],
+    options: &CurveFitOptions,
+) -> Result<CurveFitResult, AnalysisError> {
+    match &source.definition {
+        crate::PlotDefinition::ExprCartesianLine {
+            dep_var, ind_var, ..
+        } => fit_cartesian_line_group(group, dep_var.as_str(), ind_var.as_str(), options),
+        _ => fit_parametric_curve_group(group, options),
+    }
+}
+
+fn fit_cartesian_line_group(
+    group: &[[f32; 3]],
+    dep_var: &str,
+    ind_var: &str,
+    options: &CurveFitOptions,
+) -> Result<CurveFitResult, AnalysisError> {
+    if group.len() < 2 {
+        return Err(AnalysisError::invalid("Need at least two points to fit a curve."));
+    }
+    let xs: Vec<f64> = group
+        .iter()
+        .filter_map(|point| cartesian_axis_value(Vec3::from_array(*point), ind_var).map(|v| v as f64))
+        .collect();
+    let ys: Vec<f64> = group
+        .iter()
+        .filter_map(|point| cartesian_axis_value(Vec3::from_array(*point), dep_var).map(|v| v as f64))
+        .collect();
+    if xs.len() != group.len() || ys.len() != group.len() {
+        return Err(AnalysisError::invalid("Could not read curve axes for fitting."));
+    }
+    let evaluation_count = resampled_point_count(group.len(), options.samples_per_segment);
+    let x_eval = evenly_spaced_range(*xs.first().unwrap(), *xs.last().unwrap(), evaluation_count);
+
+    match options.method {
+        CurveFitMethod::Polynomial => {
+            let fit = polynomial_fit(&xs, &ys, options.degree, None)?;
+            let fitted_group = x_eval
+                .iter()
+                .map(|x| cartesian_line_point(dep_var, ind_var, *x as f32, fit.evaluate(*x) as f32).to_array())
+                .collect();
+            let residual_values = xs
+                .iter()
+                .zip(&ys)
+                .map(|(x, y)| (fit.evaluate(*x) - *y) as f32)
+                .collect();
+            Ok(CurveFitResult {
+                fitted_group,
+                residual_values,
+            })
+        }
+        CurveFitMethod::RobustPolynomial => {
+            let fit = robust_polynomial_fit_scalar(&xs, &ys, options.degree)?;
+            let fitted_group = x_eval
+                .iter()
+                .map(|x| cartesian_line_point(dep_var, ind_var, *x as f32, fit.evaluate(*x) as f32).to_array())
+                .collect();
+            let residual_values = xs
+                .iter()
+                .zip(&ys)
+                .map(|(x, y)| (fit.evaluate(*x) - *y) as f32)
+                .collect();
+            Ok(CurveFitResult {
+                fitted_group,
+                residual_values,
+            })
+        }
+        CurveFitMethod::Fourier => {
+            let fit = fourier_fit(&xs, &ys, options.harmonics)?;
+            let fitted_group = x_eval
+                .iter()
+                .map(|x| cartesian_line_point(dep_var, ind_var, *x as f32, fit.evaluate(*x) as f32).to_array())
+                .collect();
+            let residual_values = xs
+                .iter()
+                .zip(&ys)
+                .map(|(x, y)| (fit.evaluate(*x) - *y) as f32)
+                .collect();
+            Ok(CurveFitResult {
+                fitted_group,
+                residual_values,
+            })
+        }
+        CurveFitMethod::Spline => {
+            let smoothed = smooth_scalar_values(&ys, options.smoothing_window);
+            let control_points: Vec<[f32; 3]> = xs
+                .iter()
+                .zip(smoothed.iter())
+                .map(|(x, y)| cartesian_line_point(dep_var, ind_var, *x as f32, *y as f32).to_array())
+                .collect();
+            let fitted_group = sample_curve_points(
+                &control_points
+                    .iter()
+                    .map(|point| Vec3::from_array(*point))
+                    .collect::<Vec<_>>(),
+                CurveInterpolation {
+                    kind: CurveInterpolationKind::CentripetalCatmullRom,
+                    samples_per_segment: options.samples_per_segment,
+                    closed: false,
+                    smoothing_window: options.smoothing_window,
+                },
+            )
+            .into_iter()
+            .map(|point| point.to_array())
+            .collect();
+            let residual_values = ys
+                .iter()
+                .zip(smoothed.iter())
+                .map(|(observed, fitted)| (*fitted - *observed) as f32)
+                .collect();
+            Ok(CurveFitResult {
+                fitted_group,
+                residual_values,
+            })
+        }
+    }
+}
+
+fn fit_parametric_curve_group(
+    group: &[[f32; 3]],
+    options: &CurveFitOptions,
+) -> Result<CurveFitResult, AnalysisError> {
+    if group.len() < 2 {
+        return Err(AnalysisError::invalid("Need at least two points to fit a curve."));
+    }
+    let ts = evenly_spaced_parameter_values(group.len());
+    let evaluation_ts = evenly_spaced_parameter_values(resampled_point_count(
+        group.len(),
+        options.samples_per_segment,
+    ));
+    let positions: Vec<Vec3> = group.iter().map(|point| Vec3::from_array(*point)).collect();
+
+    match options.method {
+        CurveFitMethod::Polynomial => {
+            let fit = polynomial_fit_vector(&ts, &positions, options.degree, None)?;
+            let fitted_group = evaluation_ts
+                .iter()
+                .map(|t| fit.evaluate(*t).to_array())
+                .collect();
+            let residual_values = ts
+                .iter()
+                .zip(positions.iter())
+                .map(|(t, observed)| fit.evaluate(*t).distance(*observed))
+                .collect();
+            Ok(CurveFitResult {
+                fitted_group,
+                residual_values,
+            })
+        }
+        CurveFitMethod::RobustPolynomial => {
+            let fit = robust_polynomial_fit_vector(&ts, &positions, options.degree)?;
+            let fitted_group = evaluation_ts
+                .iter()
+                .map(|t| fit.evaluate(*t).to_array())
+                .collect();
+            let residual_values = ts
+                .iter()
+                .zip(positions.iter())
+                .map(|(t, observed)| fit.evaluate(*t).distance(*observed))
+                .collect();
+            Ok(CurveFitResult {
+                fitted_group,
+                residual_values,
+            })
+        }
+        CurveFitMethod::Fourier => {
+            let fit = fourier_fit_vector(&ts, &positions, options.harmonics)?;
+            let fitted_group = evaluation_ts
+                .iter()
+                .map(|t| fit.evaluate(*t).to_array())
+                .collect();
+            let residual_values = ts
+                .iter()
+                .zip(positions.iter())
+                .map(|(t, observed)| fit.evaluate(*t).distance(*observed))
+                .collect();
+            Ok(CurveFitResult {
+                fitted_group,
+                residual_values,
+            })
+        }
+        CurveFitMethod::Spline => {
+            let smoothed = smooth_vec3_values(&positions, options.smoothing_window);
+            let fitted_group = sample_curve_points(
+                &smoothed,
+                CurveInterpolation {
+                    kind: CurveInterpolationKind::CentripetalCatmullRom,
+                    samples_per_segment: options.samples_per_segment,
+                    closed: false,
+                    smoothing_window: options.smoothing_window,
+                },
+            )
+            .into_iter()
+            .map(|point| point.to_array())
+            .collect();
+            let residual_values = positions
+                .iter()
+                .zip(smoothed.iter())
+                .map(|(observed, fitted)| fitted.distance(*observed))
+                .collect();
+            Ok(CurveFitResult {
+                fitted_group,
+                residual_values,
+            })
+        }
+    }
+}
+
 fn derived_polyline_plot(
     source: &PlotSpec,
     name: String,
@@ -961,8 +1188,241 @@ fn derived_polyline_plot(
     })
 }
 
+fn make_curve_fit_output(
+    source: &PlotSpec,
+    options: CurveFitOptions,
+) -> Result<AnalysisOutput, AnalysisError> {
+    let groups = curve_sample_groups(source)?;
+    if groups.is_empty() || groups.iter().all(|group| group.len() < 2) {
+        return Err(AnalysisError::invalid(
+            "Curve fitting requires at least one sampled curve with two or more points.",
+        ));
+    }
+
+    let mut fitted_groups = Vec::new();
+    let mut residual_groups = Vec::new();
+    let mut control_points = Vec::new();
+    let mut residual_samples = Vec::new();
+    let mut total_points = 0usize;
+
+    for group in &groups {
+        if group.len() < 2 {
+            continue;
+        }
+        total_points += group.len();
+        control_points.extend(group.iter().copied());
+        let fit = fit_curve_group(source, group, &options)?;
+        if fit.fitted_group.len() >= 2 {
+            fitted_groups.push(fit.fitted_group);
+        }
+        if fit.residual_values.len() >= 2 {
+            let residual_group = match &source.definition {
+                crate::PlotDefinition::ExprCartesianLine {
+                    dep_var, ind_var, ..
+                } => scalar_plot_cartesian_line_group(
+                    group,
+                    dep_var.as_str(),
+                    ind_var.as_str(),
+                    &fit.residual_values,
+                ),
+                _ => scalar_curve_group(group, &fit.residual_values),
+            };
+            if residual_group.len() >= 2 {
+                residual_groups.push(residual_group);
+            }
+        }
+        residual_samples.extend(fit.residual_values.iter().map(|value| value.abs()));
+    }
+
+    if fitted_groups.is_empty() {
+        return Err(AnalysisError::invalid(
+            "Curve fitting could not produce a fitted curve from the selected source.",
+        ));
+    }
+
+    let mut plots = vec![PlotSpec {
+        name: options
+            .output_name
+            .clone()
+            .unwrap_or_else(|| format!("{} {}", curve_fit_method_label(options.method), source.name)),
+        visible: true,
+        domain: source.domain.clone(),
+        resolution: source.resolution,
+        style: PlotStyle {
+            colour_mode: ColourMode::Solid([1.0, 0.72, 0.25, 1.0]),
+            line_width: 2.5,
+            ..PlotStyle::default()
+        },
+        definition: crate::PlotDefinition::DerivedPolylineGroups {
+            groups: fitted_groups,
+        },
+    }];
+
+    if options.show_control_points && !control_points.is_empty() {
+        plots.push(PlotSpec {
+            name: format!("Control Points {}", source.name),
+            visible: true,
+            domain: source.domain.clone(),
+            resolution: source.resolution,
+            style: PlotStyle {
+                colour_mode: ColourMode::Solid([0.35, 0.85, 1.0, 1.0]),
+                point_size: 7.0,
+                ..PlotStyle::default()
+            },
+            definition: crate::PlotDefinition::PointAnnotations {
+                points: control_points
+                    .iter()
+                    .enumerate()
+                    .map(|(index, position)| PointAnnotation {
+                        position: *position,
+                        label: format!("Control {}", index + 1),
+                    })
+                    .collect(),
+                show_labels: false,
+            },
+        });
+    }
+
+    if options.show_residual_plot && !residual_groups.is_empty() {
+        plots.push(PlotSpec {
+            name: format!("Residuals {}", source.name),
+            visible: true,
+            domain: source.domain.clone(),
+            resolution: source.resolution,
+            style: PlotStyle {
+                colour_mode: ColourMode::Solid([1.0, 0.35, 0.35, 1.0]),
+                line_width: 2.0,
+                ..PlotStyle::default()
+            },
+            definition: crate::PlotDefinition::DerivedPolylineGroups {
+                groups: residual_groups,
+            },
+        });
+    }
+
+    let rms = if residual_samples.is_empty() {
+        0.0
+    } else {
+        (residual_samples.iter().map(|value| value * value).sum::<f32>() / residual_samples.len() as f32)
+            .sqrt()
+    };
+    let max_residual = residual_samples
+        .iter()
+        .copied()
+        .fold(0.0_f32, f32::max);
+
+    let mut report_values = vec![
+        ("Method".to_string(), curve_fit_method_label(options.method).to_string()),
+        ("Samples".to_string(), total_points.to_string()),
+        ("RMS Residual".to_string(), format!("{rms:.6}")),
+        ("Max Residual".to_string(), format!("{max_residual:.6}")),
+    ];
+    match options.method {
+        CurveFitMethod::Polynomial | CurveFitMethod::RobustPolynomial => {
+            report_values.push(("Degree".to_string(), options.degree.to_string()));
+        }
+        CurveFitMethod::Fourier => {
+            report_values.push(("Harmonics".to_string(), options.harmonics.to_string()));
+        }
+        CurveFitMethod::Spline => {
+            report_values.push((
+                "Smoothing Window".to_string(),
+                options.smoothing_window.to_string(),
+            ));
+        }
+    }
+
+    Ok(AnalysisOutput::Composite {
+        plots,
+        reports: vec![AnalysisReport {
+            title: format!("Curve Fit {}", source.name),
+            values: report_values,
+        }],
+        tables: Vec::new(),
+        diagnostics: Vec::new(),
+        provenance: AnalysisProvenance {
+            kind: AnalysisKind::FitCurve,
+            source_plots: vec![source.name.clone()],
+            parameters: vec![
+                ("fit_method".to_string(), curve_fit_method_key(options.method).to_string()),
+                ("degree".to_string(), options.degree.to_string()),
+                ("harmonics".to_string(), options.harmonics.to_string()),
+                ("smoothing_window".to_string(), options.smoothing_window.to_string()),
+                (
+                    "samples_per_segment".to_string(),
+                    options.samples_per_segment.to_string(),
+                ),
+            ],
+            notes: vec![
+                "Derived output includes a fitted curve plus optional control-point preview and residual plot.".to_string(),
+            ],
+        },
+    })
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CurveFitMethod {
+    Polynomial,
+    RobustPolynomial,
+    Spline,
+    Fourier,
+}
+
+#[derive(Clone, Debug)]
+struct CurveFitOptions {
+    method: CurveFitMethod,
+    output_name: Option<String>,
+    degree: usize,
+    harmonics: usize,
+    smoothing_window: u32,
+    samples_per_segment: u32,
+    show_control_points: bool,
+    show_residual_plot: bool,
+}
+
+#[derive(Clone, Debug)]
+struct CurveFitResult {
+    fitted_group: Vec<[f32; 3]>,
+    residual_values: Vec<f32>,
+}
+
 fn parameter_map(parameters: &[(String, String)]) -> HashMap<String, String> {
     parameters.iter().cloned().collect()
+}
+
+fn build_curve_fit_options(params: &HashMap<String, String>) -> CurveFitOptions {
+    CurveFitOptions {
+        method: parse_curve_fit_method(params.get("fit_method").map(String::as_str))
+            .unwrap_or(CurveFitMethod::Polynomial),
+        output_name: params.get("output_name").cloned(),
+        degree: params
+            .get("degree")
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(5)
+            .clamp(1, 12),
+        harmonics: params
+            .get("harmonics")
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(3)
+            .clamp(1, 16),
+        smoothing_window: normalized_window_value(
+            params
+                .get("smoothing_window")
+                .and_then(|value| value.parse::<u32>().ok())
+                .unwrap_or(7),
+        ),
+        samples_per_segment: params
+            .get("samples_per_segment")
+            .and_then(|value| value.parse::<u32>().ok())
+            .unwrap_or(8)
+            .clamp(1, 64),
+        show_control_points: params
+            .get("show_control_points")
+            .is_none_or(|value| matches!(value.as_str(), "1" | "true" | "yes")),
+        show_residual_plot: params
+            .get("show_residual_plot")
+            .is_none_or(|value| matches!(value.as_str(), "1" | "true" | "yes")),
+    }
 }
 
 fn build_interpolation(params: &HashMap<String, String>) -> CurveInterpolation {
@@ -983,6 +1443,413 @@ fn build_interpolation(params: &HashMap<String, String>) -> CurveInterpolation {
                 .unwrap_or(5),
         ),
     }
+}
+
+fn parse_curve_fit_method(value: Option<&str>) -> Option<CurveFitMethod> {
+    match value? {
+        "polynomial" => Some(CurveFitMethod::Polynomial),
+        "robust_polynomial" => Some(CurveFitMethod::RobustPolynomial),
+        "spline" => Some(CurveFitMethod::Spline),
+        "fourier" => Some(CurveFitMethod::Fourier),
+        _ => None,
+    }
+}
+
+fn curve_fit_method_label(method: CurveFitMethod) -> &'static str {
+    match method {
+        CurveFitMethod::Polynomial => "Fit (Polynomial)",
+        CurveFitMethod::RobustPolynomial => "Fit (Robust Polynomial)",
+        CurveFitMethod::Spline => "Fit (Spline / Smoothed Catmull-Rom)",
+        CurveFitMethod::Fourier => "Fit (Fourier Series)",
+    }
+}
+
+fn curve_fit_method_key(method: CurveFitMethod) -> &'static str {
+    match method {
+        CurveFitMethod::Polynomial => "polynomial",
+        CurveFitMethod::RobustPolynomial => "robust_polynomial",
+        CurveFitMethod::Spline => "spline",
+        CurveFitMethod::Fourier => "fourier",
+    }
+}
+
+#[derive(Clone, Debug)]
+struct PolynomialFit {
+    coeffs: Vec<f64>,
+    x_min: f64,
+    x_max: f64,
+}
+
+impl PolynomialFit {
+    fn evaluate(&self, x: f64) -> f64 {
+        evaluate_polynomial(&self.coeffs, normalize_domain_value(x, self.x_min, self.x_max))
+    }
+}
+
+#[derive(Clone, Debug)]
+struct PolynomialVectorFit {
+    x: PolynomialFit,
+    y: PolynomialFit,
+    z: PolynomialFit,
+}
+
+impl PolynomialVectorFit {
+    fn evaluate(&self, t: f64) -> Vec3 {
+        Vec3::new(
+            self.x.evaluate(t) as f32,
+            self.y.evaluate(t) as f32,
+            self.z.evaluate(t) as f32,
+        )
+    }
+}
+
+#[derive(Clone, Debug)]
+struct FourierFit {
+    constant: f64,
+    cos_coeffs: Vec<f64>,
+    sin_coeffs: Vec<f64>,
+    x_min: f64,
+    x_max: f64,
+}
+
+impl FourierFit {
+    fn evaluate(&self, x: f64) -> f64 {
+        let theta = normalized_angle(x, self.x_min, self.x_max);
+        let mut value = self.constant;
+        for (index, (cos_coeff, sin_coeff)) in self
+            .cos_coeffs
+            .iter()
+            .zip(self.sin_coeffs.iter())
+            .enumerate()
+        {
+            let k = index as f64 + 1.0;
+            value += *cos_coeff * (k * theta).cos() + *sin_coeff * (k * theta).sin();
+        }
+        value
+    }
+}
+
+#[derive(Clone, Debug)]
+struct FourierVectorFit {
+    x: FourierFit,
+    y: FourierFit,
+    z: FourierFit,
+}
+
+impl FourierVectorFit {
+    fn evaluate(&self, t: f64) -> Vec3 {
+        Vec3::new(
+            self.x.evaluate(t) as f32,
+            self.y.evaluate(t) as f32,
+            self.z.evaluate(t) as f32,
+        )
+    }
+}
+
+fn polynomial_fit(
+    xs: &[f64],
+    ys: &[f64],
+    degree: usize,
+    weights: Option<&[f64]>,
+) -> Result<PolynomialFit, AnalysisError> {
+    let x_min = *xs.first().ok_or_else(|| AnalysisError::invalid("No samples for fit."))?;
+    let x_max = *xs.last().ok_or_else(|| AnalysisError::invalid("No samples for fit."))?;
+    let normalized: Vec<f64> = xs
+        .iter()
+        .map(|x| normalize_domain_value(*x, x_min, x_max))
+        .collect();
+    let coeffs = weighted_polynomial_coefficients(&normalized, ys, degree, weights)?;
+    Ok(PolynomialFit {
+        coeffs,
+        x_min,
+        x_max,
+    })
+}
+
+fn robust_polynomial_fit_scalar(
+    xs: &[f64],
+    ys: &[f64],
+    degree: usize,
+) -> Result<PolynomialFit, AnalysisError> {
+    let mut weights = vec![1.0_f64; xs.len()];
+    let mut fit = polynomial_fit(xs, ys, degree, Some(&weights))?;
+    for _ in 0..5 {
+        let residuals: Vec<f64> = xs
+            .iter()
+            .zip(ys.iter())
+            .map(|(x, y)| (fit.evaluate(*x) - *y).abs())
+            .collect();
+        weights = huber_weights(&residuals);
+        fit = polynomial_fit(xs, ys, degree, Some(&weights))?;
+    }
+    Ok(fit)
+}
+
+fn polynomial_fit_vector(
+    ts: &[f64],
+    positions: &[Vec3],
+    degree: usize,
+    weights: Option<&[f64]>,
+) -> Result<PolynomialVectorFit, AnalysisError> {
+    let xs: Vec<f64> = positions.iter().map(|position| position.x as f64).collect();
+    let ys: Vec<f64> = positions.iter().map(|position| position.y as f64).collect();
+    let zs: Vec<f64> = positions.iter().map(|position| position.z as f64).collect();
+    Ok(PolynomialVectorFit {
+        x: polynomial_fit(ts, &xs, degree, weights)?,
+        y: polynomial_fit(ts, &ys, degree, weights)?,
+        z: polynomial_fit(ts, &zs, degree, weights)?,
+    })
+}
+
+fn robust_polynomial_fit_vector(
+    ts: &[f64],
+    positions: &[Vec3],
+    degree: usize,
+) -> Result<PolynomialVectorFit, AnalysisError> {
+    let mut weights = vec![1.0_f64; ts.len()];
+    let mut fit = polynomial_fit_vector(ts, positions, degree, Some(&weights))?;
+    for _ in 0..5 {
+        let residuals: Vec<f64> = ts
+            .iter()
+            .zip(positions.iter())
+            .map(|(t, position)| fit.evaluate(*t).distance(*position) as f64)
+            .collect();
+        weights = huber_weights(&residuals);
+        fit = polynomial_fit_vector(ts, positions, degree, Some(&weights))?;
+    }
+    Ok(fit)
+}
+
+fn fourier_fit(xs: &[f64], ys: &[f64], harmonics: usize) -> Result<FourierFit, AnalysisError> {
+    let x_min = *xs.first().ok_or_else(|| AnalysisError::invalid("No samples for fit."))?;
+    let x_max = *xs.last().ok_or_else(|| AnalysisError::invalid("No samples for fit."))?;
+    let design = xs
+        .iter()
+        .map(|x| fourier_basis(normalized_angle(*x, x_min, x_max), harmonics))
+        .collect::<Vec<_>>();
+    let coeffs = linear_least_squares(&design, ys, None)?;
+    Ok(FourierFit {
+        constant: coeffs[0],
+        cos_coeffs: (0..harmonics).map(|index| coeffs[1 + index * 2]).collect(),
+        sin_coeffs: (0..harmonics).map(|index| coeffs[2 + index * 2]).collect(),
+        x_min,
+        x_max,
+    })
+}
+
+fn fourier_fit_vector(
+    ts: &[f64],
+    positions: &[Vec3],
+    harmonics: usize,
+) -> Result<FourierVectorFit, AnalysisError> {
+    let xs: Vec<f64> = positions.iter().map(|position| position.x as f64).collect();
+    let ys: Vec<f64> = positions.iter().map(|position| position.y as f64).collect();
+    let zs: Vec<f64> = positions.iter().map(|position| position.z as f64).collect();
+    Ok(FourierVectorFit {
+        x: fourier_fit(ts, &xs, harmonics)?,
+        y: fourier_fit(ts, &ys, harmonics)?,
+        z: fourier_fit(ts, &zs, harmonics)?,
+    })
+}
+
+fn weighted_polynomial_coefficients(
+    xs: &[f64],
+    ys: &[f64],
+    degree: usize,
+    weights: Option<&[f64]>,
+) -> Result<Vec<f64>, AnalysisError> {
+    let design = xs
+        .iter()
+        .map(|x| polynomial_basis(*x, degree))
+        .collect::<Vec<_>>();
+    linear_least_squares(&design, ys, weights)
+}
+
+fn linear_least_squares(
+    design: &[Vec<f64>],
+    ys: &[f64],
+    weights: Option<&[f64]>,
+) -> Result<Vec<f64>, AnalysisError> {
+    if design.is_empty() || ys.is_empty() || design.len() != ys.len() {
+        return Err(AnalysisError::invalid("Invalid least-squares system."));
+    }
+    let cols = design[0].len();
+    let mut ata = vec![vec![0.0_f64; cols]; cols];
+    let mut atb = vec![0.0_f64; cols];
+    for (row_index, row) in design.iter().enumerate() {
+        let weight = weights
+            .and_then(|values| values.get(row_index).copied())
+            .unwrap_or(1.0)
+            .max(1.0e-8);
+        for i in 0..cols {
+            atb[i] += weight * row[i] * ys[row_index];
+            for j in 0..cols {
+                ata[i][j] += weight * row[i] * row[j];
+            }
+        }
+    }
+    solve_linear_system(ata, atb)
+}
+
+fn solve_linear_system(
+    mut matrix: Vec<Vec<f64>>,
+    mut rhs: Vec<f64>,
+) -> Result<Vec<f64>, AnalysisError> {
+    let size = rhs.len();
+    for pivot in 0..size {
+        let mut best_row = pivot;
+        let mut best_value = matrix[pivot][pivot].abs();
+        for row in (pivot + 1)..size {
+            let value = matrix[row][pivot].abs();
+            if value > best_value {
+                best_value = value;
+                best_row = row;
+            }
+        }
+        if best_value <= 1.0e-10 {
+            return Err(AnalysisError::invalid(
+                "Curve fit is ill-conditioned for the selected method and parameters.",
+            ));
+        }
+        if best_row != pivot {
+            matrix.swap(pivot, best_row);
+            rhs.swap(pivot, best_row);
+        }
+        let scale = matrix[pivot][pivot];
+        for col in pivot..size {
+            matrix[pivot][col] /= scale;
+        }
+        rhs[pivot] /= scale;
+        for row in 0..size {
+            if row == pivot {
+                continue;
+            }
+            let factor = matrix[row][pivot];
+            if factor.abs() <= 1.0e-12 {
+                continue;
+            }
+            for col in pivot..size {
+                matrix[row][col] -= factor * matrix[pivot][col];
+            }
+            rhs[row] -= factor * rhs[pivot];
+        }
+    }
+    Ok(rhs)
+}
+
+fn polynomial_basis(x: f64, degree: usize) -> Vec<f64> {
+    let mut basis = vec![1.0_f64; degree + 1];
+    for index in 1..=degree {
+        basis[index] = basis[index - 1] * x;
+    }
+    basis
+}
+
+fn fourier_basis(theta: f64, harmonics: usize) -> Vec<f64> {
+    let mut basis = Vec::with_capacity(1 + harmonics * 2);
+    basis.push(1.0);
+    for harmonic in 1..=harmonics {
+        let angle = theta * harmonic as f64;
+        basis.push(angle.cos());
+        basis.push(angle.sin());
+    }
+    basis
+}
+
+fn normalize_domain_value(x: f64, x_min: f64, x_max: f64) -> f64 {
+    let range = (x_max - x_min).abs();
+    if range <= f64::EPSILON {
+        0.0
+    } else {
+        ((x - x_min) / range) * 2.0 - 1.0
+    }
+}
+
+fn normalized_angle(x: f64, x_min: f64, x_max: f64) -> f64 {
+    let range = (x_max - x_min).abs();
+    if range <= f64::EPSILON {
+        0.0
+    } else {
+        ((x - x_min) / range) * 2.0 * PI
+    }
+}
+
+fn evaluate_polynomial(coeffs: &[f64], x: f64) -> f64 {
+    coeffs.iter().rev().fold(0.0, |acc, coeff| acc * x + coeff)
+}
+
+fn huber_weights(residuals: &[f64]) -> Vec<f64> {
+    let scale = residual_scale(residuals).max(1.0e-6);
+    residuals
+        .iter()
+        .map(|residual| {
+            let normalized = residual.abs() / (1.5 * scale);
+            if normalized <= 1.0 {
+                1.0
+            } else {
+                1.0 / normalized
+            }
+        })
+        .collect()
+}
+
+fn residual_scale(residuals: &[f64]) -> f64 {
+    if residuals.is_empty() {
+        return 1.0;
+    }
+    let mut sorted = residuals.iter().map(|value| value.abs()).collect::<Vec<_>>();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    sorted[sorted.len() / 2]
+}
+
+fn smooth_scalar_values(values: &[f64], smoothing_window: u32) -> Vec<f64> {
+    let radius = normalized_window_value(smoothing_window) as isize / 2;
+    (0..values.len())
+        .map(|index| {
+            let mut total = 0.0_f64;
+            let mut count = 0.0_f64;
+            for offset in -radius..=radius {
+                let sample_index = (index as isize + offset).clamp(0, values.len() as isize - 1) as usize;
+                total += values[sample_index];
+                count += 1.0;
+            }
+            total / count
+        })
+        .collect()
+}
+
+fn smooth_vec3_values(values: &[Vec3], smoothing_window: u32) -> Vec<Vec3> {
+    let radius = normalized_window_value(smoothing_window) as isize / 2;
+    (0..values.len())
+        .map(|index| {
+            let mut total = Vec3::ZERO;
+            let mut count = 0.0_f32;
+            for offset in -radius..=radius {
+                let sample_index = (index as isize + offset).clamp(0, values.len() as isize - 1) as usize;
+                total += values[sample_index];
+                count += 1.0;
+            }
+            total / count
+        })
+        .collect()
+}
+
+fn resampled_point_count(control_point_count: usize, samples_per_segment: u32) -> usize {
+    let segments = control_point_count.saturating_sub(1);
+    (segments * samples_per_segment.max(1) as usize + 1).max(control_point_count)
+}
+
+fn evenly_spaced_range(start: f64, end: f64, count: usize) -> Vec<f64> {
+    if count <= 1 {
+        return vec![start];
+    }
+    (0..count)
+        .map(|index| start + (end - start) * index as f64 / (count - 1) as f64)
+        .collect()
+}
+
+fn evenly_spaced_parameter_values(count: usize) -> Vec<f64> {
+    evenly_spaced_range(0.0, 1.0, count)
 }
 
 fn parse_interpolation_kind(value: Option<&str>) -> Option<CurveInterpolationKind> {
@@ -1070,6 +1937,9 @@ fn derivative_curve_group(group: &[[f32; 3]]) -> Vec<[f32; 3]> {
     if group.len() < 2 {
         return Vec::new();
     }
+    if let Some(layout) = detect_planar_graph_layout(group) {
+        return derivative_planar_graph_group(group, layout);
+    }
     (0..group.len())
         .map(|index| finite_difference(group, index).to_array())
         .collect()
@@ -1102,6 +1972,9 @@ fn finite_difference(group: &[[f32; 3]], index: usize) -> Vec3 {
 fn integral_curve_group(group: &[[f32; 3]]) -> Vec<[f32; 3]> {
     if group.len() < 2 {
         return Vec::new();
+    }
+    if let Some(layout) = detect_planar_graph_layout(group) {
+        return integral_planar_graph_group(group, layout);
     }
     let mut out = Vec::with_capacity(group.len());
     let mut accum = Vec3::ZERO;
@@ -1198,7 +2071,18 @@ fn axis_derivative_group(
             let point = Vec3::from_array(group[index]);
             let denominator = axis_value(point, denominator_axis);
             let derivative = axis_derivative_value(group, index, numerator_axis, denominator_axis)?;
-            Some(Vec3::new(denominator, derivative, 0.0).to_array())
+            let constant_axis = (0..3).find(|axis| *axis != numerator_axis && *axis != denominator_axis);
+            let constant_value = constant_axis.map(|axis| average_axis_value(group, axis));
+            Some(
+                point_on_axes(
+                    denominator_axis,
+                    numerator_axis,
+                    denominator,
+                    derivative,
+                    constant_axis.zip(constant_value),
+                )
+                .to_array(),
+            )
         })
         .collect()
 }
@@ -1296,6 +2180,175 @@ fn axis_value(point: Vec3, axis: usize) -> f32 {
     }
 }
 
+fn set_axis_value(point: &mut Vec3, axis: usize, value: f32) {
+    match axis {
+        0 => point.x = value,
+        1 => point.y = value,
+        _ => point.z = value,
+    }
+}
+
+fn point_on_axes(
+    independent_axis: usize,
+    dependent_axis: usize,
+    independent: f32,
+    dependent: f32,
+    constant_axis: Option<(usize, f32)>,
+) -> Vec3 {
+    let mut point = Vec3::ZERO;
+    set_axis_value(&mut point, independent_axis, independent);
+    set_axis_value(&mut point, dependent_axis, dependent);
+    if let Some((axis, value)) = constant_axis {
+        set_axis_value(&mut point, axis, value);
+    }
+    point
+}
+
+#[derive(Clone, Copy, Debug)]
+struct PlanarGraphLayout {
+    independent_axis: usize,
+    dependent_axis: usize,
+    constant_axis: usize,
+    constant_value: f32,
+}
+
+fn detect_planar_graph_layout(group: &[[f32; 3]]) -> Option<PlanarGraphLayout> {
+    if group.len() < 2 {
+        return None;
+    }
+    let ranges = (0..3)
+        .map(|axis| axis_range(group, axis))
+        .collect::<Vec<_>>();
+    let constant_axis = ranges
+        .iter()
+        .enumerate()
+        .min_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(axis, _)| axis)?;
+    if ranges[constant_axis] > 1.0e-3 {
+        return None;
+    }
+    let varying_axes = (0..3)
+        .filter(|axis| *axis != constant_axis)
+        .collect::<Vec<_>>();
+    let monotonic_axes = varying_axes
+        .iter()
+        .copied()
+        .filter(|axis| axis_is_monotonic(group, *axis))
+        .collect::<Vec<_>>();
+    let independent_axis = if monotonic_axes.len() == 1 {
+        monotonic_axes[0]
+    } else {
+        *varying_axes
+            .iter()
+            .max_by(|a, b| {
+                ranges[**a]
+                    .partial_cmp(&ranges[**b])
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })?
+    };
+    let dependent_axis = varying_axes
+        .into_iter()
+        .find(|axis| *axis != independent_axis)?;
+    Some(PlanarGraphLayout {
+        independent_axis,
+        dependent_axis,
+        constant_axis,
+        constant_value: average_axis_value(group, constant_axis),
+    })
+}
+
+fn derivative_planar_graph_group(group: &[[f32; 3]], layout: PlanarGraphLayout) -> Vec<[f32; 3]> {
+    (0..group.len())
+        .filter_map(|index| {
+            let point = Vec3::from_array(group[index]);
+            let independent = axis_value(point, layout.independent_axis);
+            let derivative =
+                axis_derivative_value(group, index, layout.dependent_axis, layout.independent_axis)?;
+            Some(
+                point_on_axes(
+                    layout.independent_axis,
+                    layout.dependent_axis,
+                    independent,
+                    derivative,
+                    Some((layout.constant_axis, layout.constant_value)),
+                )
+                .to_array(),
+            )
+        })
+        .collect()
+}
+
+fn integral_planar_graph_group(group: &[[f32; 3]], layout: PlanarGraphLayout) -> Vec<[f32; 3]> {
+    let mut out = Vec::with_capacity(group.len());
+    let start_independent = axis_value(Vec3::from_array(group[0]), layout.independent_axis);
+    let mut accum = 0.0_f32;
+    out.push(
+        point_on_axes(
+            layout.independent_axis,
+            layout.dependent_axis,
+            start_independent,
+            accum,
+            Some((layout.constant_axis, layout.constant_value)),
+        )
+        .to_array(),
+    );
+    for pair in group.windows(2) {
+        let a = Vec3::from_array(pair[0]);
+        let b = Vec3::from_array(pair[1]);
+        let ia = axis_value(a, layout.independent_axis);
+        let ib = axis_value(b, layout.independent_axis);
+        let da = axis_value(a, layout.dependent_axis);
+        let db = axis_value(b, layout.dependent_axis);
+        accum += (da + db) * 0.5 * (ib - ia);
+        out.push(
+            point_on_axes(
+                layout.independent_axis,
+                layout.dependent_axis,
+                ib,
+                accum,
+                Some((layout.constant_axis, layout.constant_value)),
+            )
+            .to_array(),
+        );
+    }
+    out
+}
+
+fn axis_range(group: &[[f32; 3]], axis: usize) -> f32 {
+    let mut min = f32::INFINITY;
+    let mut max = f32::NEG_INFINITY;
+    for point in group {
+        let value = axis_value(Vec3::from_array(*point), axis);
+        min = min.min(value);
+        max = max.max(value);
+    }
+    max - min
+}
+
+fn average_axis_value(group: &[[f32; 3]], axis: usize) -> f32 {
+    group.iter()
+        .map(|point| axis_value(Vec3::from_array(*point), axis))
+        .sum::<f32>()
+        / group.len() as f32
+}
+
+fn axis_is_monotonic(group: &[[f32; 3]], axis: usize) -> bool {
+    let epsilon = 1.0e-6_f32;
+    let mut nondecreasing = true;
+    let mut nonincreasing = true;
+    for pair in group.windows(2) {
+        let a = axis_value(Vec3::from_array(pair[0]), axis);
+        let b = axis_value(Vec3::from_array(pair[1]), axis);
+        if b + epsilon < a {
+            nondecreasing = false;
+        }
+        if b > a + epsilon {
+            nonincreasing = false;
+        }
+    }
+    nondecreasing || nonincreasing
+}
+
 fn cartesian_line_point(dep_var: &str, ind_var: &str, independent: f32, dependent: f32) -> Vec3 {
     match (dep_var, ind_var) {
         ("y", "x") => Vec3::new(independent, dependent, 0.0),
@@ -1386,4 +2439,62 @@ fn tangent_vectors(group: &[[f32; 3]]) -> Vec<Vec3> {
     (0..group.len())
         .map(|index| finite_difference(group, index).normalize_or_zero())
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn approx_eq(a: f32, b: f32) -> bool {
+        (a - b).abs() <= 1.0e-3
+    }
+
+    #[test]
+    fn derivative_of_planar_xz_curve_stays_in_xz_plane() {
+        let group = vec![
+            [0.0, 4.0, 0.0],
+            [1.0, 4.0, 1.0],
+            [2.0, 4.0, 0.0],
+        ];
+
+        let derived = derivative_curve_group(&group);
+
+        assert_eq!(derived.len(), 3);
+        assert!(approx_eq(derived[1][0], 1.0));
+        assert!(approx_eq(derived[1][1], 4.0));
+        assert!(approx_eq(derived[1][2], 0.0));
+    }
+
+    #[test]
+    fn axis_derivative_preserves_constant_plane_axis() {
+        let group = vec![
+            [0.0, 4.0, 0.0],
+            [1.0, 4.0, 1.0],
+            [2.0, 4.0, 0.0],
+        ];
+
+        let derived = axis_derivative_group(&group, 2, 0);
+
+        assert_eq!(derived.len(), 3);
+        assert!(approx_eq(derived[1][0], 1.0));
+        assert!(approx_eq(derived[1][1], 4.0));
+        assert!(approx_eq(derived[1][2], 0.0));
+    }
+
+    #[test]
+    fn integral_of_planar_xz_curve_stays_in_xz_plane() {
+        let group = vec![
+            [0.0, 4.0, 0.0],
+            [1.0, 4.0, 1.0],
+            [2.0, 4.0, 0.0],
+        ];
+
+        let derived = integral_curve_group(&group);
+
+        assert_eq!(derived.len(), 3);
+        assert!(approx_eq(derived[0][1], 4.0));
+        assert!(approx_eq(derived[1][1], 4.0));
+        assert!(approx_eq(derived[2][1], 4.0));
+        assert!(approx_eq(derived[2][2], 1.0));
+    }
 }
