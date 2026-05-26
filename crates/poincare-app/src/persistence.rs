@@ -4,8 +4,7 @@ use eframe::Storage;
 use poincare_lib::{
     AxisConfig, ColormapSource, ColourMode, CurveInterpolation, CurveInterpolationKind, Domain,
     GlyphType, GraphSpec, MatcapSource, ParamVisSettings, PlotSpec, PlotStyle, Resolution,
-    ShadingMode, SurfaceFaceQuantity, SurfaceLicSettings, SurfaceLicVectorField,
-    TransferFunction,
+    ShadingMode, SurfaceFaceQuantity, SurfaceLicSettings, SurfaceLicVectorField, TransferFunction,
 };
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -439,8 +438,12 @@ impl PersistedCurveInterpolation {
                 PersistedCurveInterpolationKind::CentripetalCatmullRom => {
                     CurveInterpolationKind::CentripetalCatmullRom
                 }
-                PersistedCurveInterpolationKind::MovingAverage => CurveInterpolationKind::MovingAverage,
-                PersistedCurveInterpolationKind::SavitzkyGolay => CurveInterpolationKind::SavitzkyGolay,
+                PersistedCurveInterpolationKind::MovingAverage => {
+                    CurveInterpolationKind::MovingAverage
+                }
+                PersistedCurveInterpolationKind::SavitzkyGolay => {
+                    CurveInterpolationKind::SavitzkyGolay
+                }
             },
             samples_per_segment: self.samples_per_segment,
             closed: self.closed,
@@ -596,7 +599,10 @@ impl DocumentSnapshot {
             doc.plots = graph.plots.iter().map(plot_spec_to_plot_entry).collect();
             doc.axis_config = graph.axis_config;
         } else {
-            doc.plots = plots.iter().map(PersistedPlotEntry::to_plot_entry).collect();
+            doc.plots = plots
+                .iter()
+                .map(PersistedPlotEntry::to_plot_entry)
+                .collect();
             doc.axis_config = axis_config.to_axis_config();
         }
         doc.selected_plot = selected_plot.filter(|&i| i < doc.plots.len());

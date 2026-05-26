@@ -136,7 +136,11 @@ impl PlotObject for ScalarSlicePlot {
                 tangent_u
                     .iter()
                     .zip(&tangent_v)
-                    .map(|(u, v)| (glam::Vec3::from(*u) + glam::Vec3::from(*v)).normalize_or_zero().to_array())
+                    .map(|(u, v)| {
+                        (glam::Vec3::from(*u) + glam::Vec3::from(*v))
+                            .normalize_or_zero()
+                            .to_array()
+                    })
                     .collect(),
             ),
         );
@@ -146,7 +150,11 @@ impl PlotObject for ScalarSlicePlot {
                 tangent_u
                     .iter()
                     .zip(&tangent_v)
-                    .map(|(u, v)| (glam::Vec3::from(*u) - glam::Vec3::from(*v)).normalize_or_zero().to_array())
+                    .map(|(u, v)| {
+                        (glam::Vec3::from(*u) - glam::Vec3::from(*v))
+                            .normalize_or_zero()
+                            .to_array()
+                    })
                     .collect(),
             ),
         );
@@ -218,7 +226,11 @@ impl PlotObject for AnnotatedPointsPlot {
     }
 
     fn natural_bounds(&self) -> Option<DataBounds> {
-        bounds_for_points(self.points.iter().map(|point| glam::Vec3::from_array(point.position)))
+        bounds_for_points(
+            self.points
+                .iter()
+                .map(|point| glam::Vec3::from_array(point.position)),
+        )
     }
 
     fn generate(&self, _domain: &Domain, _resolution: Resolution) -> PlotGeometry {
@@ -230,7 +242,8 @@ impl PlotObject for AnnotatedPointsPlot {
         let mut components = Vec::new();
         if !positions.is_empty() {
             components.push(PlotComponent {
-                geometry: Scatter3D::from_points(&positions).generate(&_domain_default(), Resolution::default()),
+                geometry: Scatter3D::from_points(&positions)
+                    .generate(&_domain_default(), Resolution::default()),
                 style: self.style.clone(),
             });
         }
@@ -498,7 +511,11 @@ fn aabb_overlap(a: &Bounds3, b: &Bounds3, tolerance: f32) -> bool {
         && a.max.z + tolerance >= b.min.z
 }
 
-fn intersect_triangles(a: [glam::Vec3; 3], b: [glam::Vec3; 3], tolerance: f32) -> TriangleIntersection {
+fn intersect_triangles(
+    a: [glam::Vec3; 3],
+    b: [glam::Vec3; 3],
+    tolerance: f32,
+) -> TriangleIntersection {
     let plane_a = triangle_plane(a);
     let plane_b = triangle_plane(b);
     let dir = plane_a.0.cross(plane_b.0);
@@ -628,7 +645,14 @@ fn stitch_segments(segments: &[(glam::Vec3, glam::Vec3)], tolerance: f32) -> Vec
             if visited[edge_index] {
                 continue;
             }
-            curves.push(trace_curve(start, edge_index, &nodes, &edges, &adjacency, &mut visited));
+            curves.push(trace_curve(
+                start,
+                edge_index,
+                &nodes,
+                &edges,
+                &adjacency,
+                &mut visited,
+            ));
         }
     }
 
@@ -637,7 +661,14 @@ fn stitch_segments(segments: &[(glam::Vec3, glam::Vec3)], tolerance: f32) -> Vec
             continue;
         }
         let start = edges[edge_index].0;
-        curves.push(trace_curve(start, edge_index, &nodes, &edges, &adjacency, &mut visited));
+        curves.push(trace_curve(
+            start,
+            edge_index,
+            &nodes,
+            &edges,
+            &adjacency,
+            &mut visited,
+        ));
     }
 
     curves

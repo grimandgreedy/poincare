@@ -1,7 +1,6 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use viewport_lib::{
-    AttributeKind, BuiltinColourmap, BuiltinMatcap, ColourmapId, GlyphType, ParamVis,
-    ParamVisMode,
+    AttributeKind, BuiltinColourmap, BuiltinMatcap, ColourmapId, GlyphType, ParamVis, ParamVisMode,
 };
 
 /// Transfer function for volume opacity control.
@@ -331,7 +330,9 @@ impl Serialize for ColourMode {
             } => PersistedColourMode::Colormap {
                 colormap: match colormap {
                     ColormapSource::Builtin(preset) => builtin_colormap_to_u8(*preset),
-                    ColormapSource::Uploaded(_) => builtin_colormap_to_u8(BuiltinColourmap::Viridis),
+                    ColormapSource::Uploaded(_) => {
+                        builtin_colormap_to_u8(BuiltinColourmap::Viridis)
+                    }
                 },
                 scalar_range: *scalar_range,
             },
@@ -437,7 +438,9 @@ impl Serialize for PlotStyle {
                 } => PersistedColourMode::Colormap {
                     colormap: match colormap {
                         ColormapSource::Builtin(preset) => builtin_colormap_to_u8(*preset),
-                        ColormapSource::Uploaded(_) => builtin_colormap_to_u8(BuiltinColourmap::Viridis),
+                        ColormapSource::Uploaded(_) => {
+                            builtin_colormap_to_u8(BuiltinColourmap::Viridis)
+                        }
                     },
                     scalar_range: *scalar_range,
                 },
@@ -454,13 +457,12 @@ impl Serialize for PlotStyle {
             glyph_type: glyph_type_to_u8(self.glyph_type),
             shading: shading_to_u8(self.shading),
             tube_radius: self.tube_radius,
-            transfer_function: self
-                .transfer_function
-                .as_ref()
-                .map(|tf| PersistedTransferFunction {
+            transfer_function: self.transfer_function.as_ref().map(|tf| {
+                PersistedTransferFunction {
                     opacity_scale: tf.opacity_scale,
                     threshold: tf.threshold,
-                }),
+                }
+            }),
             matcap: self.matcap.map(|m| match m {
                 MatcapSource::Builtin(preset) => builtin_matcap_to_u8(preset),
             }),

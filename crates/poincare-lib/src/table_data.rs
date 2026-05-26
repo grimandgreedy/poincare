@@ -27,14 +27,26 @@ impl TableDelimiter {
 
     fn split_line(self, line: &str) -> Vec<String> {
         match self {
-            Self::Comma => line.split(',').map(|cell| cell.trim().to_string()).collect(),
-            Self::Semicolon => line.split(';').map(|cell| cell.trim().to_string()).collect(),
-            Self::Tab => line.split('\t').map(|cell| cell.trim().to_string()).collect(),
+            Self::Comma => line
+                .split(',')
+                .map(|cell| cell.trim().to_string())
+                .collect(),
+            Self::Semicolon => line
+                .split(';')
+                .map(|cell| cell.trim().to_string())
+                .collect(),
+            Self::Tab => line
+                .split('\t')
+                .map(|cell| cell.trim().to_string())
+                .collect(),
             Self::Space => line
                 .split_whitespace()
                 .map(|cell| cell.trim().to_string())
                 .collect(),
-            Self::Pipe => line.split('|').map(|cell| cell.trim().to_string()).collect(),
+            Self::Pipe => line
+                .split('|')
+                .map(|cell| cell.trim().to_string())
+                .collect(),
         }
     }
 }
@@ -207,7 +219,11 @@ pub struct TableVectorSample {
     pub vector: glam::Vec3,
 }
 
-fn parse_table_preview(raw_text: &str, delimiter: TableDelimiter, header_row: bool) -> TablePreview {
+fn parse_table_preview(
+    raw_text: &str,
+    delimiter: TableDelimiter,
+    header_row: bool,
+) -> TablePreview {
     let parsed_rows = raw_text
         .lines()
         .enumerate()
@@ -223,13 +239,19 @@ fn parse_table_preview(raw_text: &str, delimiter: TableDelimiter, header_row: bo
             }
         })
         .collect::<Vec<_>>();
-    let column_count = parsed_rows.iter().map(|row| row.cells.len()).max().unwrap_or(0);
+    let column_count = parsed_rows
+        .iter()
+        .map(|row| row.cells.len())
+        .max()
+        .unwrap_or(0);
     let mut rows = parsed_rows;
     let headers = if header_row && !rows.is_empty() {
         let header = rows.remove(0);
         normalize_headers(header.cells, column_count)
     } else {
-        (0..column_count).map(|index| format!("Column {}", index + 1)).collect()
+        (0..column_count)
+            .map(|index| format!("Column {}", index + 1))
+            .collect()
     };
     TablePreview {
         headers,
@@ -240,7 +262,8 @@ fn parse_table_preview(raw_text: &str, delimiter: TableDelimiter, header_row: bo
 
 fn normalize_headers(mut cells: Vec<String>, column_count: usize) -> Vec<String> {
     cells.resize_with(column_count, String::new);
-    cells.into_iter()
+    cells
+        .into_iter()
         .enumerate()
         .map(|(index, header)| {
             let trimmed = header.trim();
@@ -278,7 +301,11 @@ fn detect_delimiter(raw_text: &str) -> TableDelimiter {
             best_score = score;
         }
     }
-    if best_score == 0 && sample_lines.iter().any(|line| line.split_whitespace().count() > 1) {
+    if best_score == 0
+        && sample_lines
+            .iter()
+            .any(|line| line.split_whitespace().count() > 1)
+    {
         TableDelimiter::Space
     } else {
         best
@@ -296,15 +323,24 @@ fn detect_header_row(raw_text: &str, delimiter: TableDelimiter) -> bool {
         return false;
     };
     let second = rows.next();
-    let first_numeric = first.iter().filter(|cell| cell.parse::<f64>().is_ok()).count();
+    let first_numeric = first
+        .iter()
+        .filter(|cell| cell.parse::<f64>().is_ok())
+        .count();
     let second_numeric = second
         .as_ref()
-        .map(|row| row.iter().filter(|cell| cell.parse::<f64>().is_ok()).count())
+        .map(|row| {
+            row.iter()
+                .filter(|cell| cell.parse::<f64>().is_ok())
+                .count()
+        })
         .unwrap_or(0);
     first_numeric < first.len().saturating_div(2) && second_numeric >= first_numeric
 }
 
-fn build_dataset(definition: &TableImportDefinition) -> Result<TableDataSet, Vec<TableValidationError>> {
+fn build_dataset(
+    definition: &TableImportDefinition,
+) -> Result<TableDataSet, Vec<TableValidationError>> {
     let preview = definition.preview();
     if preview.column_count == 0 {
         return Err(vec![TableValidationError::general("table is empty")]);
@@ -467,7 +503,9 @@ fn build_curve_data(
         .filter(|points| !points.is_empty())
         .collect::<Vec<_>>();
     let Some(bounds) = bounds.finish() else {
-        return Err(vec![TableValidationError::general("curve table has no valid points")]);
+        return Err(vec![TableValidationError::general(
+            "curve table has no valid points",
+        )]);
     };
     Ok(TableDataSet::Curve {
         groups: grouped_points,
@@ -492,8 +530,13 @@ fn build_scatter_data(
         let y = parse_required_number(preview, row, y_col, "y", &mut errors);
         let z = parse_optional_number(preview, row, z_col.into_option(), "z", &mut errors)
             .unwrap_or(0.0);
-        let scalar =
-            parse_optional_number(preview, row, scalar_col.into_option(), "scalar", &mut errors);
+        let scalar = parse_optional_number(
+            preview,
+            row,
+            scalar_col.into_option(),
+            "scalar",
+            &mut errors,
+        );
         if let (Some(x), Some(y)) = (x, y) {
             let point = glam::Vec3::new(x as f32, y as f32, z as f32);
             points.push(point);
@@ -510,7 +553,9 @@ fn build_scatter_data(
         return Err(errors);
     }
     let Some(bounds) = bounds.finish() else {
-        return Err(vec![TableValidationError::general("scatter table has no valid points")]);
+        return Err(vec![TableValidationError::general(
+            "scatter table has no valid points",
+        )]);
     };
     Ok(TableDataSet::Scatter {
         points,
@@ -586,7 +631,11 @@ fn required_cell<'a>(
     }
 }
 
-fn optional_cell<'a>(preview: &TablePreview, row: &'a TableRow, column: Option<usize>) -> Option<&'a str> {
+fn optional_cell<'a>(
+    preview: &TablePreview,
+    row: &'a TableRow,
+    column: Option<usize>,
+) -> Option<&'a str> {
     let column = column?;
     if column >= preview.column_count {
         return None;
@@ -667,7 +716,10 @@ impl BoundsAccumulator {
     }
 }
 
-pub fn build_curve_piecewise(groups: &[Vec<glam::Vec3>], style: crate::PlotStyle) -> crate::PiecewisePlot {
+pub fn build_curve_piecewise(
+    groups: &[Vec<glam::Vec3>],
+    style: crate::PlotStyle,
+) -> crate::PiecewisePlot {
     build_curve_piecewise_with_interpolation(groups, style, CurveInterpolation::default())
 }
 
@@ -684,7 +736,8 @@ pub fn build_curve_piecewise_with_interpolation(
         let bounds = bounds_for_points(points);
         plot.add_piece(
             bounds,
-            crate::Curve3D::from_points_interpolated(points, interpolation).with_style(style.clone()),
+            crate::Curve3D::from_points_interpolated(points, interpolation)
+                .with_style(style.clone()),
         );
     }
     plot

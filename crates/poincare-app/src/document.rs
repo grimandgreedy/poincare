@@ -241,7 +241,9 @@ impl Document {
     /// Build the CPU-side scene from the current plot list.
     /// Returns `None` if the scene is not dirty.
     /// The caller is responsible for GPU upload and clearing `scene_dirty`.
-    pub(crate) fn build_scene_data(&self) -> Option<Result<GraphScene, poincare_lib::GraphBuildError>> {
+    pub(crate) fn build_scene_data(
+        &self,
+    ) -> Option<Result<GraphScene, poincare_lib::GraphBuildError>> {
         if !self.scene_dirty {
             return None;
         }
@@ -566,22 +568,50 @@ pub(crate) fn plot_bounds(plot: &PlotEntry) -> Option<Aabb> {
         | PlotKind::VectorSlice { axis, position, .. } => {
             let (min, max) = match axis {
                 SliceAxis::X => (
-                    glam::vec3(*position as f32, *plot.domain.y.start() as f32, *plot.domain.z.start() as f32),
-                    glam::vec3(*position as f32, *plot.domain.y.end() as f32, *plot.domain.z.end() as f32),
+                    glam::vec3(
+                        *position as f32,
+                        *plot.domain.y.start() as f32,
+                        *plot.domain.z.start() as f32,
+                    ),
+                    glam::vec3(
+                        *position as f32,
+                        *plot.domain.y.end() as f32,
+                        *plot.domain.z.end() as f32,
+                    ),
                 ),
                 SliceAxis::Y => (
-                    glam::vec3(*plot.domain.x.start() as f32, *position as f32, *plot.domain.z.start() as f32),
-                    glam::vec3(*plot.domain.x.end() as f32, *position as f32, *plot.domain.z.end() as f32),
+                    glam::vec3(
+                        *plot.domain.x.start() as f32,
+                        *position as f32,
+                        *plot.domain.z.start() as f32,
+                    ),
+                    glam::vec3(
+                        *plot.domain.x.end() as f32,
+                        *position as f32,
+                        *plot.domain.z.end() as f32,
+                    ),
                 ),
                 SliceAxis::Z => (
-                    glam::vec3(*plot.domain.x.start() as f32, *plot.domain.y.start() as f32, *position as f32),
-                    glam::vec3(*plot.domain.x.end() as f32, *plot.domain.y.end() as f32, *position as f32),
+                    glam::vec3(
+                        *plot.domain.x.start() as f32,
+                        *plot.domain.y.start() as f32,
+                        *position as f32,
+                    ),
+                    glam::vec3(
+                        *plot.domain.x.end() as f32,
+                        *plot.domain.y.end() as f32,
+                        *position as f32,
+                    ),
                 ),
             };
             return Some(Aabb { min, max });
         }
         PlotKind::PointAnnotations { points, .. } => {
-            return bounds_from_positions(points.iter().map(|point| glam::Vec3::from_array(point.position)));
+            return bounds_from_positions(
+                points
+                    .iter()
+                    .map(|point| glam::Vec3::from_array(point.position)),
+            );
         }
         PlotKind::ArrowAnnotations { arrows, .. } => {
             return bounds_from_positions(arrows.iter().flat_map(|arrow| {
@@ -591,9 +621,11 @@ pub(crate) fn plot_bounds(plot: &PlotEntry) -> Option<Aabb> {
             }));
         }
         PlotKind::DerivedPolylineGroups { groups } => {
-            return bounds_from_positions(groups.iter().flat_map(|group| {
-                group.iter().map(|point| glam::Vec3::from_array(*point))
-            }));
+            return bounds_from_positions(
+                groups
+                    .iter()
+                    .flat_map(|group| group.iter().map(|point| glam::Vec3::from_array(*point))),
+            );
         }
         _ => {}
     }

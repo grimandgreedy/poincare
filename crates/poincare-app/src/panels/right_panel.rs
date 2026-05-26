@@ -1,8 +1,8 @@
 use eframe::egui;
 use poincare_lib::{
     AnalysisKind, AnalysisOutput, AnalysisRequest, AnalysisTarget, CurveInterpolation,
-    CurveInterpolationKind, SampleGroupsKind, available_analyses, run_analysis, sample_curve_points,
-    sample_groups,
+    CurveInterpolationKind, SampleGroupsKind, available_analyses, run_analysis,
+    sample_curve_points, sample_groups,
 };
 use viewport_lib::{Easing, Projection, ViewPreset};
 
@@ -10,13 +10,15 @@ use crate::App;
 use crate::CameraCommand;
 use crate::InspectorTab;
 use crate::dock::DockTab;
-use crate::document::{ExportFormat, ExportMode, default_export_dir, ensure_export_dir_exists, export_mode_for_format};
+use crate::document::{
+    ExportFormat, ExportMode, default_export_dir, ensure_export_dir_exists, export_mode_for_format,
+};
+use crate::panels::left_panel::{PlotMarkerKind, paint_plot_marker};
 use crate::plot::analysis::{
     PointAnnotation, intersect_surface_meshes, make_arrow_annotation, make_point_annotations,
 };
 use crate::plot::entry::PlotEntry;
 use crate::plot::kind::{PlotKind, PlotKindExt, StyleCaps, evenly_spaced_isovalues};
-use crate::panels::left_panel::{PlotMarkerKind, paint_plot_marker};
 use crate::plot::table::TableDataSet;
 use crate::ui::domain_editor::{edit_domain, edit_resolution};
 use crate::ui::expr_params::show_expression_params;
@@ -36,12 +38,7 @@ impl App {
                     let marker_kind = PlotMarkerKind::from_plot_kind(&plot.kind);
                     let (marker_rect, marker_response) =
                         ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
-                    paint_plot_marker(
-                        ui.painter(),
-                        marker_rect,
-                        color,
-                        marker_kind,
-                    );
+                    paint_plot_marker(ui.painter(), marker_rect, color, marker_kind);
                     marker_response.on_hover_text(marker_kind.label());
                     ui.vertical(|ui| {
                         ui.label(egui::RichText::new(&plot.name).strong());
@@ -323,8 +320,8 @@ impl App {
                 views_changed |= ui
                     .add(
                         egui::TextEdit::singleline(&mut view.name)
-                        .desired_width(120.0)
-                        .hint_text("View name"),
+                            .desired_width(120.0)
+                            .hint_text("View name"),
                     )
                     .changed();
                 if ui.button("Recall").clicked() {
@@ -343,7 +340,9 @@ impl App {
         }
         if let Some(slot) = remove_view {
             self.record_undo_point();
-            self.documents[self.active_document_idx].saved_views.remove(slot);
+            self.documents[self.active_document_idx]
+                .saved_views
+                .remove(slot);
             self.documents[self.active_document_idx].camera_track_playing = false;
             self.mark_non_scene_dirty();
         }
@@ -353,13 +352,13 @@ impl App {
         ui.label("Track");
         let segment_changed = ui
             .add(
-            egui::Slider::new(
-                &mut self.documents[self.active_document_idx].camera_track_segment_duration,
-                0.25_f32..=10.0_f32,
+                egui::Slider::new(
+                    &mut self.documents[self.active_document_idx].camera_track_segment_duration,
+                    0.25_f32..=10.0_f32,
+                )
+                .text("Seconds per view"),
             )
-            .text("Seconds per view"),
-        )
-        .changed();
+            .changed();
         if segment_changed {
             self.mark_non_scene_dirty();
         }
@@ -417,8 +416,10 @@ impl App {
         ui.add_enabled_ui(!export_running, |ui| {
             let current_format = self.documents[self.active_document_idx].export_format;
             let mut mode = export_mode_for_format(current_format);
-            let (mut dir, mut filename) =
-                crate::split_export_path(&self.documents[self.active_document_idx].export_path, current_format);
+            let (mut dir, mut filename) = crate::split_export_path(
+                &self.documents[self.active_document_idx].export_path,
+                current_format,
+            );
             ui.horizontal(|ui| {
                 ui.label("Mode");
                 let image_clicked = ui
@@ -427,13 +428,17 @@ impl App {
                 let video_clicked = ui
                     .selectable_value(&mut mode, ExportMode::Video, "Video")
                     .clicked();
-                if image_clicked && self.documents[self.active_document_idx].export_format != ExportFormat::Png {
+                if image_clicked
+                    && self.documents[self.active_document_idx].export_format != ExportFormat::Png
+                {
                     self.documents[self.active_document_idx].export_format = ExportFormat::Png;
                     dir = default_export_dir(ExportMode::Image);
                     let _ = ensure_export_dir_exists(&dir);
                     filename = "poincare-export.png".to_string();
                 }
-                if video_clicked && self.documents[self.active_document_idx].export_format == ExportFormat::Png {
+                if video_clicked
+                    && self.documents[self.active_document_idx].export_format == ExportFormat::Png
+                {
                     self.documents[self.active_document_idx].export_format = ExportFormat::Mp4;
                     dir = default_export_dir(ExportMode::Video);
                     let _ = ensure_export_dir_exists(&dir);
@@ -443,17 +448,17 @@ impl App {
             ui.horizontal(|ui| {
                 ui.label("Directory");
                 let mut dir_text = dir.to_string_lossy().into_owned();
-                ui.add(
-                    egui::TextEdit::singleline(&mut dir_text)
-                        .desired_width(320.0),
-                );
+                ui.add(egui::TextEdit::singleline(&mut dir_text).desired_width(320.0));
                 if ui.button("Choose…").clicked() {
                     let start_dir = if dir.as_os_str().is_empty() {
                         default_export_dir(mode)
                     } else {
                         dir.clone()
                     };
-                    if let Some(chosen) = rfd::FileDialog::new().set_directory(start_dir).pick_folder() {
+                    if let Some(chosen) = rfd::FileDialog::new()
+                        .set_directory(start_dir)
+                        .pick_folder()
+                    {
                         dir = chosen;
                     }
                 }
@@ -463,36 +468,42 @@ impl App {
             });
             ui.horizontal(|ui| {
                 ui.label("Filename");
-                ui.add(
-                    egui::TextEdit::singleline(&mut filename)
-                        .desired_width(220.0),
-                );
+                ui.add(egui::TextEdit::singleline(&mut filename).desired_width(220.0));
             });
-            let full_export_path =
-                crate::export_path_from_parts(&dir, &filename, self.documents[self.active_document_idx].export_format);
+            let full_export_path = crate::export_path_from_parts(
+                &dir,
+                &filename,
+                self.documents[self.active_document_idx].export_format,
+            );
             self.documents[self.active_document_idx].export_path =
                 full_export_path.to_string_lossy().into_owned();
             ui.horizontal(|ui| {
                 ui.add(
-                    egui::DragValue::new(&mut self.documents[self.active_document_idx].export_width)
-                        .speed(1)
-                        .range(256..=8192)
-                        .prefix("W "),
+                    egui::DragValue::new(
+                        &mut self.documents[self.active_document_idx].export_width,
+                    )
+                    .speed(1)
+                    .range(256..=8192)
+                    .prefix("W "),
                 );
                 ui.add(
-                    egui::DragValue::new(&mut self.documents[self.active_document_idx].export_height)
-                        .speed(1)
-                        .range(256..=8192)
-                        .prefix("H "),
+                    egui::DragValue::new(
+                        &mut self.documents[self.active_document_idx].export_height,
+                    )
+                    .speed(1)
+                    .range(256..=8192)
+                    .prefix("H "),
                 );
             });
             if mode == ExportMode::Video {
                 egui::ComboBox::from_label("Video Format")
-                    .selected_text(match self.documents[self.active_document_idx].export_format {
-                        ExportFormat::Gif => "GIF",
-                        ExportFormat::Mp4 => "MP4",
-                        ExportFormat::Png => "MP4",
-                    })
+                    .selected_text(
+                        match self.documents[self.active_document_idx].export_format {
+                            ExportFormat::Gif => "GIF",
+                            ExportFormat::Mp4 => "MP4",
+                            ExportFormat::Png => "MP4",
+                        },
+                    )
                     .show_ui(ui, |ui| {
                         ui.selectable_value(
                             &mut self.documents[self.active_document_idx].export_format,
@@ -507,11 +518,19 @@ impl App {
                     });
             }
             ui.label(
-                egui::RichText::new(match self.documents[self.active_document_idx].export_format {
-                    ExportFormat::Png => "Images default to ~/Pictures/Poincare and use .png files.",
-                    ExportFormat::Gif => "Videos default to ~/Videos/Poincare and use .gif files.",
-                    ExportFormat::Mp4 => "Videos default to ~/Videos/Poincare and use .mp4 files.",
-                })
+                egui::RichText::new(
+                    match self.documents[self.active_document_idx].export_format {
+                        ExportFormat::Png => {
+                            "Images default to ~/Pictures/Poincare and use .png files."
+                        }
+                        ExportFormat::Gif => {
+                            "Videos default to ~/Videos/Poincare and use .gif files."
+                        }
+                        ExportFormat::Mp4 => {
+                            "Videos default to ~/Videos/Poincare and use .mp4 files."
+                        }
+                    },
+                )
                 .small()
                 .weak(),
             );
@@ -577,8 +596,7 @@ impl App {
         let selected = self.documents[doc_idx].plots[plot_idx].clone();
         let selected_spec = selected.to_plot_spec();
         let capabilities = available_analyses(&selected_spec);
-        let has_analysis =
-            |kind| capabilities.iter().any(|cap| cap.kind == kind);
+        let has_analysis = |kind| capabilities.iter().any(|cap| cap.kind == kind);
         ui.label("Derived Tools");
         let has_derived_tools = has_analysis(AnalysisKind::ScalarSlice)
             || has_analysis(AnalysisKind::VectorSlice)
@@ -587,9 +605,7 @@ impl App {
             || has_analysis(AnalysisKind::CurlField);
         if has_derived_tools {
             ui.horizontal(|ui| {
-                if has_analysis(AnalysisKind::ScalarSlice)
-                    && ui.button("Add Z Slice").clicked()
-                {
+                if has_analysis(AnalysisKind::ScalarSlice) && ui.button("Add Z Slice").clicked() {
                     self.run_single_plot_analysis(
                         doc_idx,
                         &selected_spec,
@@ -600,7 +616,12 @@ impl App {
                 if has_analysis(AnalysisKind::GradientField)
                     && ui.button("Add Gradient Field").clicked()
                 {
-                    self.run_single_plot_analysis(doc_idx, &selected_spec, AnalysisKind::GradientField, vec![]);
+                    self.run_single_plot_analysis(
+                        doc_idx,
+                        &selected_spec,
+                        AnalysisKind::GradientField,
+                        vec![],
+                    );
                 }
                 if has_analysis(AnalysisKind::VectorSlice)
                     && ui.button("Add Z Vector Slice").clicked()
@@ -622,14 +643,21 @@ impl App {
                         vec![],
                     );
                 }
-                if has_analysis(AnalysisKind::CurlField)
-                    && ui.button("Add Curl Field").clicked()
-                {
-                    self.run_single_plot_analysis(doc_idx, &selected_spec, AnalysisKind::CurlField, vec![]);
+                if has_analysis(AnalysisKind::CurlField) && ui.button("Add Curl Field").clicked() {
+                    self.run_single_plot_analysis(
+                        doc_idx,
+                        &selected_spec,
+                        AnalysisKind::CurlField,
+                        vec![],
+                    );
                 }
             });
             if has_analysis(AnalysisKind::ScalarSlice) {
-                ui.label(egui::RichText::new("Slices include contour cross-sections.").small().weak());
+                ui.label(
+                    egui::RichText::new("Slices include contour cross-sections.")
+                        .small()
+                        .weak(),
+                );
             }
         } else {
             ui.label(egui::RichText::new(
@@ -652,7 +680,9 @@ impl App {
                             domain: self.documents[doc_idx].plots[plot_idx].domain.clone(),
                             resolution: self.documents[doc_idx].plots[plot_idx].resolution,
                             style: poincare_lib::PlotStyle {
-                                colour_mode: poincare_lib::ColourMode::Solid([1.0, 0.95, 0.35, 1.0]),
+                                colour_mode: poincare_lib::ColourMode::Solid([
+                                    1.0, 0.95, 0.35, 1.0,
+                                ]),
                                 point_size: 10.0,
                                 ..poincare_lib::PlotStyle::default()
                             },
@@ -675,7 +705,9 @@ impl App {
                             domain: self.documents[doc_idx].plots[plot_idx].domain.clone(),
                             resolution: self.documents[doc_idx].plots[plot_idx].resolution,
                             style: poincare_lib::PlotStyle {
-                                colour_mode: poincare_lib::ColourMode::Solid([0.35, 0.85, 1.0, 1.0]),
+                                colour_mode: poincare_lib::ColourMode::Solid([
+                                    0.35, 0.85, 1.0, 1.0,
+                                ]),
                                 glyph_scale: 1.0,
                                 shading: poincare_lib::ShadingMode::Unlit,
                                 ..poincare_lib::PlotStyle::default()
@@ -684,7 +716,11 @@ impl App {
                                 arrows: vec![make_arrow_annotation(
                                     hit.world_pos,
                                     hit.normal,
-                                    if hit.snapped { "Snapped Direction" } else { "Probe Direction" },
+                                    if hit.snapped {
+                                        "Snapped Direction"
+                                    } else {
+                                        "Probe Direction"
+                                    },
                                 )],
                                 show_labels: true,
                             },
@@ -693,7 +729,13 @@ impl App {
                 }
             });
         } else {
-            ui.label(egui::RichText::new("Use probe mode to create point, normal, or tangent annotations.").small().weak());
+            ui.label(
+                egui::RichText::new(
+                    "Use probe mode to create point, normal, or tangent annotations.",
+                )
+                .small()
+                .weak(),
+            );
         }
 
         if !self.documents[doc_idx].pinned_probes.is_empty()
@@ -839,9 +881,9 @@ impl App {
                 .small()
                 .weak(),
             );
-                    if ui.button("Interpolate...").clicked() {
-                        self.open_interpolate_modal(plot_idx, &selected);
-                    }
+            if ui.button("Interpolate...").clicked() {
+                self.open_interpolate_modal(plot_idx, &selected);
+            }
         } else {
             ui.label(
                 egui::RichText::new(
@@ -867,7 +909,12 @@ impl App {
                 .weak(),
             );
             if ui.button("Extract Points").clicked() {
-                self.run_single_plot_analysis(doc_idx, &selected_spec, AnalysisKind::ExtractPoints, vec![]);
+                self.run_single_plot_analysis(
+                    doc_idx,
+                    &selected_spec,
+                    AnalysisKind::ExtractPoints,
+                    vec![],
+                );
             }
         } else {
             ui.label(
@@ -884,7 +931,11 @@ impl App {
         ui.label("Intersections");
         ui.label("Curves");
         if self.documents[doc_idx].intersection_cache.is_empty() {
-            ui.label(egui::RichText::new("No cached curve intersections in the current scene.").small().weak());
+            ui.label(
+                egui::RichText::new("No cached curve intersections in the current scene.")
+                    .small()
+                    .weak(),
+            );
         } else if ui.button("Create Intersection Markers").clicked() {
             let points = self.documents[doc_idx]
                 .intersection_cache
@@ -914,13 +965,23 @@ impl App {
         ui.add_space(6.0);
         ui.label("Surfaces");
         if !selected.kind.supports_surface_intersection() {
-            ui.label(egui::RichText::new("Select a surface-like plot to compute surface intersections.").small().weak());
+            ui.label(
+                egui::RichText::new("Select a surface-like plot to compute surface intersections.")
+                    .small()
+                    .weak(),
+            );
             return;
         }
 
         let candidates = self.surface_intersection_candidates(doc_idx, plot_idx);
         if candidates.is_empty() {
-            ui.label(egui::RichText::new("No other compatible surface plots are available in this document.").small().weak());
+            ui.label(
+                egui::RichText::new(
+                    "No other compatible surface plots are available in this document.",
+                )
+                .small()
+                .weak(),
+            );
             return;
         }
 
@@ -1026,15 +1087,13 @@ impl App {
                     .join(", ");
             }
             AnalysisOutput::Table { table, .. } => {
-                self.documents[doc_idx].export_status = format!(
-                    "Generated analysis table with {} row(s).",
-                    table.rows.len()
-                );
+                self.documents[doc_idx].export_status =
+                    format!("Generated analysis table with {} row(s).", table.rows.len());
             }
         }
     }
 
-    fn run_single_plot_analysis(
+    pub(crate) fn run_single_plot_analysis(
         &mut self,
         doc_idx: usize,
         plot: &poincare_lib::PlotSpec,
@@ -1060,17 +1119,28 @@ impl App {
         }
     }
 
-    fn surface_intersection_candidates(&self, doc_idx: usize, source_idx: usize) -> Vec<(usize, String)> {
+    fn surface_intersection_candidates(
+        &self,
+        doc_idx: usize,
+        source_idx: usize,
+    ) -> Vec<(usize, String)> {
         self.documents[doc_idx]
             .plots
             .iter()
             .enumerate()
-            .filter(|(index, plot)| *index != source_idx && plot.kind.supports_surface_intersection())
+            .filter(|(index, plot)| {
+                *index != source_idx && plot.kind.supports_surface_intersection()
+            })
             .map(|(index, plot)| (index, plot.name.clone()))
             .collect()
     }
 
-    fn create_surface_intersection_plots(&mut self, doc_idx: usize, source_idx: usize, target_idx: usize) {
+    fn create_surface_intersection_plots(
+        &mut self,
+        doc_idx: usize,
+        source_idx: usize,
+        target_idx: usize,
+    ) {
         let source_pick_id = (source_idx + 1) as u64;
         let target_pick_id = (target_idx + 1) as u64;
         let probe_data = self.documents[doc_idx].scene.probe_data();
@@ -1140,7 +1210,10 @@ impl App {
             );
         }
         if self.surface_intersection_make_points && !all_points.is_empty() {
-            let points = all_points.iter().map(|point| point.to_array()).collect::<Vec<_>>();
+            let points = all_points
+                .iter()
+                .map(|point| point.to_array())
+                .collect::<Vec<_>>();
             self.push_analysis_plot(
                 doc_idx,
                 PlotEntry {
@@ -1558,7 +1631,7 @@ impl App {
         self.fit_curve_modal = open.then_some(state);
     }
 
-    fn open_interpolate_modal(&mut self, plot_idx: usize, plot: &PlotEntry) {
+    pub(crate) fn open_interpolate_modal(&mut self, plot_idx: usize, plot: &PlotEntry) {
         self.interpolate_modal = Some(crate::InterpolateModalState {
             source_plot_idx: plot_idx,
             output_name: format!("Interpolated {}", plot.name),
@@ -1572,7 +1645,7 @@ impl App {
         });
     }
 
-    fn open_axis_derivative_modal(&mut self, plot_idx: usize, plot: &PlotEntry) {
+    pub(crate) fn open_axis_derivative_modal(&mut self, plot_idx: usize, plot: &PlotEntry) {
         let numerator_axis = 1;
         let denominator_axis = 0;
         self.axis_derivative_modal = Some(crate::AxisDerivativeModalState {
@@ -1589,7 +1662,7 @@ impl App {
         });
     }
 
-    fn open_fit_curve_modal(&mut self, plot_idx: usize, plot: &PlotEntry) {
+    pub(crate) fn open_fit_curve_modal(&mut self, plot_idx: usize, plot: &PlotEntry) {
         let method = crate::FitCurveMethodUi::Polynomial;
         self.fit_curve_modal = Some(crate::FitCurveModalState {
             source_plot_idx: plot_idx,
@@ -1708,12 +1781,20 @@ impl App {
                 ),
             ],
         );
-        if self.documents[self.active_document_idx].export_status.starts_with("Method:") {
+        if self.documents[self.active_document_idx]
+            .export_status
+            .starts_with("Method:")
+        {
             Ok(())
-        } else if self.documents[self.active_document_idx].export_status.is_empty() {
+        } else if self.documents[self.active_document_idx]
+            .export_status
+            .is_empty()
+        {
             Ok(())
         } else {
-            Err(self.documents[self.active_document_idx].export_status.clone())
+            Err(self.documents[self.active_document_idx]
+                .export_status
+                .clone())
         }
     }
 }
@@ -1722,9 +1803,7 @@ fn interpolation_kind_label(kind: CurveInterpolationKind) -> &'static str {
     match kind {
         CurveInterpolationKind::Linear => "Polyline (Linear)",
         CurveInterpolationKind::CatmullRom => "Interpolation (Catmull-Rom)",
-        CurveInterpolationKind::CentripetalCatmullRom => {
-            "Interpolation (Centripetal Catmull-Rom)"
-        }
+        CurveInterpolationKind::CentripetalCatmullRom => "Interpolation (Centripetal Catmull-Rom)",
         CurveInterpolationKind::MovingAverage => "Smoothing (Moving Average)",
         CurveInterpolationKind::SavitzkyGolay => "Smoothing (Savitzky-Golay)",
     }
@@ -1805,7 +1884,10 @@ fn normalized_window_value(window: u32) -> u32 {
     normalized
 }
 
-fn sampled_curve_positions(points: &[[f32; 3]], interpolation: CurveInterpolation) -> Vec<[f32; 3]> {
+fn sampled_curve_positions(
+    points: &[[f32; 3]],
+    interpolation: CurveInterpolation,
+) -> Vec<[f32; 3]> {
     sample_curve_points(
         &points
             .iter()
@@ -1902,6 +1984,9 @@ fn plot_properties_summary(plot: &PlotEntry) -> String {
             step_size,
             max_steps,
             ..
-        } => format!("Streamlines, step {:.3}, max {} steps", step_size, max_steps),
+        } => format!(
+            "Streamlines, step {:.3}, max {} steps",
+            step_size, max_steps
+        ),
     }
 }

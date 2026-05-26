@@ -96,7 +96,9 @@ impl App {
                 && !probe_btn_hit_test(response.interact_pointer_pos(), rect)
             {
                 if let Some(hit) = self.documents[self.active_document_idx].probe_hit.clone() {
-                    self.documents[self.active_document_idx].pinned_probes.push(hit);
+                    self.documents[self.active_document_idx]
+                        .pinned_probes
+                        .push(hit);
                 }
             }
         } else {
@@ -111,7 +113,9 @@ impl App {
             }
             if response.double_clicked()
                 && !consumed_click
-                && self.documents[self.active_document_idx].hovered_plot.is_some()
+                && self.documents[self.active_document_idx]
+                    .hovered_plot
+                    .is_some()
             {
                 self.documents[self.active_document_idx].selected_plot =
                     self.documents[self.active_document_idx].hovered_plot;
@@ -159,10 +163,8 @@ impl App {
                 .get(hovered_plot_idx)
                 .and_then(crate::document::plot_bounds)
             {
-                let mut hover_outline = viewport_lib::aabb_wireframe_polyline(
-                    &bounds,
-                    [0.98, 0.85, 0.22, 1.0],
-                );
+                let mut hover_outline =
+                    viewport_lib::aabb_wireframe_polyline(&bounds, [0.98, 0.85, 0.22, 1.0]);
                 hover_outline.line_width = 2.0;
                 hover_outline.settings.pick_id = viewport_lib::PickId::NONE;
                 frame_data.scene.polylines.push(hover_outline);
@@ -330,13 +332,10 @@ impl App {
             let painter = ui.painter();
             let pinned = &self.documents[self.active_document_idx].pinned_probes;
             for (idx, hit) in pinned.iter().enumerate() {
-                if let Some(screen_local) =
-                    world_to_screen(hit.world_pos, view_proj, viewport_size)
+                if let Some(screen_local) = world_to_screen(hit.world_pos, view_proj, viewport_size)
                 {
-                    let screen = egui::Pos2::new(
-                        rect.left() + screen_local.x,
-                        rect.top() + screen_local.y,
-                    );
+                    let screen =
+                        egui::Pos2::new(rect.left() + screen_local.x, rect.top() + screen_local.y);
                     let color = egui::Color32::from_rgb(255, 210, 40);
                     painter.circle_filled(screen, 4.0, color);
                     painter.circle_stroke(
@@ -421,9 +420,8 @@ impl App {
                 btn_size,
             );
             let can_pin = self.documents[doc_idx].last_probe_hit.is_some();
-            let pin_btn = ui.add_enabled_ui(can_pin, |ui| {
-                ui.put(pin_rect, egui::Button::new("Pin"))
-            });
+            let pin_btn =
+                ui.add_enabled_ui(can_pin, |ui| ui.put(pin_rect, egui::Button::new("Pin")));
             if pin_btn.inner.clicked() {
                 if let Some(hit) = self.documents[doc_idx].last_probe_hit.clone() {
                     self.documents[doc_idx].pinned_probes.push(hit);
@@ -434,10 +432,10 @@ impl App {
                 egui::pos2(rect.right() - btn_size.x - 8.0, rect.top() + 92.0),
                 btn_size,
             );
-            let clear_btn = ui.add_enabled_ui(
-                !self.documents[doc_idx].pinned_probes.is_empty(),
-                |ui| ui.put(clear_rect, egui::Button::new("Clear")),
-            );
+            let clear_btn = ui
+                .add_enabled_ui(!self.documents[doc_idx].pinned_probes.is_empty(), |ui| {
+                    ui.put(clear_rect, egui::Button::new("Clear"))
+                });
             if clear_btn.inner.clicked() {
                 self.documents[doc_idx].pinned_probes.clear();
             }
@@ -563,12 +561,12 @@ impl App {
         let normal = live_normal.unwrap_or(glam::Vec3::Z);
         self.documents[self.active_document_idx].probe_hit =
             if live_pos.is_some() || nearest_candidate.is_some() {
-            Some(ProbeHit {
-                world_pos,
-                normal,
-                near_snap: nearest_candidate.is_some(),
-                snapped: false,
-            })
+                Some(ProbeHit {
+                    world_pos,
+                    normal,
+                    near_snap: nearest_candidate.is_some(),
+                    snapped: false,
+                })
             } else {
                 None
             };
@@ -594,11 +592,20 @@ impl App {
         let view_proj = self.documents[self.active_document_idx]
             .camera
             .proj_matrix()
-            * self.documents[self.active_document_idx].camera.view_matrix();
+            * self.documents[self.active_document_idx]
+                .camera
+                .view_matrix();
         let render_state = frame.wgpu_render_state()?;
         let renderer_guard = render_state.renderer.read();
-        let renderer = renderer_guard.callback_resources.get::<viewport_lib::ViewportRenderer>()?;
-        let hit = renderer.pick(local, viewport_size, view_proj, viewport_lib::PickMask::OBJECT)?;
+        let renderer = renderer_guard
+            .callback_resources
+            .get::<viewport_lib::ViewportRenderer>()?;
+        let hit = renderer.pick(
+            local,
+            viewport_size,
+            view_proj,
+            viewport_lib::PickMask::OBJECT,
+        )?;
         pick_id_to_plot_index(hit.id)
     }
 }

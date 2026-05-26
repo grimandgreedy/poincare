@@ -1,8 +1,8 @@
+pub use crate::table_data::TableVectorSample;
 use crate::{
     CoordinateSystem, DataBounds, Domain, GlyphInstance, PlotGeometry, PlotObject, PlotStyle,
     Resolution,
 };
-pub use crate::table_data::TableVectorSample;
 
 pub struct TableVectorFieldPlot {
     samples: Vec<TableVectorSample>,
@@ -12,7 +12,11 @@ pub struct TableVectorFieldPlot {
 
 impl TableVectorFieldPlot {
     pub fn new(samples: Vec<TableVectorSample>, bounds: DataBounds, style: PlotStyle) -> Self {
-        Self { samples, bounds, style }
+        Self {
+            samples,
+            bounds,
+            style,
+        }
     }
 }
 

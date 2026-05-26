@@ -1,5 +1,5 @@
-use std::ops::RangeInclusive;
 use serde::{Deserialize, Serialize};
+use std::ops::RangeInclusive;
 
 /// The plotting domain — the range of each axis over which plots are evaluated.
 ///

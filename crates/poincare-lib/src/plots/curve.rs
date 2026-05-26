@@ -480,7 +480,11 @@ mod tests {
 
     #[test]
     fn linear_interpolation_keeps_endpoints() {
-        let points = [Vec3::ZERO, Vec3::new(1.0, 0.0, 0.0), Vec3::new(2.0, 0.0, 0.0)];
+        let points = [
+            Vec3::ZERO,
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(2.0, 0.0, 0.0),
+        ];
         let sampled = sample_interpolated_points(
             &points,
             CurveInterpolation {

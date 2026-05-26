@@ -153,7 +153,10 @@ pub fn sample_groups(
     }
 }
 
-pub fn run_analysis(plot: &PlotSpec, request: &AnalysisRequest) -> Result<AnalysisOutput, AnalysisError> {
+pub fn run_analysis(
+    plot: &PlotSpec,
+    request: &AnalysisRequest,
+) -> Result<AnalysisOutput, AnalysisError> {
     let params = parameter_map(&request.parameters);
     let provenance = AnalysisProvenance {
         kind: request.kind,
@@ -184,7 +187,9 @@ pub fn run_analysis(plot: &PlotSpec, request: &AnalysisRequest) -> Result<Analys
         AnalysisKind::DivergenceField => vec![make_divergence_plot(plot)?],
         AnalysisKind::CurlField => vec![make_curl_plot(plot)?],
         AnalysisKind::DifferentiateCurve => vec![make_curve_derivative_plot(plot)?],
-        AnalysisKind::FitCurve => return make_curve_fit_output(plot, build_curve_fit_options(&params)),
+        AnalysisKind::FitCurve => {
+            return make_curve_fit_output(plot, build_curve_fit_options(&params));
+        }
         AnalysisKind::AxisDerivativeCurve => vec![make_axis_derivative_plot(
             plot,
             parse_axis_index(params.get("numerator_axis").map(String::as_str)).unwrap_or(1),
@@ -749,7 +754,10 @@ fn make_axis_derivative_plot(
 }
 
 fn make_extracted_points_plot(source: &PlotSpec) -> Result<PlotSpec, AnalysisError> {
-    let positions = polyline_sample_groups(source)?.into_iter().flatten().collect::<Vec<_>>();
+    let positions = polyline_sample_groups(source)?
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
     Ok(PlotSpec {
         name: format!("Points from {}", source.name),
         visible: true,
@@ -826,10 +834,9 @@ fn make_interpolated_plots(
 
 fn interpolation_source_groups(plot: &PlotSpec) -> Result<Vec<Vec<[f32; 3]>>, AnalysisError> {
     match &plot.definition {
-        crate::PlotDefinition::PointAnnotations { points, .. } => Ok(vec![points
-            .iter()
-            .map(|point| point.position)
-            .collect()]),
+        crate::PlotDefinition::PointAnnotations { points, .. } => {
+            Ok(vec![points.iter().map(|point| point.position).collect()])
+        }
         crate::PlotDefinition::ExprCurve { .. }
         | crate::PlotDefinition::ExprCartesianLine { .. }
         | crate::PlotDefinition::HelixCurve => curve_sample_groups(plot),
@@ -875,10 +882,15 @@ fn polyline_sample_groups(plot: &PlotSpec) -> Result<Vec<Vec<[f32; 3]>>, Analysi
             interpolation,
         } => {
             let sampled = sample_curve_points(
-                &points.iter().map(|point| Vec3::from_array(*point)).collect::<Vec<_>>(),
+                &points
+                    .iter()
+                    .map(|point| Vec3::from_array(*point))
+                    .collect::<Vec<_>>(),
                 *interpolation,
             );
-            Ok(vec![sampled.into_iter().map(|point| point.to_array()).collect()])
+            Ok(vec![
+                sampled.into_iter().map(|point| point.to_array()).collect(),
+            ])
         }
         _ => Err(AnalysisError::unsupported(
             "Point extraction is available for polyline and interpolated curve plots.",
@@ -893,8 +905,12 @@ fn curve_sample_groups(plot: &PlotSpec) -> Result<Vec<Vec<[f32; 3]>>, AnalysisEr
             let points = (0..steps)
                 .map(|i| {
                     let t = 20.0 * PI * i as f64 / (steps - 1) as f64;
-                    Vec3::new((t.cos() * 3.0) as f32, (t.sin() * 3.0) as f32, (t * 0.15) as f32)
-                        .to_array()
+                    Vec3::new(
+                        (t.cos() * 3.0) as f32,
+                        (t.sin() * 3.0) as f32,
+                        (t * 0.15) as f32,
+                    )
+                    .to_array()
                 })
                 .collect();
             Ok(vec![points])
@@ -922,7 +938,8 @@ fn curve_sample_groups(plot: &PlotSpec) -> Result<Vec<Vec<[f32; 3]>>, AnalysisEr
             expression,
             parameters,
         } => {
-            let parsed = parse_expr_with_vars(expression, &[ind_var.as_str()]).map_err(parse_error)?;
+            let parsed =
+                parse_expr_with_vars(expression, &[ind_var.as_str()]).map_err(parse_error)?;
             let steps = plot.resolution.u.max(2) as usize;
             let (t0, t1) = (*plot.domain.x.start(), *plot.domain.x.end());
             let dep = dep_var.clone();
@@ -936,7 +953,8 @@ fn curve_sample_groups(plot: &PlotSpec) -> Result<Vec<Vec<[f32; 3]>>, AnalysisEr
                         .chain(std::iter::once((ind.as_str(), t)))
                         .collect();
                     let val = eval_with_vars(&parsed, &vars);
-                    cartesian_line_point(dep.as_str(), ind.as_str(), t as f32, val as f32).to_array()
+                    cartesian_line_point(dep.as_str(), ind.as_str(), t as f32, val as f32)
+                        .to_array()
                 })
                 .collect();
             Ok(vec![points])
@@ -957,10 +975,15 @@ fn curve_sample_groups(plot: &PlotSpec) -> Result<Vec<Vec<[f32; 3]>>, AnalysisEr
             interpolation,
         } => {
             let sampled = sample_curve_points(
-                &points.iter().map(|point| Vec3::from_array(*point)).collect::<Vec<_>>(),
+                &points
+                    .iter()
+                    .map(|point| Vec3::from_array(*point))
+                    .collect::<Vec<_>>(),
                 *interpolation,
             );
-            Ok(vec![sampled.into_iter().map(|point| point.to_array()).collect()])
+            Ok(vec![
+                sampled.into_iter().map(|point| point.to_array()).collect(),
+            ])
         }
         _ => Err(AnalysisError::unsupported(
             "Curve calculus tools are available for curve and polyline plots.",
@@ -988,18 +1011,26 @@ fn fit_cartesian_line_group(
     options: &CurveFitOptions,
 ) -> Result<CurveFitResult, AnalysisError> {
     if group.len() < 2 {
-        return Err(AnalysisError::invalid("Need at least two points to fit a curve."));
+        return Err(AnalysisError::invalid(
+            "Need at least two points to fit a curve.",
+        ));
     }
     let xs: Vec<f64> = group
         .iter()
-        .filter_map(|point| cartesian_axis_value(Vec3::from_array(*point), ind_var).map(|v| v as f64))
+        .filter_map(|point| {
+            cartesian_axis_value(Vec3::from_array(*point), ind_var).map(|v| v as f64)
+        })
         .collect();
     let ys: Vec<f64> = group
         .iter()
-        .filter_map(|point| cartesian_axis_value(Vec3::from_array(*point), dep_var).map(|v| v as f64))
+        .filter_map(|point| {
+            cartesian_axis_value(Vec3::from_array(*point), dep_var).map(|v| v as f64)
+        })
         .collect();
     if xs.len() != group.len() || ys.len() != group.len() {
-        return Err(AnalysisError::invalid("Could not read curve axes for fitting."));
+        return Err(AnalysisError::invalid(
+            "Could not read curve axes for fitting.",
+        ));
     }
     let evaluation_count = resampled_point_count(group.len(), options.samples_per_segment);
     let x_eval = evenly_spaced_range(*xs.first().unwrap(), *xs.last().unwrap(), evaluation_count);
@@ -1009,7 +1040,10 @@ fn fit_cartesian_line_group(
             let fit = polynomial_fit(&xs, &ys, options.degree, None)?;
             let fitted_group = x_eval
                 .iter()
-                .map(|x| cartesian_line_point(dep_var, ind_var, *x as f32, fit.evaluate(*x) as f32).to_array())
+                .map(|x| {
+                    cartesian_line_point(dep_var, ind_var, *x as f32, fit.evaluate(*x) as f32)
+                        .to_array()
+                })
                 .collect();
             let residual_values = xs
                 .iter()
@@ -1025,7 +1059,10 @@ fn fit_cartesian_line_group(
             let fit = robust_polynomial_fit_scalar(&xs, &ys, options.degree)?;
             let fitted_group = x_eval
                 .iter()
-                .map(|x| cartesian_line_point(dep_var, ind_var, *x as f32, fit.evaluate(*x) as f32).to_array())
+                .map(|x| {
+                    cartesian_line_point(dep_var, ind_var, *x as f32, fit.evaluate(*x) as f32)
+                        .to_array()
+                })
                 .collect();
             let residual_values = xs
                 .iter()
@@ -1041,7 +1078,10 @@ fn fit_cartesian_line_group(
             let fit = fourier_fit(&xs, &ys, options.harmonics)?;
             let fitted_group = x_eval
                 .iter()
-                .map(|x| cartesian_line_point(dep_var, ind_var, *x as f32, fit.evaluate(*x) as f32).to_array())
+                .map(|x| {
+                    cartesian_line_point(dep_var, ind_var, *x as f32, fit.evaluate(*x) as f32)
+                        .to_array()
+                })
                 .collect();
             let residual_values = xs
                 .iter()
@@ -1058,7 +1098,9 @@ fn fit_cartesian_line_group(
             let control_points: Vec<[f32; 3]> = xs
                 .iter()
                 .zip(smoothed.iter())
-                .map(|(x, y)| cartesian_line_point(dep_var, ind_var, *x as f32, *y as f32).to_array())
+                .map(|(x, y)| {
+                    cartesian_line_point(dep_var, ind_var, *x as f32, *y as f32).to_array()
+                })
                 .collect();
             let fitted_group = sample_curve_points(
                 &control_points
@@ -1093,7 +1135,9 @@ fn fit_parametric_curve_group(
     options: &CurveFitOptions,
 ) -> Result<CurveFitResult, AnalysisError> {
     if group.len() < 2 {
-        return Err(AnalysisError::invalid("Need at least two points to fit a curve."));
+        return Err(AnalysisError::invalid(
+            "Need at least two points to fit a curve.",
+        ));
     }
     let ts = evenly_spaced_parameter_values(group.len());
     let evaluation_ts = evenly_spaced_parameter_values(resampled_point_count(
@@ -1256,10 +1300,9 @@ fn make_curve_fit_output(
     }
 
     let mut plots = vec![PlotSpec {
-        name: options
-            .output_name
-            .clone()
-            .unwrap_or_else(|| format!("{} {}", curve_fit_method_label(options.method), source.name)),
+        name: options.output_name.clone().unwrap_or_else(|| {
+            format!("{} {}", curve_fit_method_label(options.method), source.name)
+        }),
         visible: true,
         domain: source.domain.clone(),
         resolution: source.resolution,
@@ -1318,16 +1361,20 @@ fn make_curve_fit_output(
     let rms = if residual_samples.is_empty() {
         0.0
     } else {
-        (residual_samples.iter().map(|value| value * value).sum::<f32>() / residual_samples.len() as f32)
+        (residual_samples
+            .iter()
+            .map(|value| value * value)
+            .sum::<f32>()
+            / residual_samples.len() as f32)
             .sqrt()
     };
-    let max_residual = residual_samples
-        .iter()
-        .copied()
-        .fold(0.0_f32, f32::max);
+    let max_residual = residual_samples.iter().copied().fold(0.0_f32, f32::max);
 
     let mut report_values = vec![
-        ("Method".to_string(), curve_fit_method_label(options.method).to_string()),
+        (
+            "Method".to_string(),
+            curve_fit_method_label(options.method).to_string(),
+        ),
         ("Samples".to_string(), total_points.to_string()),
         ("RMS Residual".to_string(), format!("{rms:.6}")),
         ("Max Residual".to_string(), format!("{max_residual:.6}")),
@@ -1497,7 +1544,10 @@ struct PolynomialFit {
 
 impl PolynomialFit {
     fn evaluate(&self, x: f64) -> f64 {
-        evaluate_polynomial(&self.coeffs, normalize_domain_value(x, self.x_min, self.x_max))
+        evaluate_polynomial(
+            &self.coeffs,
+            normalize_domain_value(x, self.x_min, self.x_max),
+        )
     }
 }
 
@@ -1567,8 +1617,12 @@ fn polynomial_fit(
     degree: usize,
     weights: Option<&[f64]>,
 ) -> Result<PolynomialFit, AnalysisError> {
-    let x_min = *xs.first().ok_or_else(|| AnalysisError::invalid("No samples for fit."))?;
-    let x_max = *xs.last().ok_or_else(|| AnalysisError::invalid("No samples for fit."))?;
+    let x_min = *xs
+        .first()
+        .ok_or_else(|| AnalysisError::invalid("No samples for fit."))?;
+    let x_max = *xs
+        .last()
+        .ok_or_else(|| AnalysisError::invalid("No samples for fit."))?;
     let normalized: Vec<f64> = xs
         .iter()
         .map(|x| normalize_domain_value(*x, x_min, x_max))
@@ -1636,8 +1690,12 @@ fn robust_polynomial_fit_vector(
 }
 
 fn fourier_fit(xs: &[f64], ys: &[f64], harmonics: usize) -> Result<FourierFit, AnalysisError> {
-    let x_min = *xs.first().ok_or_else(|| AnalysisError::invalid("No samples for fit."))?;
-    let x_max = *xs.last().ok_or_else(|| AnalysisError::invalid("No samples for fit."))?;
+    let x_min = *xs
+        .first()
+        .ok_or_else(|| AnalysisError::invalid("No samples for fit."))?;
+    let x_max = *xs
+        .last()
+        .ok_or_else(|| AnalysisError::invalid("No samples for fit."))?;
     let design = xs
         .iter()
         .map(|x| fourier_basis(normalized_angle(*x, x_min, x_max), harmonics))
@@ -1812,7 +1870,10 @@ fn residual_scale(residuals: &[f64]) -> f64 {
     if residuals.is_empty() {
         return 1.0;
     }
-    let mut sorted = residuals.iter().map(|value| value.abs()).collect::<Vec<_>>();
+    let mut sorted = residuals
+        .iter()
+        .map(|value| value.abs())
+        .collect::<Vec<_>>();
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     sorted[sorted.len() / 2]
 }
@@ -1824,7 +1885,8 @@ fn smooth_scalar_values(values: &[f64], smoothing_window: u32) -> Vec<f64> {
             let mut total = 0.0_f64;
             let mut count = 0.0_f64;
             for offset in -radius..=radius {
-                let sample_index = (index as isize + offset).clamp(0, values.len() as isize - 1) as usize;
+                let sample_index =
+                    (index as isize + offset).clamp(0, values.len() as isize - 1) as usize;
                 total += values[sample_index];
                 count += 1.0;
             }
@@ -1840,7 +1902,8 @@ fn smooth_vec3_values(values: &[Vec3], smoothing_window: u32) -> Vec<Vec3> {
             let mut total = Vec3::ZERO;
             let mut count = 0.0_f32;
             for offset in -radius..=radius {
-                let sample_index = (index as isize + offset).clamp(0, values.len() as isize - 1) as usize;
+                let sample_index =
+                    (index as isize + offset).clamp(0, values.len() as isize - 1) as usize;
                 total += values[sample_index];
                 count += 1.0;
             }
@@ -1965,7 +2028,11 @@ fn tangent_curve_group(group: &[[f32; 3]]) -> Vec<[f32; 3]> {
         return Vec::new();
     }
     (0..group.len())
-        .map(|index| finite_difference(group, index).normalize_or_zero().to_array())
+        .map(|index| {
+            finite_difference(group, index)
+                .normalize_or_zero()
+                .to_array()
+        })
         .collect()
 }
 
@@ -2086,7 +2153,8 @@ fn axis_derivative_group(
             let point = Vec3::from_array(group[index]);
             let denominator = axis_value(point, denominator_axis);
             let derivative = axis_derivative_value(group, index, numerator_axis, denominator_axis)?;
-            let constant_axis = (0..3).find(|axis| *axis != numerator_axis && *axis != denominator_axis);
+            let constant_axis =
+                (0..3).find(|axis| *axis != numerator_axis && *axis != denominator_axis);
             let constant_value = constant_axis.map(|axis| average_axis_value(group, axis));
             Some(
                 point_on_axes(
@@ -2253,13 +2321,11 @@ fn detect_planar_graph_layout(group: &[[f32; 3]]) -> Option<PlanarGraphLayout> {
     let independent_axis = if monotonic_axes.len() == 1 {
         monotonic_axes[0]
     } else {
-        *varying_axes
-            .iter()
-            .max_by(|a, b| {
-                ranges[**a]
-                    .partial_cmp(&ranges[**b])
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })?
+        *varying_axes.iter().max_by(|a, b| {
+            ranges[**a]
+                .partial_cmp(&ranges[**b])
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })?
     };
     let dependent_axis = varying_axes
         .into_iter()
@@ -2277,8 +2343,12 @@ fn derivative_planar_graph_group(group: &[[f32; 3]], layout: PlanarGraphLayout) 
         .filter_map(|index| {
             let point = Vec3::from_array(group[index]);
             let independent = axis_value(point, layout.independent_axis);
-            let derivative =
-                axis_derivative_value(group, index, layout.dependent_axis, layout.independent_axis)?;
+            let derivative = axis_derivative_value(
+                group,
+                index,
+                layout.dependent_axis,
+                layout.independent_axis,
+            )?;
             Some(
                 point_on_axes(
                     layout.independent_axis,
@@ -2381,7 +2451,8 @@ fn axis_range(group: &[[f32; 3]], axis: usize) -> f32 {
 }
 
 fn average_axis_value(group: &[[f32; 3]], axis: usize) -> f32 {
-    group.iter()
+    group
+        .iter()
         .map(|point| axis_value(Vec3::from_array(*point), axis))
         .sum::<f32>()
         / group.len() as f32
@@ -2426,7 +2497,8 @@ fn integral_cartesian_line_group(
         return Vec::new();
     }
     let mut out = Vec::with_capacity(group.len());
-    let start_independent = cartesian_axis_value(Vec3::from_array(group[0]), ind_var).unwrap_or(0.0);
+    let start_independent =
+        cartesian_axis_value(Vec3::from_array(group[0]), ind_var).unwrap_or(0.0);
     let mut accum = 0.0_f32;
     out.push(cartesian_line_point(dep_var, ind_var, start_independent, accum).to_array());
     for pair in group.windows(2) {
@@ -2487,7 +2559,12 @@ fn binormal_curve_group(group: &[[f32; 3]]) -> Vec<[f32; 3]> {
     tangents
         .iter()
         .zip(normals.iter())
-        .map(|(tangent, normal)| tangent.cross(Vec3::from_array(*normal)).normalize_or_zero().to_array())
+        .map(|(tangent, normal)| {
+            tangent
+                .cross(Vec3::from_array(*normal))
+                .normalize_or_zero()
+                .to_array()
+        })
         .collect()
 }
 
@@ -2510,11 +2587,7 @@ mod tests {
 
     #[test]
     fn derivative_of_planar_xz_curve_stays_in_xz_plane() {
-        let group = vec![
-            [0.0, 4.0, 0.0],
-            [1.0, 4.0, 1.0],
-            [2.0, 4.0, 0.0],
-        ];
+        let group = vec![[0.0, 4.0, 0.0], [1.0, 4.0, 1.0], [2.0, 4.0, 0.0]];
 
         let derived = derivative_curve_group(&group);
 
@@ -2526,11 +2599,7 @@ mod tests {
 
     #[test]
     fn axis_derivative_preserves_constant_plane_axis() {
-        let group = vec![
-            [0.0, 4.0, 0.0],
-            [1.0, 4.0, 1.0],
-            [2.0, 4.0, 0.0],
-        ];
+        let group = vec![[0.0, 4.0, 0.0], [1.0, 4.0, 1.0], [2.0, 4.0, 0.0]];
 
         let derived = axis_derivative_group(&group, 2, 0);
 
@@ -2542,11 +2611,7 @@ mod tests {
 
     #[test]
     fn integral_of_planar_xz_curve_stays_in_xz_plane() {
-        let group = vec![
-            [0.0, 4.0, 0.0],
-            [1.0, 4.0, 1.0],
-            [2.0, 4.0, 0.0],
-        ];
+        let group = vec![[0.0, 4.0, 0.0], [1.0, 4.0, 1.0], [2.0, 4.0, 0.0]];
 
         let derived = integral_curve_group(&group, false);
 

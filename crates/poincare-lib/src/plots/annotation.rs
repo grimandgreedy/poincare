@@ -23,7 +23,11 @@ impl PlotObject for AnnotatedPointsPlot {
     }
 
     fn natural_bounds(&self) -> Option<DataBounds> {
-        bounds_for_points(self.points.iter().map(|point| glam::Vec3::from_array(point.position)))
+        bounds_for_points(
+            self.points
+                .iter()
+                .map(|point| glam::Vec3::from_array(point.position)),
+        )
     }
 
     fn generate(&self, _domain: &Domain, _resolution: Resolution) -> PlotGeometry {

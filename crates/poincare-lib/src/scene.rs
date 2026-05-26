@@ -3,9 +3,8 @@ use glam::Vec3;
 use viewport_lib::{
     AttributeKind, AttributeRef, Camera, ColourmapId, FrameData, GlyphItem, ItemSettings,
     LabelItem, LicOverlay, LightKind, LightSource, LightingSettings, Material, MeshId, PickId,
-    PointCloudItem, PolylineItem, RenderCamera, SceneRenderItem, StreamtubeItem,
-    SurfaceLICConfig, SurfaceSubmission, ViewportError, ViewportGpuResources,
-    VolumeData, VolumeId, VolumeItem,
+    PointCloudItem, PolylineItem, RenderCamera, SceneRenderItem, StreamtubeItem, SurfaceLICConfig,
+    SurfaceSubmission, ViewportError, ViewportGpuResources, VolumeData, VolumeId, VolumeItem,
 };
 
 use crate::axis::Axis3;
@@ -826,7 +825,11 @@ impl GraphScene {
         let mut polylines = Vec::new();
         let mut points = Vec::new();
 
-        for (plot, pick_id) in self.cached_plots.iter().zip(self.plot_pick_ids.iter().copied()) {
+        for (plot, pick_id) in self
+            .cached_plots
+            .iter()
+            .zip(self.plot_pick_ids.iter().copied())
+        {
             for s in &plot.surfaces {
                 if !s.cpu_positions.is_empty() && !s.cpu_indices.is_empty() {
                     surfaces.push(SurfacePickData {

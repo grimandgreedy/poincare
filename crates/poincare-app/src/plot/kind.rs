@@ -1,5 +1,6 @@
 use poincare_lib::{
-    CurveInterpolation, DomainEditorMetadata, PlotMetadata, StyleCapabilities as LibStyleCapabilities,
+    CurveInterpolation, DomainEditorMetadata, PlotMetadata,
+    StyleCapabilities as LibStyleCapabilities,
 };
 
 /// Default palette for isosurface per-level colours.
@@ -56,13 +57,15 @@ impl From<DomainEditorMetadata> for DomainLabels {
                 "T" => Self::T,
                 _ => Self::SingleVar(primary),
             },
-            DomainEditorMetadata::Two { primary, secondary } => match (primary.as_str(), secondary.as_str()) {
-                ("X", "Y") => Self::Xy,
-                ("theta", "phi") => Self::ThetaPhi,
-                ("theta", "z") => Self::ThetaZ,
-                ("U", "V") => Self::Uv,
-                _ => Self::None,
-            },
+            DomainEditorMetadata::Two { primary, secondary } => {
+                match (primary.as_str(), secondary.as_str()) {
+                    ("X", "Y") => Self::Xy,
+                    ("theta", "phi") => Self::ThetaPhi,
+                    ("theta", "z") => Self::ThetaZ,
+                    ("U", "V") => Self::Uv,
+                    _ => Self::None,
+                }
+            }
             DomainEditorMetadata::Three { .. } => Self::Xyz,
         }
     }

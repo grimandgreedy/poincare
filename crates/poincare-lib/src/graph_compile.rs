@@ -2,15 +2,17 @@ use std::fmt;
 use std::sync::Arc;
 
 use crate::diagnostics::{Diagnostic, DiagnosticKind};
-use crate::expressions::{ParametricCurveExpr, ParametricSurfaceExpr, ScalarFieldExpr, VectorFieldExpr};
+use crate::expressions::{
+    ParametricCurveExpr, ParametricSurfaceExpr, ScalarFieldExpr, VectorFieldExpr,
+};
 use crate::graph_spec::{GraphSpec, PlotDefinition, PlotSpec};
 use crate::{
     AnnotatedArrowsPlot, AnnotatedPointsPlot, ColourMode, ContourPlot3D, Curve3D, DensityPlot3D,
     Domain, FiniteDifferenceConfig, GraphScene, LevelSet3D, PiecewisePlot, PlaneVectorFieldPlot,
     PlotStyle, Resolution, ScalarSlicePlot, Scatter3D, StreamPlot3D, Surface3D, TableDataSet,
-    TableVectorFieldPlot, VectorField3D,
-    eval_curve_point, eval_surface, eval_with_vars, finite_curl, finite_divergence,
-    finite_gradient, generate_seeds, parse_expr_with_vars, parse_surface_expr,
+    TableVectorFieldPlot, VectorField3D, eval_curve_point, eval_surface, eval_with_vars,
+    finite_curl, finite_divergence, finite_gradient, generate_seeds, parse_expr_with_vars,
+    parse_surface_expr,
 };
 
 #[derive(Debug, Clone)]
@@ -49,7 +51,9 @@ impl GraphBuildError {
 impl fmt::Display for GraphBuildError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match (&self.plot_index, &self.plot_name) {
-            (Some(index), Some(name)) => write!(f, "plot {} ({}): {}", index + 1, name, self.diagnostic),
+            (Some(index), Some(name)) => {
+                write!(f, "plot {} ({}): {}", index + 1, name, self.diagnostic)
+            }
             (Some(index), None) => write!(f, "plot {}: {}", index + 1, self.diagnostic),
             _ => write!(f, "{}", self.diagnostic),
         }
@@ -141,13 +145,10 @@ fn compile_plot_spec(
             let seeds = seed_resolution_from_plot(plot.resolution);
             scene.add_with_pick_id(
                 pick_id,
-                VectorField3D::from_fn(
-                    |x, y, _z| glam::Vec3::new(-y as f32, x as f32, 0.3),
-                    seeds,
-                )
-                .with_domain(plot.domain.clone())
-                .with_style(plot.style.clone())
-                .with_resolution(plot.resolution),
+                VectorField3D::from_fn(|x, y, _z| glam::Vec3::new(-y as f32, x as f32, 0.3), seeds)
+                    .with_domain(plot.domain.clone())
+                    .with_style(plot.style.clone())
+                    .with_resolution(plot.resolution),
             );
         }
         PlotDefinition::GridSurface => {
@@ -176,7 +177,8 @@ fn compile_plot_spec(
             );
         }
         PlotDefinition::Streamlines { seeds } => {
-            let seeds: Vec<glam::Vec3> = seeds.iter().copied().map(glam::Vec3::from_array).collect();
+            let seeds: Vec<glam::Vec3> =
+                seeds.iter().copied().map(glam::Vec3::from_array).collect();
             scene.add_with_pick_id(
                 pick_id,
                 StreamPlot3D::from_field(
@@ -238,8 +240,9 @@ fn compile_plot_spec(
             expression,
             parameters,
         } => {
-            let parsed = parse_surface_expr(expression)
-                .map_err(|err| GraphBuildError::for_plot(plot_index, plot, format!("parse error: {err}")))?;
+            let parsed = parse_surface_expr(expression).map_err(|err| {
+                GraphBuildError::for_plot(plot_index, plot, format!("parse error: {err}"))
+            })?;
             let params = parameters.clone();
             scene.add_with_pick_id(
                 pick_id,
@@ -254,15 +257,17 @@ fn compile_plot_spec(
             parameters,
             t_range,
         } => {
-            let parsed_triple =
-                ParametricCurveExpr::parse(expression).map_err(|err| GraphBuildError::parse(plot_index, plot, err))?;
+            let parsed_triple = ParametricCurveExpr::parse(expression)
+                .map_err(|err| GraphBuildError::parse(plot_index, plot, err))?;
             let params = parameters.clone();
             let (t0, t1) = *t_range;
             scene.add_with_pick_id(
                 pick_id,
-                Curve3D::parametric(t0..=t1, move |t| eval_curve_point(parsed_triple.components(), t, &params))
-                    .with_style(plot.style.clone())
-                    .with_resolution(plot.resolution),
+                Curve3D::parametric(t0..=t1, move |t| {
+                    eval_curve_point(parsed_triple.components(), t, &params)
+                })
+                .with_style(plot.style.clone())
+                .with_resolution(plot.resolution),
             );
         }
         PlotDefinition::ExprCartesianLine {
@@ -271,8 +276,9 @@ fn compile_plot_spec(
             expression,
             parameters,
         } => {
-            let parsed = parse_expr_with_vars(expression, &[ind_var.as_str()])
-                .map_err(|err| GraphBuildError::for_plot(plot_index, plot, format!("parse error: {err}")))?;
+            let parsed = parse_expr_with_vars(expression, &[ind_var.as_str()]).map_err(|err| {
+                GraphBuildError::for_plot(plot_index, plot, format!("parse error: {err}"))
+            })?;
             let params = parameters.clone();
             let dep = dep_var.clone();
             let ind = ind_var.clone();
@@ -304,8 +310,9 @@ fn compile_plot_spec(
             expression,
             parameters,
         } => {
-            let parsed = parse_expr_with_vars(expression, &["theta", "phi"])
-                .map_err(|err| GraphBuildError::for_plot(plot_index, plot, format!("parse error: {err}")))?;
+            let parsed = parse_expr_with_vars(expression, &["theta", "phi"]).map_err(|err| {
+                GraphBuildError::for_plot(plot_index, plot, format!("parse error: {err}"))
+            })?;
             let params = parameters.clone();
             scene.add_with_pick_id(
                 pick_id,
@@ -325,8 +332,9 @@ fn compile_plot_spec(
             expression,
             parameters,
         } => {
-            let parsed = parse_expr_with_vars(expression, &["theta", "z"])
-                .map_err(|err| GraphBuildError::for_plot(plot_index, plot, format!("parse error: {err}")))?;
+            let parsed = parse_expr_with_vars(expression, &["theta", "z"]).map_err(|err| {
+                GraphBuildError::for_plot(plot_index, plot, format!("parse error: {err}"))
+            })?;
             let params = parameters.clone();
             scene.add_with_pick_id(
                 pick_id,
@@ -346,8 +354,9 @@ fn compile_plot_spec(
             expression,
             parameters,
         } => {
-            let parsed = parse_expr_with_vars(expression, &["theta"])
-                .map_err(|err| GraphBuildError::for_plot(plot_index, plot, format!("parse error: {err}")))?;
+            let parsed = parse_expr_with_vars(expression, &["theta"]).map_err(|err| {
+                GraphBuildError::for_plot(plot_index, plot, format!("parse error: {err}"))
+            })?;
             let params = parameters.clone();
             scene.add_with_pick_id(
                 pick_id,
@@ -367,8 +376,8 @@ fn compile_plot_spec(
             expression,
             parameters,
         } => {
-            let parsed =
-                ParametricSurfaceExpr::parse(expression).map_err(|err| GraphBuildError::parse(plot_index, plot, err))?;
+            let parsed = ParametricSurfaceExpr::parse(expression)
+                .map_err(|err| GraphBuildError::parse(plot_index, plot, err))?;
             let [px, py, pz] = parsed.components().clone();
             let params = parameters.clone();
             let u_range = plot.domain.x.clone();
@@ -398,8 +407,8 @@ fn compile_plot_spec(
             contour_values,
             contour_style,
         } => {
-            let parsed =
-                ScalarFieldExpr::parse(expression, &["x", "y", "z"]).map_err(|err| GraphBuildError::parse(plot_index, plot, err))?;
+            let parsed = ScalarFieldExpr::parse(expression, &["x", "y", "z"])
+                .map_err(|err| GraphBuildError::parse(plot_index, plot, err))?;
             let params = parameters.clone();
             scene.add_with_pick_id(
                 pick_id,
@@ -425,8 +434,8 @@ fn compile_plot_spec(
             axis,
             position,
         } => {
-            let parsed =
-                VectorFieldExpr::parse(expression, &["x", "y", "z"]).map_err(|err| GraphBuildError::parse(plot_index, plot, err))?;
+            let parsed = VectorFieldExpr::parse(expression, &["x", "y", "z"])
+                .map_err(|err| GraphBuildError::parse(plot_index, plot, err))?;
             let [px, py, pz] = parsed.components().clone();
             let params = parameters.clone();
             scene.add_with_pick_id(
@@ -453,8 +462,8 @@ fn compile_plot_spec(
             expression,
             parameters,
         } => {
-            let parsed =
-                ScalarFieldExpr::parse(expression, &["x", "y", "z"]).map_err(|err| GraphBuildError::parse(plot_index, plot, err))?;
+            let parsed = ScalarFieldExpr::parse(expression, &["x", "y", "z"])
+                .map_err(|err| GraphBuildError::parse(plot_index, plot, err))?;
             let params = parameters.clone();
             let diff = FiniteDifferenceConfig::default();
             let seeds = seed_resolution_from_plot(plot.resolution);
@@ -489,8 +498,8 @@ fn compile_plot_spec(
             parameters,
             vol_resolution,
         } => {
-            let parsed =
-                VectorFieldExpr::parse(expression, &["x", "y", "z"]).map_err(|err| GraphBuildError::parse(plot_index, plot, err))?;
+            let parsed = VectorFieldExpr::parse(expression, &["x", "y", "z"])
+                .map_err(|err| GraphBuildError::parse(plot_index, plot, err))?;
             let [px, py, pz] = parsed.components().clone();
             let params = parameters.clone();
             let diff = FiniteDifferenceConfig::default();
@@ -528,8 +537,8 @@ fn compile_plot_spec(
             expression,
             parameters,
         } => {
-            let parsed =
-                VectorFieldExpr::parse(expression, &["x", "y", "z"]).map_err(|err| GraphBuildError::parse(plot_index, plot, err))?;
+            let parsed = VectorFieldExpr::parse(expression, &["x", "y", "z"])
+                .map_err(|err| GraphBuildError::parse(plot_index, plot, err))?;
             let [px, py, pz] = parsed.components().clone();
             let params = parameters.clone();
             let diff = FiniteDifferenceConfig::default();
@@ -564,7 +573,10 @@ fn compile_plot_spec(
                 .with_resolution(plot.resolution),
             );
         }
-        PlotDefinition::PointAnnotations { points, show_labels } => {
+        PlotDefinition::PointAnnotations {
+            points,
+            show_labels,
+        } => {
             if !points.is_empty() {
                 scene.add_with_pick_id(
                     pick_id,
@@ -576,7 +588,10 @@ fn compile_plot_spec(
                 );
             }
         }
-        PlotDefinition::ArrowAnnotations { arrows, show_labels } => {
+        PlotDefinition::ArrowAnnotations {
+            arrows,
+            show_labels,
+        } => {
             if !arrows.is_empty() {
                 scene.add_with_pick_id(
                     pick_id,
@@ -592,7 +607,12 @@ fn compile_plot_spec(
             if !groups.is_empty() {
                 let converted: Vec<Vec<glam::Vec3>> = groups
                     .iter()
-                    .map(|group| group.iter().map(|point| glam::Vec3::from_array(*point)).collect())
+                    .map(|group| {
+                        group
+                            .iter()
+                            .map(|point| glam::Vec3::from_array(*point))
+                            .collect()
+                    })
                     .collect();
                 scene.add_with_pick_id(
                     pick_id,
@@ -656,7 +676,9 @@ fn compile_plot_spec(
                         );
                     }
                 }
-                TableDataSet::Scatter { points, scalars, .. } => {
+                TableDataSet::Scatter {
+                    points, scalars, ..
+                } => {
                     if !points.is_empty() {
                         if let Some(scalars) = scalars {
                             scene.add_with_pick_id(
@@ -686,8 +708,8 @@ fn compile_plot_spec(
             expression,
             parameters,
         } => {
-            let parsed =
-                VectorFieldExpr::parse(expression, &["x", "y", "z"]).map_err(|err| GraphBuildError::parse(plot_index, plot, err))?;
+            let parsed = VectorFieldExpr::parse(expression, &["x", "y", "z"])
+                .map_err(|err| GraphBuildError::parse(plot_index, plot, err))?;
             let [px, py, pz] = parsed.components().clone();
             let params = parameters.clone();
             let seeds = seed_resolution_from_plot(plot.resolution);
@@ -717,8 +739,8 @@ fn compile_plot_spec(
             parameters,
             vol_resolution,
         } => {
-            let parsed =
-                ScalarFieldExpr::parse(expression, &["x", "y", "z"]).map_err(|err| GraphBuildError::parse(plot_index, plot, err))?;
+            let parsed = ScalarFieldExpr::parse(expression, &["x", "y", "z"])
+                .map_err(|err| GraphBuildError::parse(plot_index, plot, err))?;
             let params = parameters.clone();
             let res = *vol_resolution;
             scene.add_with_pick_id(
@@ -744,8 +766,8 @@ fn compile_plot_spec(
             iso_colours,
             vol_resolution,
         } => {
-            let parsed =
-                ScalarFieldExpr::parse(expression, &["x", "y", "z"]).map_err(|err| GraphBuildError::parse(plot_index, plot, err))?;
+            let parsed = ScalarFieldExpr::parse(expression, &["x", "y", "z"])
+                .map_err(|err| GraphBuildError::parse(plot_index, plot, err))?;
             let params = parameters.clone();
             let res = *vol_resolution;
             let iso_styles: Vec<PlotStyle> = iso_colours
@@ -781,8 +803,8 @@ fn compile_plot_spec(
             step_size,
             max_steps,
         } => {
-            let parsed =
-                VectorFieldExpr::parse(expression, &["x", "y", "z"]).map_err(|err| GraphBuildError::parse(plot_index, plot, err))?;
+            let parsed = VectorFieldExpr::parse(expression, &["x", "y", "z"])
+                .map_err(|err| GraphBuildError::parse(plot_index, plot, err))?;
             let [px, py, pz] = parsed.components().clone();
             let params = parameters.clone();
             let seeds = generate_seeds(seed_mode, &plot.domain);
@@ -792,11 +814,8 @@ fn compile_plot_spec(
                 pick_id,
                 StreamPlot3D::from_field(
                     move |p: glam::Vec3| {
-                        let mut vars: Vec<(&str, f64)> = vec![
-                            ("x", p.x as f64),
-                            ("y", p.y as f64),
-                            ("z", p.z as f64),
-                        ];
+                        let mut vars: Vec<(&str, f64)> =
+                            vec![("x", p.x as f64), ("y", p.y as f64), ("z", p.z as f64)];
                         for (name, val) in &params {
                             vars.push((name.as_str(), *val));
                         }
@@ -831,10 +850,16 @@ fn build_curve_piecewise(groups: &[Vec<glam::Vec3>], style: PlotStyle) -> Piecew
     build_curve_piecewise_with_interpolation(groups, style, crate::CurveInterpolation::default())
 }
 
-fn build_curve_piecewise_with_interpolation(groups: &[Vec<glam::Vec3>], style: PlotStyle, interpolation: crate::CurveInterpolation) -> PiecewisePlot {
+fn build_curve_piecewise_with_interpolation(
+    groups: &[Vec<glam::Vec3>],
+    style: PlotStyle,
+    interpolation: crate::CurveInterpolation,
+) -> PiecewisePlot {
     let mut plot = PiecewisePlot::new();
     for points in groups {
-        if points.is_empty() { continue; }
+        if points.is_empty() {
+            continue;
+        }
         let bounds = bounds_domain_for_points(points);
         plot.add_piece(
             bounds,
