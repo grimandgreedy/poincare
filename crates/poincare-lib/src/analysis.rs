@@ -4,14 +4,16 @@ use std::f64::consts::PI;
 use glam::Vec3;
 
 use crate::{
-    ColourMode, CurveInterpolation, CurveInterpolationKind, Diagnostic, DiagnosticKind,
-    PlotMetadata, PlotSpec, PlotStyle, PointAnnotation, SliceAxis, TableDataSet,
-    default_slice_position, eval_curve_point, eval_with_vars, parse_curve_expr,
-    parse_expr_with_vars, sample_curve_points,
+    ArrowAnnotation, ColourMode, CurveInterpolation, CurveInterpolationKind, Diagnostic,
+    DiagnosticKind, DiagnosticLocation, PlotMetadata, PlotSpec, PlotStyle, PointAnnotation,
+    SliceAxis, TableDataSet, default_slice_position, eval_curve_point, eval_with_vars,
+    parse_curve_expr, parse_expr_with_vars, sample_curve_points,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AnalysisKind {
+    PointCloudStatistics,
+    DataQualityChecks,
     InterpolateCurve,
     FitCurve,
     DifferentiateCurve,
@@ -116,6 +118,7 @@ pub enum SampleGroupsKind {
     Curve,
     Polyline,
     InterpolationSource,
+    SampleData,
 }
 
 #[derive(Clone, Debug)]
@@ -139,7 +142,24 @@ impl AnalysisError {
 
 pub fn available_analyses(plot: &PlotSpec) -> Vec<AnalysisCapability> {
     let metadata = plot.metadata();
-    capabilities_for_metadata(&metadata)
+    let mut capabilities = capabilities_for_metadata(&metadata);
+    if supports_sample_data_analysis(plot) {
+        capabilities.extend([
+            AnalysisCapability {
+                kind: AnalysisKind::PointCloudStatistics,
+                target_kind: AnalysisTargetKind::SampledData,
+                output_kind: AnalysisOutputKind::Composite,
+                parameters: vec![],
+            },
+            AnalysisCapability {
+                kind: AnalysisKind::DataQualityChecks,
+                target_kind: AnalysisTargetKind::SampledData,
+                output_kind: AnalysisOutputKind::Composite,
+                parameters: vec![],
+            },
+        ]);
+    }
+    capabilities
 }
 
 pub fn sample_groups(
@@ -150,6 +170,7 @@ pub fn sample_groups(
         SampleGroupsKind::Curve => curve_sample_groups(plot),
         SampleGroupsKind::Polyline => polyline_sample_groups(plot),
         SampleGroupsKind::InterpolationSource => interpolation_source_groups(plot),
+        SampleGroupsKind::SampleData => sample_data_groups(plot),
     }
 }
 
@@ -166,6 +187,8 @@ pub fn run_analysis(
     };
 
     let plots = match request.kind {
+        AnalysisKind::PointCloudStatistics => return make_point_cloud_statistics_output(plot),
+        AnalysisKind::DataQualityChecks => return make_data_quality_output(plot),
         AnalysisKind::ScalarSlice => vec![make_scalar_slice_plot(
             plot,
             parse_axis(params.get("axis").map(String::as_str)).unwrap_or(SliceAxis::Z),
@@ -221,6 +244,12 @@ pub fn run_analysis(
     };
 
     Ok(AnalysisOutput::DerivedPlots { plots, provenance })
+}
+
+fn supports_sample_data_analysis(plot: &PlotSpec) -> bool {
+    sample_data_groups(plot)
+        .map(|groups| groups.iter().map(Vec::len).sum::<usize>() >= 2)
+        .unwrap_or(false)
 }
 
 fn capabilities_for_metadata(metadata: &PlotMetadata) -> Vec<AnalysisCapability> {
@@ -898,6 +927,76 @@ fn polyline_sample_groups(plot: &PlotSpec) -> Result<Vec<Vec<[f32; 3]>>, Analysi
     }
 }
 
+fn sample_data_groups(plot: &PlotSpec) -> Result<Vec<Vec<[f32; 3]>>, AnalysisError> {
+    match &plot.definition {
+        crate::PlotDefinition::PointAnnotations { points, .. } => {
+            Ok(vec![points.iter().map(|point| point.position).collect()])
+        }
+        crate::PlotDefinition::ArrowAnnotations { arrows, .. } => {
+            Ok(vec![arrows.iter().map(|arrow| arrow.origin).collect()])
+        }
+        crate::PlotDefinition::ExprCurve { .. }
+        | crate::PlotDefinition::ExprCartesianLine { .. }
+        | crate::PlotDefinition::HelixCurve => curve_sample_groups(plot),
+        crate::PlotDefinition::ImportedTable { definition } => match definition.validate() {
+            Ok(TableDataSet::Curve { groups, .. }) => Ok(groups
+                .iter()
+                .map(|group| group.iter().map(|point| point.to_array()).collect())
+                .collect()),
+            Ok(TableDataSet::Scatter { points, .. }) => {
+                Ok(vec![points.iter().map(|point| point.to_array()).collect()])
+            }
+            Ok(TableDataSet::VectorField { samples, .. }) => Ok(vec![
+                samples
+                    .iter()
+                    .map(|sample| sample.position.to_array())
+                    .collect(),
+            ]),
+            Ok(TableDataSet::SurfaceGrid { xs, ys, zs }) => {
+                if xs.is_empty() || ys.is_empty() || zs.is_empty() {
+                    return Err(AnalysisError::invalid(
+                        "Imported surface grid does not contain enough samples.",
+                    ));
+                }
+                let ny = ys.len();
+                let zs_ref = &zs;
+                let points = xs
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(ix, x)| {
+                        ys.iter().enumerate().filter_map(move |(iy, y)| {
+                            let index = ix.checked_mul(ny)?.checked_add(iy)?;
+                            let z = *zs_ref.get(index)?;
+                            Some([*x as f32, *y as f32, z as f32])
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                Ok(vec![points])
+            }
+            Err(errors) => Err(table_errors(errors)),
+        },
+        crate::PlotDefinition::DerivedPolylineGroups { groups } => Ok(groups.clone()),
+        crate::PlotDefinition::InterpolatedCurve {
+            points,
+            interpolation,
+        } => {
+            let sampled = sample_curve_points(
+                &points
+                    .iter()
+                    .map(|point| Vec3::from_array(*point))
+                    .collect::<Vec<_>>(),
+                *interpolation,
+            );
+            Ok(vec![
+                sampled.into_iter().map(|point| point.to_array()).collect(),
+            ])
+        }
+        _ => Err(AnalysisError::unsupported(
+            "Sample statistics require point-like or ordered sampled data.",
+        )),
+    }
+}
+
 fn curve_sample_groups(plot: &PlotSpec) -> Result<Vec<Vec<[f32; 3]>>, AnalysisError> {
     match &plot.definition {
         crate::PlotDefinition::HelixCurve => {
@@ -988,6 +1087,618 @@ fn curve_sample_groups(plot: &PlotSpec) -> Result<Vec<Vec<[f32; 3]>>, AnalysisEr
         _ => Err(AnalysisError::unsupported(
             "Curve calculus tools are available for curve and polyline plots.",
         )),
+    }
+}
+
+fn make_point_cloud_statistics_output(plot: &PlotSpec) -> Result<AnalysisOutput, AnalysisError> {
+    let groups = sample_data_groups(plot)?;
+    let samples = flatten_sample_groups(&groups);
+    if samples.len() < 2 {
+        return Err(AnalysisError::invalid(
+            "Point-cloud statistics require at least two samples.",
+        ));
+    }
+
+    let centroid = samples.iter().copied().sum::<Vec3>() / samples.len() as f32;
+    let (bbox_min, bbox_max) = bounds_for_points(&samples);
+    let extent = bbox_max - bbox_min;
+    let covariance = covariance_matrix(&samples, centroid);
+    let variance = Vec3::new(
+        covariance.x_axis.x,
+        covariance.y_axis.y,
+        covariance.z_axis.z,
+    );
+    let principal_components = principal_components(covariance);
+
+    let reports = vec![AnalysisReport {
+        title: format!("Point Statistics {}", plot.name),
+        values: vec![
+            ("Sample Count".to_string(), samples.len().to_string()),
+            ("Sequence Count".to_string(), groups.len().to_string()),
+            ("Centroid".to_string(), format_vec3(centroid)),
+            ("Bounds Min".to_string(), format_vec3(bbox_min)),
+            ("Bounds Max".to_string(), format_vec3(bbox_max)),
+            ("Extent".to_string(), format_vec3(extent)),
+            (
+                "Variance".to_string(),
+                format!("{:.5}, {:.5}, {:.5}", variance.x, variance.y, variance.z),
+            ),
+        ],
+    }];
+    let tables = vec![
+        sample_positions_table(&groups),
+        AnalysisTable {
+            columns: vec![
+                "axis".to_string(),
+                "x".to_string(),
+                "y".to_string(),
+                "z".to_string(),
+            ],
+            rows: vec![
+                vec![
+                    "covariance row 1".to_string(),
+                    format_float(covariance.x_axis.x),
+                    format_float(covariance.y_axis.x),
+                    format_float(covariance.z_axis.x),
+                ],
+                vec![
+                    "covariance row 2".to_string(),
+                    format_float(covariance.x_axis.y),
+                    format_float(covariance.y_axis.y),
+                    format_float(covariance.z_axis.y),
+                ],
+                vec![
+                    "covariance row 3".to_string(),
+                    format_float(covariance.x_axis.z),
+                    format_float(covariance.y_axis.z),
+                    format_float(covariance.z_axis.z),
+                ],
+            ],
+        },
+        AnalysisTable {
+            columns: vec![
+                "component".to_string(),
+                "eigenvalue".to_string(),
+                "direction".to_string(),
+            ],
+            rows: principal_components
+                .iter()
+                .enumerate()
+                .map(|(index, (eigenvalue, direction))| {
+                    vec![
+                        format!("PC{}", index + 1),
+                        format_float(*eigenvalue),
+                        format_vec3(*direction),
+                    ]
+                })
+                .collect(),
+        },
+    ];
+    let plots = vec![
+        PlotSpec {
+            name: format!("Centroid {}", plot.name),
+            visible: true,
+            domain: plot.domain.clone(),
+            resolution: plot.resolution,
+            style: PlotStyle {
+                colour_mode: ColourMode::Solid([1.0, 0.86, 0.3, 1.0]),
+                point_size: 9.0,
+                ..PlotStyle::default()
+            },
+            definition: crate::PlotDefinition::PointAnnotations {
+                points: vec![PointAnnotation {
+                    position: centroid.to_array(),
+                    label: "Centroid".to_string(),
+                }],
+                show_labels: true,
+            },
+        },
+        PlotSpec {
+            name: format!("PCA Axes {}", plot.name),
+            visible: true,
+            domain: plot.domain.clone(),
+            resolution: plot.resolution,
+            style: PlotStyle {
+                colour_mode: ColourMode::Solid([0.5, 0.8, 1.0, 1.0]),
+                glyph_scale: 1.0,
+                shading: crate::ShadingMode::Unlit,
+                ..PlotStyle::default()
+            },
+            definition: crate::PlotDefinition::ArrowAnnotations {
+                arrows: principal_components
+                    .iter()
+                    .enumerate()
+                    .map(|(index, (eigenvalue, direction))| ArrowAnnotation {
+                        origin: centroid.to_array(),
+                        vector: (*direction * (eigenvalue.max(0.0).sqrt() * 2.5)).to_array(),
+                        label: format!("PC{}", index + 1),
+                    })
+                    .collect(),
+                show_labels: true,
+            },
+        },
+    ];
+    Ok(AnalysisOutput::Composite {
+        plots,
+        reports,
+        tables,
+        diagnostics: Vec::new(),
+        provenance: AnalysisProvenance {
+            kind: AnalysisKind::PointCloudStatistics,
+            source_plots: vec![plot.name.clone()],
+            parameters: Vec::new(),
+            notes: vec!["Computed from sampled point positions.".to_string()],
+        },
+    })
+}
+
+fn make_data_quality_output(plot: &PlotSpec) -> Result<AnalysisOutput, AnalysisError> {
+    let groups = sample_data_groups(plot)?;
+    let indexed = flatten_indexed_sample_groups(&groups);
+    if indexed.len() < 2 {
+        return Err(AnalysisError::invalid(
+            "Data quality checks require at least two samples.",
+        ));
+    }
+    let samples = indexed
+        .iter()
+        .map(|sample| sample.position)
+        .collect::<Vec<_>>();
+    let centroid = samples.iter().copied().sum::<Vec3>() / samples.len() as f32;
+    let (bbox_min, bbox_max) = bounds_for_points(&samples);
+    let diag = bbox_max.distance(bbox_min).max(1.0e-4);
+    let duplicate_rows = exact_duplicate_rows(&indexed);
+
+    let heavy_checks = samples.len() <= 4_000;
+    let nearest = if heavy_checks {
+        nearest_neighbor_stats(&indexed)
+    } else {
+        None
+    };
+    let near_duplicate_epsilon = diag * 1.0e-3;
+    let near_duplicate_count = nearest.as_ref().map_or(0, |stats| {
+        stats
+            .nearest_distances
+            .iter()
+            .filter(|distance| **distance > 0.0 && **distance <= near_duplicate_epsilon)
+            .count()
+    });
+    let (distance_mean, distance_std) = mean_std(
+        &samples
+            .iter()
+            .map(|point| point.distance(centroid))
+            .collect::<Vec<_>>(),
+    );
+    let outlier_threshold = distance_mean + distance_std * 2.5;
+    let outliers = indexed
+        .iter()
+        .filter(|sample| sample.position.distance(centroid) > outlier_threshold)
+        .cloned()
+        .collect::<Vec<_>>();
+    let sparse_samples = nearest
+        .as_ref()
+        .map(|stats| {
+            stats
+                .nearest_distances
+                .iter()
+                .enumerate()
+                .filter(|(_, distance)| **distance > stats.mean + stats.std * 2.0)
+                .map(|(index, _)| indexed[index].clone())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let monotonicity_rows = groups
+        .iter()
+        .enumerate()
+        .filter(|(_, group)| group.len() >= 2)
+        .map(|(index, group)| {
+            vec![
+                format!("sequence {}", index + 1),
+                monotonicity_label(group, 0),
+                monotonicity_label(group, 1),
+                monotonicity_label(group, 2),
+            ]
+        })
+        .collect::<Vec<_>>();
+
+    let mut diagnostics = Vec::new();
+    if !duplicate_rows.is_empty() {
+        diagnostics.push(Diagnostic::warning(
+            DiagnosticKind::Validation,
+            format!(
+                "Detected {} exact duplicate sample(s).",
+                duplicate_rows.len()
+            ),
+        ));
+    }
+    if near_duplicate_count > 0 {
+        diagnostics.push(Diagnostic::warning(
+            DiagnosticKind::Validation,
+            format!(
+                "Detected {} near-duplicate sample(s) within {:.4}.",
+                near_duplicate_count, near_duplicate_epsilon
+            ),
+        ));
+    }
+    if !outliers.is_empty() {
+        diagnostics.push(Diagnostic::warning(
+            DiagnosticKind::Validation,
+            format!("Detected {} positional outlier(s).", outliers.len()),
+        ));
+    }
+    if !sparse_samples.is_empty() {
+        diagnostics.push(Diagnostic::warning(
+            DiagnosticKind::Validation,
+            format!("Detected {} sparse-region sample(s).", sparse_samples.len()),
+        ));
+    }
+    if !heavy_checks {
+        diagnostics.push(Diagnostic::warning(
+            DiagnosticKind::Build,
+            "Skipped nearest-neighbor heavy checks for datasets above 4000 samples.",
+        ));
+    }
+    diagnostics.extend(duplicate_rows.iter().take(12).map(|sample| {
+        Diagnostic::warning(
+            DiagnosticKind::Validation,
+            "Exact duplicate sample.".to_string(),
+        )
+        .with_location(
+            DiagnosticLocation::new()
+                .with_component("sample")
+                .with_row(sample.sequence_row),
+        )
+    }));
+    diagnostics.extend(outliers.iter().take(12).map(|sample| {
+        Diagnostic::warning(
+            DiagnosticKind::Validation,
+            format!(
+                "Outlier distance {:.4} exceeds threshold {:.4}.",
+                sample.position.distance(centroid),
+                outlier_threshold
+            ),
+        )
+        .with_location(
+            DiagnosticLocation::new()
+                .with_component("sample")
+                .with_row(sample.sequence_row),
+        )
+    }));
+
+    let mut reports = vec![AnalysisReport {
+        title: format!("Data Quality {}", plot.name),
+        values: vec![
+            ("Sample Count".to_string(), samples.len().to_string()),
+            (
+                "Exact Duplicates".to_string(),
+                duplicate_rows.len().to_string(),
+            ),
+            (
+                "Near Duplicates".to_string(),
+                near_duplicate_count.to_string(),
+            ),
+            ("Outliers".to_string(), outliers.len().to_string()),
+            (
+                "Sparse Samples".to_string(),
+                sparse_samples.len().to_string(),
+            ),
+        ],
+    }];
+    if let Some(stats) = &nearest {
+        reports.push(AnalysisReport {
+            title: "Spacing Diagnostics".to_string(),
+            values: vec![
+                ("Nearest Min".to_string(), format_float(stats.min)),
+                ("Nearest Mean".to_string(), format_float(stats.mean)),
+                ("Nearest Median".to_string(), format_float(stats.median)),
+                ("Nearest Max".to_string(), format_float(stats.max)),
+                ("Nearest Std".to_string(), format_float(stats.std)),
+            ],
+        });
+    }
+
+    let mut tables = vec![
+        sample_positions_table(&groups),
+        AnalysisTable {
+            columns: vec![
+                "sequence".to_string(),
+                "x".to_string(),
+                "y".to_string(),
+                "z".to_string(),
+                "distance_from_centroid".to_string(),
+            ],
+            rows: outliers
+                .iter()
+                .take(250)
+                .map(|sample| {
+                    vec![
+                        sample.sequence_row.to_string(),
+                        format_float(sample.position.x),
+                        format_float(sample.position.y),
+                        format_float(sample.position.z),
+                        format_float(sample.position.distance(centroid)),
+                    ]
+                })
+                .collect(),
+        },
+    ];
+    if !monotonicity_rows.is_empty() {
+        tables.push(AnalysisTable {
+            columns: vec![
+                "sequence".to_string(),
+                "x monotonic".to_string(),
+                "y monotonic".to_string(),
+                "z monotonic".to_string(),
+            ],
+            rows: monotonicity_rows,
+        });
+    }
+
+    let mut plots = Vec::new();
+    if !outliers.is_empty() {
+        plots.push(PlotSpec {
+            name: format!("Outliers {}", plot.name),
+            visible: true,
+            domain: plot.domain.clone(),
+            resolution: plot.resolution,
+            style: PlotStyle {
+                colour_mode: ColourMode::Solid([1.0, 0.35, 0.35, 1.0]),
+                point_size: 8.0,
+                ..PlotStyle::default()
+            },
+            definition: crate::PlotDefinition::PointAnnotations {
+                points: outliers
+                    .iter()
+                    .enumerate()
+                    .map(|(index, sample)| PointAnnotation {
+                        position: sample.position.to_array(),
+                        label: format!("Outlier {}", index + 1),
+                    })
+                    .collect(),
+                show_labels: true,
+            },
+        });
+    }
+
+    Ok(AnalysisOutput::Composite {
+        plots,
+        reports,
+        tables,
+        diagnostics,
+        provenance: AnalysisProvenance {
+            kind: AnalysisKind::DataQualityChecks,
+            source_plots: vec![plot.name.clone()],
+            parameters: Vec::new(),
+            notes: vec!["Ordered-sequence checks operate per sampled sequence.".to_string()],
+        },
+    })
+}
+
+#[derive(Clone)]
+struct IndexedSample {
+    sequence_row: usize,
+    position: Vec3,
+}
+
+struct NearestNeighborSummary {
+    nearest_distances: Vec<f32>,
+    min: f32,
+    mean: f32,
+    median: f32,
+    max: f32,
+    std: f32,
+}
+
+fn flatten_sample_groups(groups: &[Vec<[f32; 3]>]) -> Vec<Vec3> {
+    groups
+        .iter()
+        .flat_map(|group| group.iter().map(|point| Vec3::from_array(*point)))
+        .collect()
+}
+
+fn flatten_indexed_sample_groups(groups: &[Vec<[f32; 3]>]) -> Vec<IndexedSample> {
+    groups
+        .iter()
+        .enumerate()
+        .flat_map(|(_, group)| {
+            group
+                .iter()
+                .enumerate()
+                .map(move |(row, point)| IndexedSample {
+                    sequence_row: row + 1,
+                    position: Vec3::from_array(*point),
+                })
+        })
+        .collect()
+}
+
+fn bounds_for_points(points: &[Vec3]) -> (Vec3, Vec3) {
+    let mut min = Vec3::splat(f32::INFINITY);
+    let mut max = Vec3::splat(f32::NEG_INFINITY);
+    for point in points {
+        min = min.min(*point);
+        max = max.max(*point);
+    }
+    (min, max)
+}
+
+fn covariance_matrix(points: &[Vec3], centroid: Vec3) -> glam::Mat3 {
+    let mut xx = 0.0_f32;
+    let mut xy = 0.0_f32;
+    let mut xz = 0.0_f32;
+    let mut yy = 0.0_f32;
+    let mut yz = 0.0_f32;
+    let mut zz = 0.0_f32;
+    for point in points {
+        let d = *point - centroid;
+        xx += d.x * d.x;
+        xy += d.x * d.y;
+        xz += d.x * d.z;
+        yy += d.y * d.y;
+        yz += d.y * d.z;
+        zz += d.z * d.z;
+    }
+    let scale = 1.0 / points.len().max(1) as f32;
+    glam::Mat3::from_cols_array(&[
+        xx * scale,
+        xy * scale,
+        xz * scale,
+        xy * scale,
+        yy * scale,
+        yz * scale,
+        xz * scale,
+        yz * scale,
+        zz * scale,
+    ])
+}
+
+fn principal_components(covariance: glam::Mat3) -> [(f32, Vec3); 3] {
+    let mut components = [(0.0_f32, Vec3::X), (0.0_f32, Vec3::Y), (0.0_f32, Vec3::Z)];
+    let mut matrix = covariance;
+    for component in &mut components {
+        let direction = power_iteration(matrix);
+        let eigenvalue = direction.dot(matrix * direction).max(0.0);
+        *component = (eigenvalue, direction);
+        matrix -= eigenvalue * outer_product(direction);
+    }
+    components.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    if components[2].1.length_squared() < 1.0e-6 {
+        components[2].1 = components[0].1.cross(components[1].1).normalize_or_zero();
+    }
+    components
+}
+
+fn power_iteration(matrix: glam::Mat3) -> Vec3 {
+    let mut v = Vec3::new(0.71, 0.53, 0.47).normalize();
+    for _ in 0..16 {
+        let next = matrix * v;
+        if next.length_squared() <= 1.0e-8 {
+            break;
+        }
+        v = next.normalize();
+    }
+    v.normalize_or_zero()
+}
+
+fn outer_product(v: Vec3) -> glam::Mat3 {
+    glam::Mat3::from_cols(
+        Vec3::new(v.x * v.x, v.x * v.y, v.x * v.z),
+        Vec3::new(v.y * v.x, v.y * v.y, v.y * v.z),
+        Vec3::new(v.z * v.x, v.z * v.y, v.z * v.z),
+    )
+}
+
+fn exact_duplicate_rows(samples: &[IndexedSample]) -> Vec<IndexedSample> {
+    let mut seen = std::collections::HashMap::new();
+    let mut duplicates = Vec::new();
+    for sample in samples {
+        let key = (
+            sample.position.x.to_bits(),
+            sample.position.y.to_bits(),
+            sample.position.z.to_bits(),
+        );
+        if seen.insert(key, sample.sequence_row).is_some() {
+            duplicates.push(sample.clone());
+        }
+    }
+    duplicates
+}
+
+fn nearest_neighbor_stats(samples: &[IndexedSample]) -> Option<NearestNeighborSummary> {
+    if samples.len() < 2 {
+        return None;
+    }
+    let mut nearest_distances = vec![f32::INFINITY; samples.len()];
+    for i in 0..samples.len() {
+        for j in (i + 1)..samples.len() {
+            let distance = samples[i].position.distance(samples[j].position);
+            nearest_distances[i] = nearest_distances[i].min(distance);
+            nearest_distances[j] = nearest_distances[j].min(distance);
+        }
+    }
+    let filtered = nearest_distances
+        .iter()
+        .copied()
+        .filter(|distance| distance.is_finite())
+        .collect::<Vec<_>>();
+    if filtered.is_empty() {
+        return None;
+    }
+    let mut sorted = filtered.clone();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let (mean, std) = mean_std(&filtered);
+    Some(NearestNeighborSummary {
+        min: *sorted.first().unwrap_or(&0.0),
+        mean,
+        median: sorted[sorted.len() / 2],
+        max: *sorted.last().unwrap_or(&0.0),
+        std,
+        nearest_distances,
+    })
+}
+
+fn mean_std(values: &[f32]) -> (f32, f32) {
+    if values.is_empty() {
+        return (0.0, 0.0);
+    }
+    let mean = values.iter().sum::<f32>() / values.len() as f32;
+    let variance = values
+        .iter()
+        .map(|value| {
+            let d = *value - mean;
+            d * d
+        })
+        .sum::<f32>()
+        / values.len() as f32;
+    (mean, variance.sqrt())
+}
+
+fn monotonicity_label(group: &[[f32; 3]], axis: usize) -> String {
+    if axis_is_monotonic(group, axis) {
+        let first = axis_value(Vec3::from_array(group[0]), axis);
+        let last = axis_value(Vec3::from_array(*group.last().unwrap_or(&group[0])), axis);
+        if last >= first {
+            "increasing".to_string()
+        } else {
+            "decreasing".to_string()
+        }
+    } else {
+        "mixed".to_string()
+    }
+}
+
+fn format_float(value: f32) -> String {
+    format!("{value:.5}")
+}
+
+fn format_vec3(value: Vec3) -> String {
+    format!("{:.5}, {:.5}, {:.5}", value.x, value.y, value.z)
+}
+
+fn sample_positions_table(groups: &[Vec<[f32; 3]>]) -> AnalysisTable {
+    AnalysisTable {
+        columns: vec![
+            "sequence".to_string(),
+            "row".to_string(),
+            "x".to_string(),
+            "y".to_string(),
+            "z".to_string(),
+        ],
+        rows: groups
+            .iter()
+            .enumerate()
+            .flat_map(|(sequence_idx, group)| {
+                group.iter().enumerate().map(move |(row_idx, point)| {
+                    vec![
+                        (sequence_idx + 1).to_string(),
+                        (row_idx + 1).to_string(),
+                        format_float(point[0]),
+                        format_float(point[1]),
+                        format_float(point[2]),
+                    ]
+                })
+            })
+            .collect(),
     }
 }
 

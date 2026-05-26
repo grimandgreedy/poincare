@@ -107,7 +107,7 @@ impl App {
                 self.pick_plot_from_viewport(frame, &response, rect);
             if !consumed_click && response.clicked() {
                 if let Some(plot_idx) = self.documents[self.active_document_idx].hovered_plot {
-                    self.documents[self.active_document_idx].selected_plot = Some(plot_idx);
+                    self.set_selected_plot(self.active_document_idx, Some(plot_idx));
                     self.documents[self.active_document_idx].viewport_selection_hidden_for = None;
                     self.pending_focus_tab = Some(crate::dock::DockTab::PlotProperties);
                 } else {

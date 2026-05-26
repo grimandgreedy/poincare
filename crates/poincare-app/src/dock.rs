@@ -14,15 +14,17 @@ pub(crate) enum DockTab {
     PlotProperties,
     CameraProperties,
     ExportProperties,
+    DataPanel,
 }
 
-fn tab(title: &str, id: DockTab) -> Tab<DockTab> {
+pub(crate) fn tab(title: &str, id: DockTab) -> Tab<DockTab> {
     let (icon, color) = match id {
         DockTab::Plots => ("☰", egui::Color32::from_rgb(110, 160, 220)),
         DockTab::Viewport => ("⬡", egui::Color32::from_rgb(100, 200, 140)),
         DockTab::PlotProperties => ("⚙", egui::Color32::from_rgb(210, 150, 80)), // amber
         DockTab::CameraProperties => ("◎", egui::Color32::from_rgb(150, 190, 230)),
         DockTab::ExportProperties => ("⇩", egui::Color32::from_rgb(180, 220, 140)),
+        DockTab::DataPanel => ("▤", egui::Color32::from_rgb(220, 180, 110)),
     };
     Tab::new(title, id)
         .with_leading_visual(icon)
@@ -108,6 +110,12 @@ impl App {
         }
 
         self.panel_tree = Some(panel_tree);
+        if self.data_panel.is_some() {
+            self.panel_tree
+                .as_mut()
+                .expect("panel tree restored after dock render")
+                .ensure_tab_in_leaf(6, crate::dock::tab("Data", DockTab::DataPanel));
+        }
 
         if !output.closed_tabs.is_empty() {
             for tab in output.closed_tabs {
@@ -117,6 +125,10 @@ impl App {
                     DockTab::PlotProperties => ("Plot", 6),
                     DockTab::CameraProperties => ("Camera", 6),
                     DockTab::ExportProperties => ("Export", 6),
+                    DockTab::DataPanel => {
+                        self.data_panel = None;
+                        continue;
+                    }
                 };
                 self.panel_tree
                     .as_mut()
@@ -151,6 +163,11 @@ impl App {
             DockTab::ExportProperties => {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     self.export_inspector(ui, frame);
+                });
+            }
+            DockTab::DataPanel => {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    self.data_panel_ui(ui);
                 });
             }
         }

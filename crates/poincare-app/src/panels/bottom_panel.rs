@@ -4,6 +4,7 @@ use poincare_lib::{
     CurveInterpolationKind, SampleGroupsKind, available_analyses, run_analysis,
     sample_curve_points, sample_groups,
 };
+use serde_json::json;
 use viewport_lib::{Easing, Projection, ViewPreset};
 
 use crate::App;
@@ -30,6 +31,7 @@ impl App {
     pub(crate) fn bottom_inspector(&mut self, ui: &mut egui::Ui) {
         let doc_idx = self.active_document_idx;
         let selected_plot = self.documents[doc_idx].selected_plot;
+        let mut copy_metadata_for_plot = None;
 
         ui.horizontal(|ui| {
             if let Some(index) = selected_plot {
@@ -48,6 +50,15 @@ impl App {
                                 .weak(),
                         );
                     });
+                    let copy_button = ui
+                        .button(
+                            egui::RichText::new("")
+                                .family(egui::FontFamily::Monospace),
+                        )
+                        .on_hover_text("Copy structured plot metadata");
+                    if copy_button.clicked() {
+                        copy_metadata_for_plot = Some(index);
+                    }
                 }
             } else {
                 ui.label(egui::RichText::new("No plot selected").weak());
@@ -60,6 +71,17 @@ impl App {
             ui.selectable_value(&mut self.inspector_tab, InspectorTab::Analysis, "Analysis");
         });
         ui.separator();
+
+        if let Some(index) = copy_metadata_for_plot
+            && let Some(plot) = self.documents[doc_idx].plots.get(index)
+        {
+            let metadata_json = plot_metadata_clipboard_json(plot);
+            if let Ok(text) = serde_json::to_string_pretty(&metadata_json) {
+                ui.ctx().copy_text(text);
+                self.documents[doc_idx].export_status =
+                    "Copied structured plot metadata to clipboard.".to_string();
+            }
+        }
 
         let Some(index) = selected_plot else {
             ui.label("Select a plot to edit its domain, style, and surface settings.");
@@ -768,6 +790,56 @@ impl App {
 
         ui.add_space(8.0);
         ui.separator();
+        ui.label("Data Analysis");
+        if has_analysis(AnalysisKind::PointCloudStatistics)
+            || has_analysis(AnalysisKind::DataQualityChecks)
+        {
+            if let Ok(groups) = sample_groups(&selected_spec, SampleGroupsKind::SampleData) {
+                let point_count: usize = groups.iter().map(Vec::len).sum();
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} sampled point(s) across {} sequence(s) are available for statistics and data-quality checks.",
+                        point_count,
+                        groups.len()
+                    ))
+                    .small()
+                    .weak(),
+                );
+            }
+            ui.horizontal(|ui| {
+                if has_analysis(AnalysisKind::PointCloudStatistics)
+                    && ui.button("Point Statistics").clicked()
+                {
+                    self.run_single_plot_analysis(
+                        doc_idx,
+                        &selected_spec,
+                        AnalysisKind::PointCloudStatistics,
+                        vec![],
+                    );
+                }
+                if has_analysis(AnalysisKind::DataQualityChecks)
+                    && ui.button("Data Quality Checks").clicked()
+                {
+                    self.run_single_plot_analysis(
+                        doc_idx,
+                        &selected_spec,
+                        AnalysisKind::DataQualityChecks,
+                        vec![],
+                    );
+                }
+            });
+        } else {
+            ui.label(
+                egui::RichText::new(
+                    "Point statistics and data-quality checks are available for sampled point sets and ordered sample data.",
+                )
+                .small()
+                .weak(),
+            );
+        }
+
+        ui.add_space(8.0);
+        ui.separator();
         ui.label("Curve Analysis");
         if let Ok(groups) = sample_groups(&selected_spec, SampleGroupsKind::Curve) {
             let point_count: usize = groups.iter().map(Vec::len).sum();
@@ -1060,13 +1132,20 @@ impl App {
     }
 
     fn push_analysis_output(&mut self, doc_idx: usize, output: AnalysisOutput) {
+        let source_plot_idx = self.documents[doc_idx].selected_plot;
         match output {
             AnalysisOutput::DerivedPlots { plots, .. } => {
                 for plot in plots {
                     self.push_analysis_plot(doc_idx, PlotEntry::from_plot_spec(plot));
                 }
             }
-            AnalysisOutput::Composite { plots, reports, .. } => {
+            AnalysisOutput::Composite {
+                plots,
+                reports,
+                tables,
+                diagnostics,
+                provenance,
+            } => {
                 for plot in plots {
                     self.push_analysis_plot(doc_idx, PlotEntry::from_plot_spec(plot));
                 }
@@ -1078,18 +1157,65 @@ impl App {
                         .collect::<Vec<_>>()
                         .join(", ");
                 }
+                if matches!(
+                    provenance.kind,
+                    AnalysisKind::PointCloudStatistics | AnalysisKind::DataQualityChecks
+                ) && (!reports.is_empty() || !tables.is_empty() || !diagnostics.is_empty())
+                {
+                    if let Some(source_plot_idx) = source_plot_idx {
+                        self.set_selected_plot(doc_idx, Some(source_plot_idx));
+                    }
+                    self.open_analysis_results_panel(
+                        format!("Analysis: {}", provenance.source_plots.join(", ")),
+                        doc_idx,
+                        source_plot_idx.unwrap_or_default(),
+                        reports,
+                        tables,
+                        diagnostics,
+                        provenance,
+                    );
+                }
             }
-            AnalysisOutput::Report { report, .. } => {
+            AnalysisOutput::Report { report, provenance } => {
                 self.documents[doc_idx].export_status = report
                     .values
-                    .into_iter()
+                    .iter()
+                    .cloned()
                     .map(|(label, value)| format!("{label}: {value}"))
                     .collect::<Vec<_>>()
                     .join(", ");
+                if matches!(
+                    provenance.kind,
+                    AnalysisKind::PointCloudStatistics | AnalysisKind::DataQualityChecks
+                ) {
+                    self.open_analysis_results_panel(
+                        report.title.clone(),
+                        doc_idx,
+                        source_plot_idx.unwrap_or_default(),
+                        vec![report],
+                        Vec::new(),
+                        Vec::new(),
+                        provenance,
+                    );
+                }
             }
-            AnalysisOutput::Table { table, .. } => {
+            AnalysisOutput::Table { table, provenance } => {
                 self.documents[doc_idx].export_status =
                     format!("Generated analysis table with {} row(s).", table.rows.len());
+                if matches!(
+                    provenance.kind,
+                    AnalysisKind::PointCloudStatistics | AnalysisKind::DataQualityChecks
+                ) {
+                    self.open_analysis_results_panel(
+                        format!("Analysis Table: {}", provenance.source_plots.join(", ")),
+                        doc_idx,
+                        source_plot_idx.unwrap_or_default(),
+                        Vec::new(),
+                        vec![table],
+                        Vec::new(),
+                        provenance,
+                    );
+                }
             }
         }
     }
@@ -1989,5 +2115,232 @@ fn plot_properties_summary(plot: &PlotEntry) -> String {
             "Streamlines, step {:.3}, max {} steps",
             step_size, max_steps
         ),
+    }
+}
+
+fn plot_metadata_clipboard_json(plot: &PlotEntry) -> serde_json::Value {
+    let plot_spec = plot.to_plot_spec();
+    let metadata = plot_spec.metadata();
+    let analyses = available_analyses(&plot_spec)
+        .into_iter()
+        .map(|capability| {
+            json!({
+                "kind": format!("{:?}", capability.kind),
+                "target_kind": format!("{:?}", capability.target_kind),
+                "output_kind": format!("{:?}", capability.output_kind),
+                "parameters": capability.parameters,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    json!({
+        "plot_name": plot.name,
+        "plot_kind": plot_kind_name(&plot.kind),
+        "summary": plot_properties_summary(plot),
+        "visible": plot.visible,
+        "metadata": {
+            "coordinate_semantics": format!("{:?}", metadata.coordinate_semantics),
+            "domain_editor": domain_editor_metadata_json(&metadata.domain_editor),
+            "required_variables": metadata.required_variables,
+            "uses_resolution": metadata.uses_resolution,
+            "uses_seed_resolution": metadata.uses_seed_resolution,
+            "supports_surface_intersection": metadata.supports_surface_intersection,
+            "style_capabilities": {
+                "mesh": metadata.style_caps.mesh,
+                "line": metadata.style_caps.line,
+                "point": metadata.style_caps.point,
+                "glyph": metadata.style_caps.glyph,
+            },
+            "default_domain": metadata.default_domain,
+            "default_resolution": metadata.default_resolution,
+        },
+        "data_shape": plot_data_shape_json(plot),
+        "sample_groups": {
+            "sample_data": sample_group_summary_json(&plot_spec, SampleGroupsKind::SampleData),
+            "curve": sample_group_summary_json(&plot_spec, SampleGroupsKind::Curve),
+            "polyline": sample_group_summary_json(&plot_spec, SampleGroupsKind::Polyline),
+            "interpolation_source": sample_group_summary_json(
+                &plot_spec,
+                SampleGroupsKind::InterpolationSource,
+            ),
+        },
+        "available_analyses": analyses,
+    })
+}
+
+fn plot_kind_name(kind: &PlotKind) -> &'static str {
+    match kind {
+        PlotKind::ContouredSurface { .. } => "ContouredSurface",
+        PlotKind::SphericalHarmonic => "SphericalHarmonic",
+        PlotKind::HelixCurve => "HelixCurve",
+        PlotKind::ScatterCloud => "ScatterCloud",
+        PlotKind::VectorField => "VectorField",
+        PlotKind::GridSurface => "GridSurface",
+        PlotKind::Streamlines { .. } => "Streamlines",
+        PlotKind::VolumeRender { .. } => "VolumeRender",
+        PlotKind::Isosurface { .. } => "Isosurface",
+        PlotKind::ExprCartesian { .. } => "ExprCartesian",
+        PlotKind::ExprCurve { .. } => "ExprCurve",
+        PlotKind::ExprCartesianLine { .. } => "ExprCartesianLine",
+        PlotKind::ExprSpherical { .. } => "ExprSpherical",
+        PlotKind::ExprCylindrical { .. } => "ExprCylindrical",
+        PlotKind::ExprPolar { .. } => "ExprPolar",
+        PlotKind::ExprParametricSurface { .. } => "ExprParametricSurface",
+        PlotKind::ImportedTable { .. } => "ImportedTable",
+        PlotKind::ScalarSlice { .. } => "ScalarSlice",
+        PlotKind::VectorSlice { .. } => "VectorSlice",
+        PlotKind::GradientField { .. } => "GradientField",
+        PlotKind::DivergenceField { .. } => "DivergenceField",
+        PlotKind::CurlField { .. } => "CurlField",
+        PlotKind::PointAnnotations { .. } => "PointAnnotations",
+        PlotKind::ArrowAnnotations { .. } => "ArrowAnnotations",
+        PlotKind::DerivedPolylineGroups { .. } => "DerivedPolylineGroups",
+        PlotKind::InterpolatedCurve { .. } => "InterpolatedCurve",
+        PlotKind::ExprVectorField { .. } => "ExprVectorField",
+        PlotKind::ExprVolume { .. } => "ExprVolume",
+        PlotKind::ExprIsosurface { .. } => "ExprIsosurface",
+        PlotKind::ExprStreamlines { .. } => "ExprStreamlines",
+    }
+}
+
+fn domain_editor_metadata_json(metadata: &poincare_lib::DomainEditorMetadata) -> serde_json::Value {
+    match metadata {
+        poincare_lib::DomainEditorMetadata::Fixed => json!({
+            "kind": "Fixed",
+            "editable_axis_count": metadata.editable_axis_count(),
+        }),
+        poincare_lib::DomainEditorMetadata::One { primary } => json!({
+            "kind": "One",
+            "editable_axis_count": metadata.editable_axis_count(),
+            "primary": primary,
+        }),
+        poincare_lib::DomainEditorMetadata::Two { primary, secondary } => json!({
+            "kind": "Two",
+            "editable_axis_count": metadata.editable_axis_count(),
+            "primary": primary,
+            "secondary": secondary,
+        }),
+        poincare_lib::DomainEditorMetadata::Three { x, y, z } => json!({
+            "kind": "Three",
+            "editable_axis_count": metadata.editable_axis_count(),
+            "x": x,
+            "y": y,
+            "z": z,
+        }),
+    }
+}
+
+fn plot_data_shape_json(plot: &PlotEntry) -> serde_json::Value {
+    match &plot.kind {
+        PlotKind::ContouredSurface { contour_values, .. } => json!({
+            "contour_level_count": contour_values.len(),
+        }),
+        PlotKind::Streamlines { seeds } => json!({
+            "seed_count": seeds.len(),
+        }),
+        PlotKind::Isosurface { isovalues, .. } | PlotKind::ExprIsosurface { isovalues, .. } => json!({
+            "isovalue_count": isovalues.len(),
+        }),
+        PlotKind::ImportedTable { definition } => {
+            let preview = definition.preview();
+            match definition.validate() {
+                Ok(TableDataSet::SurfaceGrid { xs, ys, zs }) => json!({
+                    "table_target": definition.target.label(),
+                    "preview_row_count": preview.rows.len(),
+                    "preview_column_count": preview.column_count,
+                    "x_count": xs.len(),
+                    "y_count": ys.len(),
+                    "z_count": zs.len(),
+                    "sample_count": zs.len(),
+                }),
+                Ok(TableDataSet::Curve { groups, .. }) => {
+                    let point_count: usize = groups.iter().map(Vec::len).sum();
+                    json!({
+                        "table_target": definition.target.label(),
+                        "preview_row_count": preview.rows.len(),
+                        "preview_column_count": preview.column_count,
+                        "group_count": groups.len(),
+                        "point_count": point_count,
+                    })
+                }
+                Ok(TableDataSet::Scatter { points, scalars, .. }) => json!({
+                    "table_target": definition.target.label(),
+                    "preview_row_count": preview.rows.len(),
+                    "preview_column_count": preview.column_count,
+                    "point_count": points.len(),
+                    "scalar_count": scalars.as_ref().map(Vec::len),
+                }),
+                Ok(TableDataSet::VectorField { samples, .. }) => json!({
+                    "table_target": definition.target.label(),
+                    "preview_row_count": preview.rows.len(),
+                    "preview_column_count": preview.column_count,
+                    "sample_count": samples.len(),
+                }),
+                Err(errors) => json!({
+                    "table_target": definition.target.label(),
+                    "preview_row_count": preview.rows.len(),
+                    "preview_column_count": preview.column_count,
+                    "validation_error_count": errors.len(),
+                    "validation_errors": errors.into_iter().map(|error| json!({
+                        "row": error.row,
+                        "column": error.column,
+                        "message": error.message,
+                        "display": error.display(),
+                    })).collect::<Vec<_>>(),
+                }),
+            }
+        }
+        PlotKind::PointAnnotations { points, .. } => json!({
+            "point_count": points.len(),
+        }),
+        PlotKind::ArrowAnnotations { arrows, .. } => json!({
+            "arrow_count": arrows.len(),
+        }),
+        PlotKind::DerivedPolylineGroups { groups } => {
+            let point_count: usize = groups.iter().map(Vec::len).sum();
+            json!({
+                "group_count": groups.len(),
+                "point_count": point_count,
+            })
+        }
+        PlotKind::InterpolatedCurve {
+            points,
+            interpolation,
+        } => json!({
+            "control_point_count": points.len(),
+            "sampled_point_count": sampled_curve_positions(points, *interpolation).len(),
+            "interpolation_kind": interpolation_kind_label(interpolation.kind),
+            "closed": interpolation.closed,
+        }),
+        PlotKind::ExprStreamlines {
+            step_size,
+            max_steps,
+            ..
+        } => json!({
+            "step_size": step_size,
+            "max_steps": max_steps,
+        }),
+        _ => json!({}),
+    }
+}
+
+fn sample_group_summary_json(
+    plot_spec: &poincare_lib::PlotSpec,
+    kind: SampleGroupsKind,
+) -> serde_json::Value {
+    match sample_groups(plot_spec, kind) {
+        Ok(groups) => {
+            let point_count: usize = groups.iter().map(Vec::len).sum();
+            json!({
+                "supported": true,
+                "group_count": groups.len(),
+                "point_count": point_count,
+                "group_sizes": groups.iter().map(Vec::len).collect::<Vec<_>>(),
+            })
+        }
+        Err(error) => json!({
+            "supported": false,
+            "error": error.diagnostic.to_string(),
+        }),
     }
 }

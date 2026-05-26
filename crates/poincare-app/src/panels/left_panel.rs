@@ -378,6 +378,7 @@ impl App {
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
+                let viewport_width = ui.clip_rect().width().max(0.0);
                 let plot_count = self.documents[self.active_document_idx].plots.len();
                 let selection_key = (
                     self.active_document_idx,
@@ -415,81 +416,106 @@ impl App {
                         )
                     };
                     let label = truncate_str(&plot_name, 28);
+                    let row_width = viewport_width;
 
-                    let row_response = egui::Frame::group(ui.style())
-                        .fill(if is_selected {
-                            ui.visuals().selection.bg_fill.gamma_multiply(0.22)
-                        } else {
-                            ui.visuals().faint_bg_color
-                        })
-                        .stroke(if is_selected {
-                            ui.visuals().selection.stroke
-                        } else {
-                            ui.visuals().widgets.noninteractive.bg_stroke
-                        })
-                        .corner_radius(8.0)
-                        .inner_margin(egui::Margin::same(8))
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                let (marker_rect, marker_response) = ui.allocate_exact_size(
-                                    egui::vec2(14.0, 14.0),
-                                    egui::Sense::hover(),
-                                );
-                                paint_plot_marker(
-                                    ui.painter(),
-                                    marker_rect,
-                                    marker_color,
-                                    marker_kind,
-                                );
-                                marker_response.on_hover_text(marker_kind.label());
+                    let row_response = ui
+                        .allocate_ui_with_layout(
+                            egui::vec2(row_width, 0.0),
+                            egui::Layout::top_down(egui::Align::Min),
+                            |ui| {
+                                egui::Frame::group(ui.style())
+                                    .fill(if is_selected {
+                                        ui.visuals().selection.bg_fill.gamma_multiply(0.22)
+                                    } else {
+                                        ui.visuals().faint_bg_color
+                                    })
+                                    .stroke(if is_selected {
+                                        ui.visuals().selection.stroke
+                                    } else {
+                                        ui.visuals().widgets.noninteractive.bg_stroke
+                                    })
+                                    .corner_radius(8.0)
+                                    .inner_margin(egui::Margin::same(8))
+                                    .show(ui, |ui| {
+                                        ui.set_width(row_width);
+                                        ui.horizontal(|ui| {
+                                            let (marker_rect, marker_response) =
+                                                ui.allocate_exact_size(
+                                                    egui::vec2(14.0, 14.0),
+                                                    egui::Sense::hover(),
+                                                );
+                                            paint_plot_marker(
+                                                ui.painter(),
+                                                marker_rect,
+                                                marker_color,
+                                                marker_kind,
+                                            );
+                                            marker_response.on_hover_text(marker_kind.label());
 
-                                if is_renaming {
-                                    let response = ui.add(
-                                        egui::TextEdit::singleline(&mut self.rename_buf)
-                                            .desired_width(f32::INFINITY),
-                                    );
-                                    if self.rename_needs_focus {
-                                        response.request_focus();
-                                        self.rename_needs_focus = false;
-                                    }
-                                    if response.lost_focus() && !escape_pressed {
-                                        apply_rename = Some(index);
-                                    }
-                                    if escape_pressed {
-                                        cancel_rename = true;
-                                    }
-                                } else {
-                                    let response = ui.add_sized(
-                                        [ui.available_width() - 56.0, 22.0],
-                                        egui::Button::new(label).selected(is_selected),
-                                    );
-                                    if response.clicked() {
-                                        self.documents[self.active_document_idx].selected_plot =
-                                            Some(index);
-                                        self.documents[self.active_document_idx]
-                                            .viewport_selection_hidden_for = None;
-                                    }
-                                    response.on_hover_text(hover_text);
-                                }
+                                            if is_renaming {
+                                                let response = ui.add(
+                                                    egui::TextEdit::singleline(
+                                                        &mut self.rename_buf,
+                                                    )
+                                                    .desired_width(f32::INFINITY),
+                                                );
+                                                if self.rename_needs_focus {
+                                                    response.request_focus();
+                                                    self.rename_needs_focus = false;
+                                                }
+                                                if response.lost_focus() && !escape_pressed {
+                                                    apply_rename = Some(index);
+                                                }
+                                                if escape_pressed {
+                                                    cancel_rename = true;
+                                                }
+                                            } else {
+                                                let title_width = (row_width - 94.0).max(64.0);
+                                                let response = ui.add_sized(
+                                                    [title_width, 22.0],
+                                                    egui::Button::new(label)
+                                                        .selected(is_selected),
+                                                );
+                                                if response.clicked() {
+                                                    self.set_selected_plot(
+                                                        self.active_document_idx,
+                                                        Some(index),
+                                                    );
+                                                    self.documents[self.active_document_idx]
+                                                        .viewport_selection_hidden_for = None;
+                                                }
+                                                response.on_hover_text(hover_text);
+                                            }
 
-                                let mut visible =
-                                    self.documents[self.active_document_idx].plots[index].visible;
-                                if ui.checkbox(&mut visible, "").changed() {
-                                    self.documents[self.active_document_idx].plots[index].visible =
-                                        visible;
-                                    self.mark_dirty();
-                                }
+                                            let mut visible = self.documents
+                                                [self.active_document_idx]
+                                                .plots[index]
+                                                .visible;
+                                            if ui.checkbox(&mut visible, "").changed() {
+                                                self.documents[self.active_document_idx].plots
+                                                    [index]
+                                                    .visible = visible;
+                                                self.mark_dirty();
+                                            }
 
-                                ui.menu_button("...", |ui| {
-                                    self.plot_row_menu(ui, index, plot_count, &mut pending_action);
-                                });
-                            });
-                        });
-                    row_response.response.context_menu(|ui| {
+                                            ui.menu_button("...", |ui| {
+                                                self.plot_row_menu(
+                                                    ui,
+                                                    index,
+                                                    plot_count,
+                                                    &mut pending_action,
+                                                );
+                                            });
+                                        });
+                                    });
+                            },
+                        )
+                        .response;
+                    row_response.context_menu(|ui| {
                         self.plot_row_menu(ui, index, plot_count, &mut pending_action);
                     });
                     if should_scroll_to_selection && is_selected {
-                        row_response.response.scroll_to_me(None);
+                        row_response.scroll_to_me(None);
                     }
 
                     ui.add_space(6.0);
@@ -520,7 +546,7 @@ impl App {
                                 .name
                                 .clone();
                             self.rename_needs_focus = true;
-                            self.documents[self.active_document_idx].selected_plot = Some(index);
+                            self.set_selected_plot(self.active_document_idx, Some(index));
                             self.documents[self.active_document_idx]
                                 .viewport_selection_hidden_for = None;
                         }
@@ -531,8 +557,7 @@ impl App {
                             self.documents[self.active_document_idx]
                                 .plots
                                 .insert(index + 1, cloned);
-                            self.documents[self.active_document_idx].selected_plot =
-                                Some(index + 1);
+                            self.set_selected_plot(self.active_document_idx, Some(index + 1));
                             self.documents[self.active_document_idx]
                                 .viewport_selection_hidden_for = None;
                             self.renaming_plot = None;

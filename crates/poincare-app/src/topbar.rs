@@ -22,6 +22,7 @@ enum PaletteCommand {
     Quit,
     Undo,
     Redo,
+    EditSelectedPlot,
     DuplicatePlot,
     DeletePlot,
     SelectedPlotAnalysis(SelectedPlotAnalysisAction),
@@ -32,6 +33,8 @@ enum PaletteCommand {
 
 #[derive(Clone, Copy)]
 enum SelectedPlotAnalysisAction {
+    PointCloudStatistics,
+    DataQualityChecks,
     ScalarSliceZ,
     GradientField,
     VectorSliceZ,
@@ -138,6 +141,10 @@ impl App {
             ui.separator();
             let selected = self.documents[self.active_document_idx].selected_plot;
             ui.add_enabled_ui(selected.is_some(), |ui| {
+                if ui.button("Edit Selected Plot").clicked() {
+                    self.execute_palette_command(PaletteCommand::EditSelectedPlot, ui.ctx());
+                    ui.close();
+                }
                 if ui.button("Duplicate Plot").clicked() {
                     self.execute_palette_command(PaletteCommand::DuplicatePlot, ui.ctx());
                     ui.close();
@@ -245,7 +252,7 @@ impl App {
             self.documents[self.active_document_idx]
                 .plots
                 .insert(idx + 1, cloned);
-            self.documents[self.active_document_idx].selected_plot = Some(idx + 1);
+            self.set_selected_plot(self.active_document_idx, Some(idx + 1));
             self.documents[self.active_document_idx].viewport_selection_hidden_for = None;
             self.mark_dirty();
         }
@@ -265,7 +272,7 @@ impl App {
             return;
         }
         if self.documents[self.active_document_idx].selected_plot != Some(idx) {
-            self.documents[self.active_document_idx].selected_plot = Some(idx);
+            self.set_selected_plot(self.active_document_idx, Some(idx));
         }
         if let Some(idx) = self.documents[self.active_document_idx].selected_plot {
             self.documents[self.active_document_idx].plots.remove(idx);
@@ -285,7 +292,10 @@ impl App {
         doc.plots.push(example.build());
         doc.sweep_config
             .resize_with(doc.plots.len(), Default::default);
-        doc.selected_plot = Some(doc.plots.len() - 1);
+        let selected_idx = doc.plots.len() - 1;
+        let _ = doc;
+        self.set_selected_plot(self.active_document_idx, Some(selected_idx));
+        let doc = &mut self.documents[self.active_document_idx];
         doc.viewport_selection_hidden_for = None;
         doc.scene_dirty = true;
         doc.export_status.clear();
@@ -312,6 +322,7 @@ impl App {
             PaletteCommand::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
             PaletteCommand::Undo => self.undo_active_document(),
             PaletteCommand::Redo => self.redo_active_document(),
+            PaletteCommand::EditSelectedPlot => self.open_selected_plot_editor(),
             PaletteCommand::DuplicatePlot => self.duplicate_selected_plot(),
             PaletteCommand::DeletePlot => self.request_delete_selected_plot(),
             PaletteCommand::SelectedPlotAnalysis(action) => {
@@ -331,6 +342,18 @@ impl App {
         let plot = self.documents[doc_idx].plots[plot_idx].clone();
         let plot_spec = plot.to_plot_spec();
         match action {
+            SelectedPlotAnalysisAction::PointCloudStatistics => self.run_single_plot_analysis(
+                doc_idx,
+                &plot_spec,
+                AnalysisKind::PointCloudStatistics,
+                vec![],
+            ),
+            SelectedPlotAnalysisAction::DataQualityChecks => self.run_single_plot_analysis(
+                doc_idx,
+                &plot_spec,
+                AnalysisKind::DataQualityChecks,
+                vec![],
+            ),
             SelectedPlotAnalysisAction::ScalarSliceZ => self.run_single_plot_analysis(
                 doc_idx,
                 &plot_spec,
@@ -436,6 +459,16 @@ impl App {
             });
         };
 
+        push(
+            "Point Statistics",
+            SelectedPlotAnalysisAction::PointCloudStatistics,
+            has_analysis(AnalysisKind::PointCloudStatistics),
+        );
+        push(
+            "Data Quality Checks",
+            SelectedPlotAnalysisAction::DataQualityChecks,
+            has_analysis(AnalysisKind::DataQualityChecks),
+        );
         push(
             "Add Z Slice",
             SelectedPlotAnalysisAction::ScalarSliceZ,
@@ -576,6 +609,11 @@ impl App {
                 label: "Edit: Redo".to_string(),
                 command: PaletteCommand::Redo,
                 enabled: can_redo,
+            },
+            PaletteItem {
+                label: "Edit: Edit Selected Plot".to_string(),
+                command: PaletteCommand::EditSelectedPlot,
+                enabled: has_selected_plot,
             },
             PaletteItem {
                 label: "File: Quit".to_string(),

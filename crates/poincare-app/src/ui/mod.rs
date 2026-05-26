@@ -1,3 +1,4 @@
+pub(crate) mod data_table;
 pub(crate) mod domain_editor;
 pub(crate) mod equation_editor;
 pub(crate) mod expr_params;
