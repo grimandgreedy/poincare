@@ -246,6 +246,7 @@ impl App {
                 .plots
                 .insert(idx + 1, cloned);
             self.documents[self.active_document_idx].selected_plot = Some(idx + 1);
+            self.documents[self.active_document_idx].viewport_selection_hidden_for = None;
             self.mark_dirty();
         }
     }
@@ -281,9 +282,11 @@ impl App {
     fn load_example_plot(&mut self, example: ExamplePlot) {
         self.record_undo_point();
         let doc = &mut self.documents[self.active_document_idx];
-        doc.plots = vec![example.build()];
-        doc.sweep_config.clear();
-        doc.selected_plot = Some(0);
+        doc.plots.push(example.build());
+        doc.sweep_config
+            .resize_with(doc.plots.len(), Default::default);
+        doc.selected_plot = Some(doc.plots.len() - 1);
+        doc.viewport_selection_hidden_for = None;
         doc.scene_dirty = true;
         doc.export_status.clear();
     }

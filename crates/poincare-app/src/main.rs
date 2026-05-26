@@ -618,6 +618,7 @@ impl App {
         self.documents[self.active_document_idx].sweep_config = Vec::new();
         self.documents[self.active_document_idx].selected_plot =
             (!self.documents[self.active_document_idx].plots.is_empty()).then_some(0);
+        self.documents[self.active_document_idx].viewport_selection_hidden_for = None;
         self.apply_preset_view_settings(preset);
         self.documents[self.active_document_idx].scene_dirty = true;
         self.documents[self.active_document_idx]
