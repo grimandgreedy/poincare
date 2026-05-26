@@ -111,11 +111,12 @@ impl App {
         }
 
         self.panel_tree = Some(panel_tree);
-        if self.data_panel.is_some() {
-            self.panel_tree
-                .as_mut()
-                .expect("panel tree restored after dock render")
-                .ensure_tab_in_leaf(6, crate::dock::tab("Data", DockTab::DataPanel));
+        if let Some(tree) = self.panel_tree.as_mut() {
+            if self.data_panel.is_some() {
+                tree.ensure_tab_in_leaf(6, crate::dock::tab("Data", DockTab::DataPanel));
+            } else {
+                tree.remove_tab(&DockTab::DataPanel);
+            }
         }
 
         if !output.closed_tabs.is_empty() {
