@@ -546,6 +546,7 @@ impl App {
             && (state.source_doc_idx != doc_idx || selected_plot != Some(state.source_plot_idx))
         {
             self.data_panel = None;
+            self.pending_focus_tab = Some(DockTab::PlotProperties);
         }
         self.documents[doc_idx].selected_plot = selected_plot;
     }
