@@ -191,7 +191,12 @@ pub fn run_analysis(plot: &PlotSpec, request: &AnalysisRequest) -> Result<Analys
             parse_axis_index(params.get("denominator_axis").map(String::as_str)).unwrap_or(0),
             params.get("output_name").cloned(),
         )?],
-        AnalysisKind::IntegralCurve => vec![make_curve_integral_plot(plot)?],
+        AnalysisKind::IntegralCurve => vec![make_curve_integral_plot(
+            plot,
+            params
+                .get("normalize_integral")
+                .is_none_or(|value| matches!(value.as_str(), "1" | "true" | "yes")),
+        )?],
         AnalysisKind::ArcLengthCurve => vec![make_curve_arc_length_plot(plot)?],
         AnalysisKind::CurvatureCurve => vec![make_curve_curvature_plot(plot)?],
         AnalysisKind::TangentField => vec![make_curve_tangent_plot(plot)?],
@@ -261,7 +266,7 @@ fn capabilities_for_metadata(metadata: &PlotMetadata) -> Vec<AnalysisCapability>
                 kind: AnalysisKind::IntegralCurve,
                 target_kind: AnalysisTargetKind::Definition,
                 output_kind: AnalysisOutputKind::PlotSpec,
-                parameters: vec![],
+                parameters: vec!["normalize_integral"],
             },
             AnalysisCapability {
                 kind: AnalysisKind::ArcLengthCurve,
@@ -580,19 +585,29 @@ fn make_curve_tangent_plot(source: &PlotSpec) -> Result<PlotSpec, AnalysisError>
     )
 }
 
-fn make_curve_integral_plot(source: &PlotSpec) -> Result<PlotSpec, AnalysisError> {
+fn make_curve_integral_plot(
+    source: &PlotSpec,
+    normalize_integral: bool,
+) -> Result<PlotSpec, AnalysisError> {
     let groups = curve_sample_groups(source)?;
     let derived_groups = match &source.definition {
         crate::PlotDefinition::ExprCartesianLine {
             dep_var, ind_var, ..
         } => groups
             .iter()
-            .map(|group| integral_cartesian_line_group(group, dep_var.as_str(), ind_var.as_str()))
+            .map(|group| {
+                integral_cartesian_line_group(
+                    group,
+                    dep_var.as_str(),
+                    ind_var.as_str(),
+                    normalize_integral,
+                )
+            })
             .filter(|group| group.len() >= 2)
             .collect(),
         _ => groups
             .iter()
-            .map(|group| integral_curve_group(group))
+            .map(|group| integral_curve_group(group, normalize_integral))
             .filter(|group| group.len() >= 2)
             .collect(),
     };
@@ -1969,12 +1984,12 @@ fn finite_difference(group: &[[f32; 3]], index: usize) -> Vec3 {
     (next - prev) * 0.5
 }
 
-fn integral_curve_group(group: &[[f32; 3]]) -> Vec<[f32; 3]> {
+fn integral_curve_group(group: &[[f32; 3]], normalize_integral: bool) -> Vec<[f32; 3]> {
     if group.len() < 2 {
         return Vec::new();
     }
     if let Some(layout) = detect_planar_graph_layout(group) {
-        return integral_planar_graph_group(group, layout);
+        return integral_planar_graph_group(group, layout, normalize_integral);
     }
     let mut out = Vec::with_capacity(group.len());
     let mut accum = Vec3::ZERO;
@@ -2278,7 +2293,11 @@ fn derivative_planar_graph_group(group: &[[f32; 3]], layout: PlanarGraphLayout) 
         .collect()
 }
 
-fn integral_planar_graph_group(group: &[[f32; 3]], layout: PlanarGraphLayout) -> Vec<[f32; 3]> {
+fn integral_planar_graph_group(
+    group: &[[f32; 3]],
+    layout: PlanarGraphLayout,
+    normalize_integral: bool,
+) -> Vec<[f32; 3]> {
     let mut out = Vec::with_capacity(group.len());
     let start_independent = axis_value(Vec3::from_array(group[0]), layout.independent_axis);
     let mut accum = 0.0_f32;
@@ -2311,7 +2330,43 @@ fn integral_planar_graph_group(group: &[[f32; 3]], layout: PlanarGraphLayout) ->
             .to_array(),
         );
     }
+    if normalize_integral {
+        normalize_planar_graph_group(&mut out, layout.dependent_axis);
+    }
     out
+}
+
+fn normalize_planar_graph_group(group: &mut [[f32; 3]], dependent_axis: usize) {
+    if group.is_empty() {
+        return;
+    }
+    let mean = group
+        .iter()
+        .map(|point| axis_value(Vec3::from_array(*point), dependent_axis))
+        .sum::<f32>()
+        / group.len() as f32;
+    for point in group {
+        let mut vec = Vec3::from_array(*point);
+        let value = axis_value(vec, dependent_axis);
+        set_axis_value(&mut vec, dependent_axis, value - mean);
+        *point = vec.to_array();
+    }
+}
+
+fn normalize_cartesian_line_group(group: &mut [[f32; 3]], dep_var: &str) {
+    let Some(dep_axis) = parse_axis_name(dep_var) else {
+        return;
+    };
+    normalize_planar_graph_group(group, dep_axis);
+}
+
+fn parse_axis_name(axis: &str) -> Option<usize> {
+    match axis {
+        "x" => Some(0),
+        "y" => Some(1),
+        "z" => Some(2),
+        _ => None,
+    }
 }
 
 fn axis_range(group: &[[f32; 3]], axis: usize) -> f32 {
@@ -2365,6 +2420,7 @@ fn integral_cartesian_line_group(
     group: &[[f32; 3]],
     dep_var: &str,
     ind_var: &str,
+    normalize_integral: bool,
 ) -> Vec<[f32; 3]> {
     if group.len() < 2 {
         return Vec::new();
@@ -2394,6 +2450,9 @@ fn integral_cartesian_line_group(
         };
         accum += (da + db) * 0.5 * (ib - ia);
         out.push(cartesian_line_point(dep_var, ind_var, ib, accum).to_array());
+    }
+    if normalize_integral {
+        normalize_cartesian_line_group(&mut out, dep_var);
     }
     out
 }
@@ -2489,12 +2548,33 @@ mod tests {
             [2.0, 4.0, 0.0],
         ];
 
-        let derived = integral_curve_group(&group);
+        let derived = integral_curve_group(&group, false);
 
         assert_eq!(derived.len(), 3);
         assert!(approx_eq(derived[0][1], 4.0));
         assert!(approx_eq(derived[1][1], 4.0));
         assert!(approx_eq(derived[2][1], 4.0));
         assert!(approx_eq(derived[2][2], 1.0));
+    }
+
+    #[test]
+    fn repeated_integral_of_sine_stays_centered_when_normalized() {
+        let group = (-80..=80)
+            .map(|i| {
+                let x = i as f32 * 0.1;
+                [x, 4.0, x.sin()]
+            })
+            .collect::<Vec<_>>();
+
+        let first = integral_curve_group(&group, true);
+        let second = integral_curve_group(&first, true);
+
+        assert_eq!(second.len(), group.len());
+        let mean = second.iter().map(|point| point[2]).sum::<f32>() / second.len() as f32;
+        let left = second.first().map(|point| point[2]).unwrap_or_default();
+        let right = second.last().map(|point| point[2]).unwrap_or_default();
+
+        assert!(mean.abs() < 1.0e-3);
+        assert!((left - right).abs() < 0.2);
     }
 }
