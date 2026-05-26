@@ -731,7 +731,7 @@ impl App {
             let point_count: usize = groups.iter().map(Vec::len).sum();
             ui.label(
                 egui::RichText::new(format!(
-                    "{} sampled point(s) across {} curve(s) are available for derivative and tangent plots.",
+                    "{} sampled point(s) across {} curve(s) are available for derivative, tangent, and normalized integral plots.",
                     point_count,
                     groups.len()
                 ))
