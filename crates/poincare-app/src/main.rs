@@ -37,6 +37,7 @@ use plot::entry::PlotEntry;
 use plot::kind::{PlotKind, PlotKindExt};
 use plot::selected_type::SelectedPlotType;
 use plot::table::{TableImportDefinition, TablePlotTarget};
+use ui::data_table::DataTableState;
 use ui::equation_editor::EquationEditor;
 
 static DEBUG_LOG_FILE: OnceLock<Mutex<std::fs::File>> = OnceLock::new();
@@ -58,6 +59,40 @@ fn app_icon() -> Arc<egui::IconData> {
         width,
         height,
     })
+}
+
+fn install_app_fonts(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert(
+        "hack_regular".to_string(),
+        egui::FontData::from_static(include_bytes!(
+            "../../../assets/fonts/Hack-Regular.ttf"
+        ))
+        .into(),
+    );
+    fonts.font_data.insert(
+        "nerd_font_3270".to_string(),
+        egui::FontData::from_static(include_bytes!(
+            "../../../assets/fonts/3270NerdFontMono-Regular.ttf"
+        ))
+        .into(),
+    );
+    for family in [
+        egui::FontFamily::Proportional,
+        egui::FontFamily::Monospace,
+    ] {
+        fonts
+            .families
+            .entry(family.clone())
+            .or_default()
+            .insert(0, "hack_regular".to_string());
+        fonts
+            .families
+            .entry(family)
+            .or_default()
+            .insert(1, "nerd_font_3270".to_string());
+    }
+    ctx.set_fonts(fonts);
 }
 
 fn debug_log_dir() -> PathBuf {
@@ -217,6 +252,7 @@ struct App {
     axis_derivative_modal: Option<AxisDerivativeModalState>,
     fit_curve_modal: Option<FitCurveModalState>,
     data_editor_modal: Option<DataEditorModalState>,
+    data_panel: Option<DataPanelState>,
     export_job: Option<ExportJob>,
 }
 
@@ -267,7 +303,24 @@ struct DataEditorModalState {
     original_payload: DataEditorPayload,
     confirm_close: bool,
     edit_mode: DataEditorMode,
-    cell_page: usize,
+    table_state: DataTableState,
+}
+
+#[derive(Clone)]
+pub(crate) struct AnalysisPanelState {
+    title: String,
+    source_doc_idx: usize,
+    source_plot_idx: usize,
+    reports: Vec<poincare_lib::AnalysisReport>,
+    tables: Vec<poincare_lib::AnalysisTable>,
+    table_states: Vec<DataTableState>,
+    diagnostics: Vec<poincare_lib::Diagnostic>,
+    provenance: poincare_lib::AnalysisProvenance,
+}
+
+#[derive(Clone)]
+pub(crate) enum DataPanelState {
+    Analysis(AnalysisPanelState),
 }
 
 #[derive(Clone)]
@@ -343,6 +396,7 @@ pub(crate) enum CameraCommand {
 
 impl App {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        install_app_fonts(&cc.egui_ctx);
         let mut app = Self {
             documents: vec![Document::new_default()],
             active_document_idx: 0,
@@ -396,6 +450,7 @@ impl App {
             axis_derivative_modal: None,
             fit_curve_modal: None,
             data_editor_modal: None,
+            data_panel: None,
             export_job: None,
         };
         persistence::load_persisted_state(cc.storage, &mut app);
@@ -445,7 +500,7 @@ impl App {
                         original_payload: payload,
                         confirm_close: false,
                         edit_mode: DataEditorMode::Cells,
-                        cell_page: 0,
+                        table_state: DataTableState::default(),
                     });
                 }
             }
@@ -476,6 +531,23 @@ impl App {
         if apply_expression_edit(&mut plot.kind, &text) {
             doc.mark_dirty();
         }
+    }
+
+    pub(crate) fn open_data_panel(&mut self, panel: DataPanelState) {
+        self.data_panel = Some(panel);
+        if let Some(tree) = self.panel_tree.as_mut() {
+            tree.ensure_tab_in_leaf(6, dock::tab("Data", DockTab::DataPanel));
+        }
+        self.pending_focus_tab = Some(DockTab::DataPanel);
+    }
+
+    pub(crate) fn set_selected_plot(&mut self, doc_idx: usize, selected_plot: Option<usize>) {
+        if let Some(DataPanelState::Analysis(state)) = &self.data_panel
+            && (state.source_doc_idx != doc_idx || selected_plot != Some(state.source_plot_idx))
+        {
+            self.data_panel = None;
+        }
+        self.documents[doc_idx].selected_plot = selected_plot;
     }
 
     fn show_data_editor_modal(&mut self, ctx: &egui::Context) {
@@ -514,7 +586,7 @@ impl App {
                         ui,
                         &mut state.payload,
                         state.edit_mode,
-                        &mut state.cell_page,
+                        &mut state.table_state,
                     );
                 });
                 ui.separator();
@@ -606,6 +678,124 @@ impl App {
         self.data_editor_modal = open.then_some(state);
     }
 
+    pub(crate) fn open_analysis_results_panel(
+        &mut self,
+        title: String,
+        source_doc_idx: usize,
+        source_plot_idx: usize,
+        reports: Vec<poincare_lib::AnalysisReport>,
+        tables: Vec<poincare_lib::AnalysisTable>,
+        diagnostics: Vec<poincare_lib::Diagnostic>,
+        provenance: poincare_lib::AnalysisProvenance,
+    ) {
+        let table_states = (0..tables.len())
+            .map(|_| DataTableState::default())
+            .collect();
+        self.open_data_panel(DataPanelState::Analysis(AnalysisPanelState {
+            title,
+            source_doc_idx,
+            source_plot_idx,
+            reports,
+            tables,
+            table_states,
+            diagnostics,
+            provenance,
+        }));
+    }
+
+    pub(crate) fn data_panel_ui(&mut self, ui: &mut egui::Ui) {
+        let Some(panel) = self.data_panel.take() else {
+            ui.label(egui::RichText::new("No active data view.").weak());
+            ui.label(
+                egui::RichText::new(
+                    "Open a plot data editor or run an analysis that produces reports or tables.",
+                )
+                .small()
+                .weak(),
+            );
+            return;
+        };
+
+        match panel {
+            DataPanelState::Analysis(mut state) => {
+                let mut keep_open = true;
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(&state.title).strong());
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("Close").clicked() {
+                            keep_open = false;
+                        }
+                    });
+                });
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Sources: {}",
+                        state.provenance.source_plots.join(", ")
+                    ))
+                    .small()
+                    .weak(),
+                );
+                if !state.provenance.parameters.is_empty() {
+                    ui.label(
+                        egui::RichText::new(
+                            state
+                                .provenance
+                                .parameters
+                                .iter()
+                                .map(|(k, v)| format!("{k}={v}"))
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                        )
+                        .small()
+                        .weak(),
+                    );
+                }
+                for report in &state.reports {
+                    ui.add_space(8.0);
+                    ui.label(egui::RichText::new(&report.title).strong());
+                    egui::Grid::new(ui.id().with(&report.title))
+                        .striped(true)
+                        .show(ui, |ui| {
+                            for (label, value) in &report.values {
+                                ui.label(label);
+                                ui.monospace(value);
+                                ui.end_row();
+                            }
+                        });
+                }
+                if !state.diagnostics.is_empty() {
+                    ui.add_space(8.0);
+                    ui.label(egui::RichText::new("Diagnostics").strong());
+                    for diagnostic in &state.diagnostics {
+                        ui.label(diagnostic.to_string());
+                    }
+                }
+                for (index, table) in state.tables.iter().enumerate() {
+                    ui.add_space(8.0);
+                    ui.label(egui::RichText::new(format!("Table {}", index + 1)).strong());
+                    let mut rows = table.rows.clone();
+                    let headers = table.columns.clone();
+                    let table_id = format!("analysis_table_{index}");
+                    ui::data_table::show_data_table(
+                        ui,
+                        state
+                            .table_states
+                            .get_mut(index)
+                            .expect("table state per analysis table"),
+                        &headers,
+                        &mut rows,
+                        ui::data_table::DataTableOptions::readonly(&table_id),
+                    );
+                }
+
+                if keep_open {
+                    self.data_panel = Some(DataPanelState::Analysis(state));
+                }
+            }
+        }
+    }
+
     pub(crate) fn switch_document(&mut self, idx: usize) {
         if idx < self.documents.len() {
             self.active_document_idx = idx;
@@ -616,8 +806,8 @@ impl App {
         self.record_undo_point();
         self.documents[self.active_document_idx].plots = preset.build();
         self.documents[self.active_document_idx].sweep_config = Vec::new();
-        self.documents[self.active_document_idx].selected_plot =
-            (!self.documents[self.active_document_idx].plots.is_empty()).then_some(0);
+        let selected = (!self.documents[self.active_document_idx].plots.is_empty()).then_some(0);
+        self.set_selected_plot(self.active_document_idx, selected);
         self.documents[self.active_document_idx].viewport_selection_hidden_for = None;
         self.apply_preset_view_settings(preset);
         self.documents[self.active_document_idx].scene_dirty = true;
@@ -924,10 +1114,12 @@ impl App {
             let doc = &mut self.documents[self.active_document_idx];
             let plot_count = doc.plots.len();
             if plot_count > 0 {
-                doc.selected_plot = Some(match doc.selected_plot {
+                let next = match doc.selected_plot {
                     Some(idx) => (idx + 1) % plot_count,
                     None => 0,
-                });
+                };
+                let _ = doc;
+                self.set_selected_plot(self.active_document_idx, Some(next));
             }
             return;
         }
@@ -935,10 +1127,12 @@ impl App {
             let doc = &mut self.documents[self.active_document_idx];
             let plot_count = doc.plots.len();
             if plot_count > 0 {
-                doc.selected_plot = Some(match doc.selected_plot {
+                let next = match doc.selected_plot {
                     Some(0) | None => plot_count - 1,
                     Some(idx) => idx - 1,
-                });
+                };
+                let _ = doc;
+                self.set_selected_plot(self.active_document_idx, Some(next));
             }
             return;
         }
@@ -1702,11 +1896,11 @@ fn edit_data_payload(
     ui: &mut egui::Ui,
     payload: &mut DataEditorPayload,
     edit_mode: DataEditorMode,
-    cell_page: &mut usize,
+    table_state: &mut DataTableState,
 ) -> bool {
     match payload {
         DataEditorPayload::ImportedTable(definition) => {
-            edit_imported_table_payload(ui, definition, edit_mode, cell_page)
+            edit_imported_table_payload(ui, definition, edit_mode, table_state)
         }
         DataEditorPayload::PointAnnotations {
             raw_text,
@@ -1722,7 +1916,7 @@ fn edit_data_payload(
                 edit_mode,
                 &["x", "y", "z", "label"],
                 '\t',
-                cell_page,
+                table_state,
             );
             match parse_point_annotations(raw_text) {
                 Ok(points) => {
@@ -1754,7 +1948,7 @@ fn edit_data_payload(
                 edit_mode,
                 &["ox", "oy", "oz", "vx", "vy", "vz", "label"],
                 '\t',
-                cell_page,
+                table_state,
             );
             match parse_arrow_annotations(raw_text) {
                 Ok(arrows) => {
@@ -1781,7 +1975,7 @@ fn edit_data_payload(
                 edit_mode,
                 &["group", "x", "y", "z"],
                 '\t',
-                cell_page,
+                table_state,
             );
             match parse_polyline_groups(raw_text) {
                 Ok(groups) => {
@@ -1807,7 +2001,7 @@ fn edit_imported_table_payload(
     ui: &mut egui::Ui,
     definition: &mut TableImportDefinition,
     edit_mode: DataEditorMode,
-    cell_page: &mut usize,
+    table_state: &mut DataTableState,
 ) -> bool {
     match edit_mode {
         DataEditorMode::Raw => {
@@ -1844,7 +2038,7 @@ fn edit_imported_table_payload(
                 DataEditorMode::Cells,
                 &[],
                 delimiter,
-                cell_page,
+                table_state,
             );
             ui.separator();
             let preview = definition.preview();
@@ -1875,9 +2069,8 @@ fn edit_text_or_cells(
     edit_mode: DataEditorMode,
     fallback_headers: &[&str],
     delimiter: char,
-    cell_page: &mut usize,
+    table_state: &mut DataTableState,
 ) {
-    const CELL_PAGE_SIZE: usize = 100;
     match edit_mode {
         DataEditorMode::Raw => {
             ui.add(
@@ -1887,7 +2080,7 @@ fn edit_text_or_cells(
             );
         }
         DataEditorMode::Cells => {
-            let mut rows = parse_rows_for_cells(raw_text, delimiter);
+            let mut rows = ui::data_table::parse_rows(raw_text, delimiter);
             if rows.is_empty() && !fallback_headers.is_empty() {
                 rows.push(
                     fallback_headers
@@ -1896,94 +2089,18 @@ fn edit_text_or_cells(
                         .collect(),
                 );
             }
-            let column_count = rows
+            let headers = fallback_headers
                 .iter()
-                .map(Vec::len)
-                .max()
-                .unwrap_or(fallback_headers.len())
-                .max(1);
-            for row in &mut rows {
-                row.resize(column_count, String::new());
-            }
-
-            let total_rows = rows.len();
-            let page_count = total_rows.max(1).div_ceil(CELL_PAGE_SIZE);
-            *cell_page = (*cell_page).min(page_count.saturating_sub(1));
-            let start_row = *cell_page * CELL_PAGE_SIZE;
-            let end_row = (start_row + CELL_PAGE_SIZE).min(total_rows);
-
-            ui.horizontal(|ui| {
-                ui.label(format!(
-                    "Rows {}-{} of {}",
-                    if total_rows == 0 { 0 } else { start_row + 1 },
-                    end_row,
-                    total_rows
-                ));
-                ui.add_space(10.0);
-                if ui
-                    .add_enabled(*cell_page > 0, egui::Button::new("Previous 100"))
-                    .clicked()
-                {
-                    *cell_page -= 1;
-                }
-                if ui
-                    .add_enabled(end_row < total_rows, egui::Button::new("Next 100"))
-                    .clicked()
-                {
-                    *cell_page += 1;
-                }
-                ui.add_space(10.0);
-                if ui.button("Add Row").clicked() {
-                    rows.push(vec![String::new(); column_count]);
-                    let new_total_rows = rows.len();
-                    *cell_page = new_total_rows.saturating_sub(1) / CELL_PAGE_SIZE;
-                }
-            });
-            ui.add_space(4.0);
-
-            let mut remove_row = None;
-            egui::ScrollArea::both().max_height(360.0).show(ui, |ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
-                egui::Grid::new(ui.id().with("data_editor_cells"))
-                    .spacing(egui::vec2(0.0, 0.0))
-                    .show(ui, |ui| {
-                        ui.label(egui::RichText::new("#").strong());
-                        for column in 0..column_count {
-                            let label = fallback_headers
-                                .get(column)
-                                .copied()
-                                .map(str::to_string)
-                                .unwrap_or_else(|| format!("col {}", column + 1));
-                            ui.label(egui::RichText::new(label).strong());
-                        }
-                        ui.label(egui::RichText::new("").strong());
-                        ui.end_row();
-
-                        for row_idx in start_row..end_row {
-                            let row = &mut rows[row_idx];
-                            ui.label((row_idx + 1).to_string());
-                            for cell in row.iter_mut().take(column_count) {
-                                ui.add_sized(
-                                    [110.0, 24.0],
-                                    egui::TextEdit::singleline(cell)
-                                        .font(egui::TextStyle::Monospace)
-                                        .margin(egui::vec2(4.0, 4.0)),
-                                );
-                            }
-                            if ui.small_button("X").clicked() {
-                                remove_row = Some(row_idx);
-                            }
-                            ui.end_row();
-                        }
-                    });
-            });
-            if let Some(row_idx) = remove_row {
-                rows.remove(row_idx);
-                let new_total_rows = rows.len();
-                let new_page_count = new_total_rows.max(1).div_ceil(CELL_PAGE_SIZE);
-                *cell_page = (*cell_page).min(new_page_count.saturating_sub(1));
-            }
-            *raw_text = serialize_rows_from_cells(&rows, delimiter);
+                .map(|value| (*value).to_string())
+                .collect::<Vec<_>>();
+            ui::data_table::show_data_table(
+                ui,
+                table_state,
+                &headers,
+                &mut rows,
+                ui::data_table::DataTableOptions::editable("data_editor_cells"),
+            );
+            *raw_text = ui::data_table::serialize_rows(&rows, delimiter);
         }
     }
 }
@@ -2179,32 +2296,6 @@ fn delimiter_char(delimiter: crate::plot::table::TableDelimiter) -> char {
         crate::plot::table::TableDelimiter::Space => ' ',
         crate::plot::table::TableDelimiter::Pipe => '|',
     }
-}
-
-fn parse_rows_for_cells(raw_text: &str, delimiter: char) -> Vec<Vec<String>> {
-    raw_text
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .map(|line| {
-            if delimiter == ' ' {
-                line.split_whitespace()
-                    .map(|cell| cell.trim().to_string())
-                    .collect()
-            } else {
-                line.split(delimiter)
-                    .map(|cell| cell.trim().to_string())
-                    .collect()
-            }
-        })
-        .collect()
-}
-
-fn serialize_rows_from_cells(rows: &[Vec<String>], delimiter: char) -> String {
-    let sep = delimiter.to_string();
-    rows.iter()
-        .map(|row| row.join(&sep))
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 fn parse_f32_cell(value: &str, line_idx: usize, label: &str) -> Result<f32, String> {

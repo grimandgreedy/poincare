@@ -903,21 +903,21 @@ fn derive_glyph_scalars(attribute: &str, instances: &[GlyphInstance]) -> Option<
 /// shape definition and specular highlights. Shadows are disabled — they add cost
 /// without visual benefit for mathematical plot geometry.
 fn hemisphere_lighting() -> LightingSettings {
-    LightingSettings {
-        lights: vec![LightSource {
-            kind: LightKind::Directional {
-                // ~65° elevation, slight front-right bias (Z-up convention).
-                direction: [0.4, 0.3, 1.5],
-            },
-            colour: [1.0, 1.0, 1.0],
-            intensity: 0.75,
-        }],
-        shadows_enabled: false,
-        sky_colour: [0.8, 0.9, 1.0],
-        ground_colour: [0.5, 0.55, 0.6],
-        hemisphere_intensity: 0.65,
-        ..LightingSettings::default()
+    let mut settings = LightingSettings::default();
+    settings.lights = vec![LightSource::default()];
+    if let Some(light) = settings.lights.first_mut() {
+        light.kind = LightKind::Directional {
+            // ~65° elevation, slight front-right bias (Z-up convention).
+            direction: [0.4, 0.3, 1.5],
+        };
+        light.colour = [1.0, 1.0, 1.0];
+        light.intensity = 0.75;
     }
+    settings.shadows_enabled = false;
+    settings.sky_colour = [0.8, 0.9, 1.0];
+    settings.ground_colour = [0.5, 0.55, 0.6];
+    settings.hemisphere_intensity = 0.65;
+    settings
 }
 
 /// Find the visible segment `[t_lo, t_hi]` of the axis line `P(t) = t * dir` (through
