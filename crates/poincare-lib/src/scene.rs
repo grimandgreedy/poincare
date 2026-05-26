@@ -454,8 +454,8 @@ impl GraphScene {
         frame.scene.streamtube_items = streamtube_items;
         frame.scene.volumes = volumes;
         frame.interaction.outline_selected = selected_pick_id.is_some();
-        frame.interaction.outline_colour = [0.48, 0.72, 1.0, 1.0];
-        frame.interaction.outline_width_px = 2.5;
+        frame.interaction.outline_colour = [0.44, 0.66, 0.96, 1.0];
+        frame.interaction.outline_width_px = 1.5;
         frame.viewport.show_axes_indicator = true;
         frame.overlays.labels = axis_labels;
 

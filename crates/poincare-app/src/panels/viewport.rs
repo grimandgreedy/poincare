@@ -108,7 +108,11 @@ impl App {
             if !consumed_click && response.clicked() {
                 if let Some(plot_idx) = self.documents[self.active_document_idx].hovered_plot {
                     self.documents[self.active_document_idx].selected_plot = Some(plot_idx);
+                    self.documents[self.active_document_idx].viewport_selection_hidden_for = None;
                     self.pending_focus_tab = Some(crate::dock::DockTab::PlotProperties);
+                } else {
+                    self.documents[self.active_document_idx].viewport_selection_hidden_for =
+                        self.documents[self.active_document_idx].selected_plot;
                 }
             }
             if response.double_clicked()
@@ -125,6 +129,7 @@ impl App {
 
         let selected_plot_id = self.documents[doc_idx]
             .selected_plot
+            .filter(|&idx| self.documents[doc_idx].viewport_selection_hidden_for != Some(idx))
             .map(|idx| (idx + 1) as u64);
         let mut frame_data = self.documents[self.active_document_idx]
             .scene

@@ -466,6 +466,8 @@ impl App {
                                     if response.clicked() {
                                         self.documents[self.active_document_idx].selected_plot =
                                             Some(index);
+                                        self.documents[self.active_document_idx]
+                                            .viewport_selection_hidden_for = None;
                                     }
                                     response.on_hover_text(hover_text);
                                 }
@@ -519,6 +521,8 @@ impl App {
                                 .clone();
                             self.rename_needs_focus = true;
                             self.documents[self.active_document_idx].selected_plot = Some(index);
+                            self.documents[self.active_document_idx]
+                                .viewport_selection_hidden_for = None;
                         }
                         PlotAction::Duplicate(index) => {
                             let mut cloned =
@@ -529,6 +533,8 @@ impl App {
                                 .insert(index + 1, cloned);
                             self.documents[self.active_document_idx].selected_plot =
                                 Some(index + 1);
+                            self.documents[self.active_document_idx]
+                                .viewport_selection_hidden_for = None;
                             self.renaming_plot = None;
                             self.mark_dirty();
                         }

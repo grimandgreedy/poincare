@@ -1055,6 +1055,7 @@ impl App {
     fn push_analysis_plot(&mut self, doc_idx: usize, plot: PlotEntry) {
         self.documents[doc_idx].plots.push(plot);
         self.documents[doc_idx].selected_plot = Some(self.documents[doc_idx].plots.len() - 1);
+        self.documents[doc_idx].viewport_selection_hidden_for = None;
         self.mark_dirty();
     }
 
