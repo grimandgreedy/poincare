@@ -18,7 +18,7 @@ use std::{fs::OpenOptions, io::Write};
 
 use eframe::egui;
 use grimdock::{PanelStyle, PanelTree};
-use poincare_lib::{AxisConfig, ColormapSource, ColourMode, CurveInterpolation};
+use poincare_lib::{AxisConfig, ColormapSource, ColourMode, CurveInterpolation, parse_curve_expr, parse_expr_with_vars};
 use viewport_lib::BuiltinColourmap;
 use viewport_lib::{
     CameraAnimator, CameraTarget, CameraTrack, Easing, GroundPlaneMode, OrbitCameraController,
@@ -31,7 +31,7 @@ use document::{
     default_export_dir, default_export_filename, export_mode_for_format,
 };
 use plot::entry::PlotEntry;
-use plot::kind::PlotKindExt;
+use plot::kind::{PlotKind, PlotKindExt};
 use plot::selected_type::SelectedPlotType;
 use plot::table::{TableImportDefinition, TablePlotTarget};
 use ui::equation_editor::EquationEditor;
@@ -200,6 +200,8 @@ struct App {
     camera_animation_easing: Easing,
     inspector_tab: InspectorTab,
     pending_focus_tab: Option<DockTab>,
+    last_scrolled_plot_selection: Option<(usize, Option<usize>)>,
+    selected_plot_eq_target: Option<(usize, usize)>,
     renaming_plot: Option<usize>,
     rename_buf: String,
     rename_needs_focus: bool,
@@ -210,6 +212,8 @@ struct App {
     surface_intersection_show_point_labels: bool,
     interpolate_modal: Option<InterpolateModalState>,
     axis_derivative_modal: Option<AxisDerivativeModalState>,
+    fit_curve_modal: Option<FitCurveModalState>,
+    data_editor_modal: Option<DataEditorModalState>,
     export_job: Option<ExportJob>,
 }
 
@@ -228,6 +232,64 @@ struct AxisDerivativeModalState {
     denominator_axis: usize,
     output_name: String,
     error: String,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FitCurveMethodUi {
+    Polynomial,
+    RobustPolynomial,
+    Spline,
+    Fourier,
+}
+
+#[derive(Clone)]
+struct FitCurveModalState {
+    source_plot_idx: usize,
+    method: FitCurveMethodUi,
+    output_name: String,
+    degree: u32,
+    harmonics: u32,
+    smoothing_window: u32,
+    samples_per_segment: u32,
+    show_control_points: bool,
+    show_residual_plot: bool,
+    error: String,
+}
+
+#[derive(Clone)]
+struct DataEditorModalState {
+    doc_idx: usize,
+    plot_idx: usize,
+    payload: DataEditorPayload,
+    original_payload: DataEditorPayload,
+    confirm_close: bool,
+    edit_mode: DataEditorMode,
+    cell_page: usize,
+}
+
+#[derive(Clone)]
+enum DataEditorPayload {
+    ImportedTable(TableImportDefinition),
+    PointAnnotations {
+        raw_text: String,
+        show_labels: bool,
+        error: Option<String>,
+    },
+    ArrowAnnotations {
+        raw_text: String,
+        show_labels: bool,
+        error: Option<String>,
+    },
+    DerivedPolylineGroups {
+        raw_text: String,
+        error: Option<String>,
+    },
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DataEditorMode {
+    Raw,
+    Cells,
 }
 
 struct ExportJob {
@@ -317,6 +379,8 @@ impl App {
             camera_animation_easing: Easing::EaseInOutCubic,
             inspector_tab: InspectorTab::Domain,
             pending_focus_tab: None,
+            last_scrolled_plot_selection: None,
+            selected_plot_eq_target: None,
             renaming_plot: None,
             rename_buf: String::new(),
             rename_needs_focus: false,
@@ -327,6 +391,8 @@ impl App {
             surface_intersection_show_point_labels: true,
             interpolate_modal: None,
             axis_derivative_modal: None,
+            fit_curve_modal: None,
+            data_editor_modal: None,
             export_job: None,
         };
         persistence::load_persisted_state(cc.storage, &mut app);
@@ -353,6 +419,188 @@ impl App {
         if self.active_document_idx >= self.documents.len() {
             self.active_document_idx = self.documents.len() - 1;
         }
+    }
+
+    fn open_selected_plot_editor(&mut self) {
+        let doc_idx = self.active_document_idx;
+        let Some(plot_idx) = self.documents[doc_idx].selected_plot else {
+            return;
+        };
+        let Some(plot) = self.documents[doc_idx].plots.get(plot_idx) else {
+            return;
+        };
+        match &plot.kind {
+            PlotKind::ImportedTable { .. }
+            | PlotKind::PointAnnotations { .. }
+            | PlotKind::ArrowAnnotations { .. }
+            | PlotKind::DerivedPolylineGroups { .. } => {
+                if let Some(payload) = data_editor_payload_from_plot_kind(&plot.kind) {
+                    self.data_editor_modal = Some(DataEditorModalState {
+                        doc_idx,
+                        plot_idx,
+                        payload: payload.clone(),
+                        original_payload: payload,
+                        confirm_close: false,
+                        edit_mode: DataEditorMode::Cells,
+                        cell_page: 0,
+                    });
+                }
+            }
+            kind if is_equation_editable(kind) => {
+                self.selected_plot_eq_target = Some((doc_idx, plot_idx));
+                self.eq_editor.open = true;
+                self.eq_editor.target_id = None;
+                self.eq_editor.edit_buf = selected_plot_equation_text(kind);
+                self.eq_editor.original_buf = self.eq_editor.edit_buf.clone();
+                self.eq_editor.confirm_close = false;
+                self.eq_editor.focus_input = true;
+                self.eq_editor.show_auto_templates = false;
+            }
+            _ => {}
+        }
+    }
+
+    fn apply_selected_plot_equation_edit(&mut self, text: String) {
+        let Some((doc_idx, plot_idx)) = self.selected_plot_eq_target.take() else {
+            return;
+        };
+        let Some(doc) = self.documents.get_mut(doc_idx) else {
+            return;
+        };
+        let Some(plot) = doc.plots.get_mut(plot_idx) else {
+            return;
+        };
+        if apply_expression_edit(&mut plot.kind, &text) {
+            doc.mark_dirty();
+        }
+    }
+
+    fn show_data_editor_modal(&mut self, ctx: &egui::Context) {
+        let Some(mut state) = self.data_editor_modal.clone() else {
+            return;
+        };
+
+        let title = self
+            .documents
+            .get(state.doc_idx)
+            .and_then(|doc| doc.plots.get(state.plot_idx))
+            .map(|plot| format!("Data Editor: {}", plot.name))
+            .unwrap_or_else(|| "Data Editor".to_string());
+
+        let mut open = true;
+        let mut save = false;
+        let mut close_requested = false;
+        let escape_pressed = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+        let enter_pressed = ctx.input(|i| i.key_pressed(egui::Key::Enter));
+        egui::Window::new(title)
+            .open(&mut open)
+            .collapsible(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .default_width(720.0)
+            .default_height(640.0)
+            .show(ctx, |ui| {
+                let mut valid = false;
+                ui.horizontal(|ui| {
+                    ui.label("Mode");
+                    ui.selectable_value(&mut state.edit_mode, DataEditorMode::Raw, "Raw");
+                    ui.selectable_value(&mut state.edit_mode, DataEditorMode::Cells, "Cells");
+                });
+                ui.separator();
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    valid = edit_data_payload(
+                        ui,
+                        &mut state.payload,
+                        state.edit_mode,
+                        &mut state.cell_page,
+                    );
+                });
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("Cancel").clicked() {
+                        close_requested = true;
+                    }
+                    if ui.add_enabled(valid, egui::Button::new("Apply")).clicked() {
+                        save = true;
+                        close_requested = true;
+                    }
+                });
+            });
+        if escape_pressed && !state.confirm_close {
+            close_requested = true;
+        }
+        if close_requested {
+            if data_editor_payload_is_dirty(&state.payload, &state.original_payload) {
+                state.confirm_close = true;
+                open = true;
+            } else {
+                open = false;
+            }
+        }
+
+        if save
+            && let Some(doc) = self.documents.get_mut(state.doc_idx)
+            && let Some(plot) = doc.plots.get_mut(state.plot_idx)
+            && apply_data_editor_payload(&mut plot.kind, &state.payload)
+        {
+            doc.mark_dirty();
+            state.confirm_close = false;
+            open = false;
+        }
+
+        if state.confirm_close {
+            let mut discard = false;
+            let mut save_from_prompt = false;
+            let mut cancel = false;
+            egui::Window::new("Discard changes?")
+                .id(egui::Id::new("data_editor_discard_confirm"))
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .collapsible(false)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    ui.label("Discard unsaved changes?");
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        let discard_button =
+                            ui.add_sized([90.0, 30.0], egui::Button::new("discard"));
+                        discard_button.request_focus();
+                        if discard_button.clicked() || enter_pressed {
+                            discard = true;
+                        }
+                        if ui
+                            .add_sized([90.0, 30.0], egui::Button::new("save"))
+                            .clicked()
+                        {
+                            save_from_prompt = true;
+                        }
+                        if ui
+                            .add_sized([90.0, 30.0], egui::Button::new("cancel"))
+                            .clicked()
+                            || escape_pressed
+                        {
+                            cancel = true;
+                        }
+                    });
+                });
+            if discard {
+                state.payload = state.original_payload.clone();
+                state.confirm_close = false;
+                open = false;
+            } else if save_from_prompt {
+                if let Some(doc) = self.documents.get_mut(state.doc_idx)
+                    && let Some(plot) = doc.plots.get_mut(state.plot_idx)
+                    && apply_data_editor_payload(&mut plot.kind, &state.payload)
+                {
+                    doc.mark_dirty();
+                    state.confirm_close = false;
+                    open = false;
+                }
+            } else if cancel {
+                state.confirm_close = false;
+                open = true;
+            }
+        }
+
+        self.data_editor_modal = open.then_some(state);
     }
 
     pub(crate) fn switch_document(&mut self, idx: usize) {
@@ -648,6 +896,9 @@ impl App {
             self.command_palette_focus_pending = true;
             self.command_palette_selected = 0;
         }
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::A)) {
+            self.open_add_plot_modal();
+        }
 
         if ctx.wants_keyboard_input() {
             return;
@@ -655,6 +906,42 @@ impl App {
 
         if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::X)) {
             self.request_delete_selected_plot();
+            return;
+        }
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::V)) {
+            let doc = &mut self.documents[self.active_document_idx];
+            if let Some(plot_idx) = doc.selected_plot {
+                if let Some(plot) = doc.plots.get_mut(plot_idx) {
+                    plot.visible = !plot.visible;
+                    doc.mark_dirty();
+                }
+            }
+            return;
+        }
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::J)) {
+            let doc = &mut self.documents[self.active_document_idx];
+            let plot_count = doc.plots.len();
+            if plot_count > 0 {
+                doc.selected_plot = Some(match doc.selected_plot {
+                    Some(idx) => (idx + 1) % plot_count,
+                    None => 0,
+                });
+            }
+            return;
+        }
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::K)) {
+            let doc = &mut self.documents[self.active_document_idx];
+            let plot_count = doc.plots.len();
+            if plot_count > 0 {
+                doc.selected_plot = Some(match doc.selected_plot {
+                    Some(0) | None => plot_count - 1,
+                    Some(idx) => idx - 1,
+                });
+            }
+            return;
+        }
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::E)) {
+            self.open_selected_plot_editor();
             return;
         }
 
@@ -1142,6 +1429,748 @@ impl App {
     }
 }
 
+fn is_equation_editable(kind: &PlotKind) -> bool {
+    matches!(
+        kind,
+        PlotKind::ExprCartesian { .. }
+            | PlotKind::ExprCurve { .. }
+            | PlotKind::ExprCartesianLine { .. }
+            | PlotKind::ExprSpherical { .. }
+            | PlotKind::ExprCylindrical { .. }
+            | PlotKind::ExprPolar { .. }
+            | PlotKind::ExprParametricSurface { .. }
+            | PlotKind::ScalarSlice { .. }
+            | PlotKind::VectorSlice { .. }
+            | PlotKind::GradientField { .. }
+            | PlotKind::DivergenceField { .. }
+            | PlotKind::CurlField { .. }
+            | PlotKind::ExprVectorField { .. }
+            | PlotKind::ExprVolume { .. }
+            | PlotKind::ExprIsosurface { .. }
+            | PlotKind::ExprStreamlines { .. }
+    )
+}
+
+fn selected_plot_equation_text(kind: &PlotKind) -> String {
+    match kind {
+        PlotKind::ExprCartesian { expression, .. }
+        | PlotKind::ExprCurve { expression, .. }
+        | PlotKind::ExprCartesianLine { expression, .. }
+        | PlotKind::ExprSpherical { expression, .. }
+        | PlotKind::ExprCylindrical { expression, .. }
+        | PlotKind::ExprPolar { expression, .. }
+        | PlotKind::ExprParametricSurface { expression, .. }
+        | PlotKind::ScalarSlice { expression, .. }
+        | PlotKind::VectorSlice { expression, .. }
+        | PlotKind::GradientField { expression, .. }
+        | PlotKind::DivergenceField { expression, .. }
+        | PlotKind::CurlField { expression, .. }
+        | PlotKind::ExprVectorField { expression, .. }
+        | PlotKind::ExprVolume { expression, .. }
+        | PlotKind::ExprIsosurface { expression, .. }
+        | PlotKind::ExprStreamlines { expression, .. } => expression.clone(),
+        _ => String::new(),
+    }
+}
+
+fn apply_expression_edit(kind: &mut PlotKind, text: &str) -> bool {
+    match kind {
+        PlotKind::ExprCartesian {
+            expression,
+            parameters,
+        } => apply_single_expression(expression, parameters, text, &["x", "y"]),
+        PlotKind::ExprCurve {
+            expression,
+            parameters,
+            ..
+        } => {
+            if let Ok(parsed) = parse_curve_expr(text) {
+                let old: std::collections::HashMap<String, f64> =
+                    parameters.iter().cloned().collect();
+                let mut seen = std::collections::HashSet::new();
+                *parameters = parsed
+                    .0
+                    .parameters
+                    .iter()
+                    .chain(parsed.1.parameters.iter())
+                    .chain(parsed.2.parameters.iter())
+                    .filter_map(|(name, default)| {
+                        seen.insert(name.clone()).then(|| {
+                            (name.clone(), old.get(name).copied().unwrap_or(*default))
+                        })
+                    })
+                    .collect();
+            }
+            *expression = text.to_string();
+            true
+        }
+        PlotKind::ExprCartesianLine {
+            ind_var,
+            expression,
+            parameters,
+            ..
+        } => apply_single_expression(expression, parameters, text, &[ind_var.as_str()]),
+        PlotKind::ExprSpherical {
+            expression,
+            parameters,
+        } => apply_single_expression(expression, parameters, text, &["theta", "phi"]),
+        PlotKind::ExprCylindrical {
+            expression,
+            parameters,
+        } => apply_single_expression(expression, parameters, text, &["theta", "z"]),
+        PlotKind::ExprPolar {
+            expression,
+            parameters,
+        } => apply_single_expression(expression, parameters, text, &["theta"]),
+        PlotKind::ExprParametricSurface {
+            expression,
+            parameters,
+        } => apply_triple_expression(expression, parameters, text, &["u", "v"]),
+        PlotKind::ScalarSlice {
+            expression,
+            parameters,
+            ..
+        } => apply_single_expression(expression, parameters, text, &["x", "y", "z"]),
+        PlotKind::VectorSlice {
+            expression,
+            parameters,
+            ..
+        } => apply_triple_expression(expression, parameters, text, &["x", "y", "z"]),
+        PlotKind::GradientField {
+            expression,
+            parameters,
+        } => apply_single_expression(expression, parameters, text, &["x", "y", "z"]),
+        PlotKind::DivergenceField {
+            expression,
+            parameters,
+            ..
+        } => apply_triple_expression(expression, parameters, text, &["x", "y", "z"]),
+        PlotKind::CurlField {
+            expression,
+            parameters,
+        } => apply_triple_expression(expression, parameters, text, &["x", "y", "z"]),
+        PlotKind::ExprVectorField {
+            expression,
+            parameters,
+        } => apply_triple_expression(expression, parameters, text, &["x", "y", "z"]),
+        PlotKind::ExprVolume {
+            expression,
+            parameters,
+            ..
+        } => apply_single_expression(expression, parameters, text, &["x", "y", "z"]),
+        PlotKind::ExprIsosurface {
+            expression,
+            parameters,
+            ..
+        } => apply_single_expression(expression, parameters, text, &["x", "y", "z"]),
+        PlotKind::ExprStreamlines {
+            expression,
+            parameters,
+            ..
+        } => apply_triple_expression(expression, parameters, text, &["x", "y", "z"]),
+        _ => false,
+    }
+}
+
+fn apply_single_expression(
+    expression: &mut String,
+    parameters: &mut Vec<(String, f64)>,
+    text: &str,
+    coord_vars: &[&str],
+) -> bool {
+    if let Ok(parsed) = parse_expr_with_vars(text, coord_vars) {
+        let old: std::collections::HashMap<String, f64> = parameters.iter().cloned().collect();
+        *parameters = parsed
+            .parameters
+            .into_iter()
+            .map(|(name, default)| (name.clone(), old.get(&name).copied().unwrap_or(default)))
+            .collect();
+    }
+    *expression = text.to_string();
+    true
+}
+
+fn apply_triple_expression(
+    expression: &mut String,
+    parameters: &mut Vec<(String, f64)>,
+    text: &str,
+    coord_vars: &[&str],
+) -> bool {
+    let parts: Vec<_> = text.splitn(3, '|').map(str::trim).collect();
+    let p0 = parts.first().copied().unwrap_or_default();
+    let p1 = parts.get(1).copied().unwrap_or_default();
+    let p2 = parts.get(2).copied().unwrap_or_default();
+    if let (Ok(px), Ok(py), Ok(pz)) = (
+        parse_expr_with_vars(p0, coord_vars),
+        parse_expr_with_vars(p1, coord_vars),
+        parse_expr_with_vars(p2, coord_vars),
+    ) {
+        let old: std::collections::HashMap<String, f64> = parameters.iter().cloned().collect();
+        let mut seen = std::collections::HashSet::new();
+        *parameters = px
+            .parameters
+            .iter()
+            .chain(py.parameters.iter())
+            .chain(pz.parameters.iter())
+            .filter_map(|(name, default)| {
+                seen.insert(name.clone())
+                    .then(|| (name.clone(), old.get(name).copied().unwrap_or(*default)))
+            })
+            .collect();
+    }
+    *expression = format!("{p0}|{p1}|{p2}");
+    true
+}
+
+fn data_editor_payload_from_plot_kind(kind: &PlotKind) -> Option<DataEditorPayload> {
+    match kind {
+        PlotKind::ImportedTable { definition } => {
+            Some(DataEditorPayload::ImportedTable(definition.clone()))
+        }
+        PlotKind::PointAnnotations { points, show_labels } => {
+            Some(DataEditorPayload::PointAnnotations {
+                raw_text: serialize_point_annotations(points),
+                show_labels: *show_labels,
+                error: None,
+            })
+        }
+        PlotKind::ArrowAnnotations { arrows, show_labels } => {
+            Some(DataEditorPayload::ArrowAnnotations {
+                raw_text: serialize_arrow_annotations(arrows),
+                show_labels: *show_labels,
+                error: None,
+            })
+        }
+        PlotKind::DerivedPolylineGroups { groups } => Some(DataEditorPayload::DerivedPolylineGroups {
+            raw_text: serialize_polyline_groups(groups),
+            error: None,
+        }),
+        _ => None,
+    }
+}
+
+fn data_editor_payload_is_dirty(current: &DataEditorPayload, original: &DataEditorPayload) -> bool {
+    match (current, original) {
+        (DataEditorPayload::ImportedTable(a), DataEditorPayload::ImportedTable(b)) => a != b,
+        (
+            DataEditorPayload::PointAnnotations {
+                raw_text: a_text,
+                show_labels: a_show,
+                ..
+            },
+            DataEditorPayload::PointAnnotations {
+                raw_text: b_text,
+                show_labels: b_show,
+                ..
+            },
+        ) => a_text != b_text || a_show != b_show,
+        (
+            DataEditorPayload::ArrowAnnotations {
+                raw_text: a_text,
+                show_labels: a_show,
+                ..
+            },
+            DataEditorPayload::ArrowAnnotations {
+                raw_text: b_text,
+                show_labels: b_show,
+                ..
+            },
+        ) => a_text != b_text || a_show != b_show,
+        (
+            DataEditorPayload::DerivedPolylineGroups { raw_text: a_text, .. },
+            DataEditorPayload::DerivedPolylineGroups { raw_text: b_text, .. },
+        ) => a_text != b_text,
+        _ => true,
+    }
+}
+
+fn edit_data_payload(
+    ui: &mut egui::Ui,
+    payload: &mut DataEditorPayload,
+    edit_mode: DataEditorMode,
+    cell_page: &mut usize,
+) -> bool {
+    match payload {
+        DataEditorPayload::ImportedTable(definition) => {
+            edit_imported_table_payload(ui, definition, edit_mode, cell_page)
+        }
+        DataEditorPayload::PointAnnotations {
+            raw_text,
+            show_labels,
+            error,
+        } => {
+            ui.label("Columns: `x<TAB>y<TAB>z<TAB>label`");
+            ui.checkbox(show_labels, "Show labels");
+            ui.add_space(6.0);
+            edit_text_or_cells(
+                ui,
+                raw_text,
+                edit_mode,
+                &["x", "y", "z", "label"],
+                '\t',
+                cell_page,
+            );
+            match parse_point_annotations(raw_text) {
+                Ok(points) => {
+                    *error = None;
+                    ui.colored_label(
+                        egui::Color32::from_rgb(120, 210, 150),
+                        format!("{} point annotation(s)", points.len()),
+                    );
+                    true
+                }
+                Err(message) => {
+                    *error = Some(message.clone());
+                    ui.colored_label(egui::Color32::from_rgb(255, 110, 110), message);
+                    false
+                }
+            }
+        }
+        DataEditorPayload::ArrowAnnotations {
+            raw_text,
+            show_labels,
+            error,
+        } => {
+            ui.label("Columns: `ox<TAB>oy<TAB>oz<TAB>vx<TAB>vy<TAB>vz<TAB>label`");
+            ui.checkbox(show_labels, "Show labels");
+            ui.add_space(6.0);
+            edit_text_or_cells(
+                ui,
+                raw_text,
+                edit_mode,
+                &["ox", "oy", "oz", "vx", "vy", "vz", "label"],
+                '\t',
+                cell_page,
+            );
+            match parse_arrow_annotations(raw_text) {
+                Ok(arrows) => {
+                    *error = None;
+                    ui.colored_label(
+                        egui::Color32::from_rgb(120, 210, 150),
+                        format!("{} arrow annotation(s)", arrows.len()),
+                    );
+                    true
+                }
+                Err(message) => {
+                    *error = Some(message.clone());
+                    ui.colored_label(egui::Color32::from_rgb(255, 110, 110), message);
+                    false
+                }
+            }
+        }
+        DataEditorPayload::DerivedPolylineGroups { raw_text, error } => {
+            ui.label("Columns: `group<TAB>x<TAB>y<TAB>z`");
+            ui.add_space(6.0);
+            edit_text_or_cells(
+                ui,
+                raw_text,
+                edit_mode,
+                &["group", "x", "y", "z"],
+                '\t',
+                cell_page,
+            );
+            match parse_polyline_groups(raw_text) {
+                Ok(groups) => {
+                    let point_count: usize = groups.iter().map(Vec::len).sum();
+                    *error = None;
+                    ui.colored_label(
+                        egui::Color32::from_rgb(120, 210, 150),
+                        format!("{} polyline(s), {} point(s)", groups.len(), point_count),
+                    );
+                    true
+                }
+                Err(message) => {
+                    *error = Some(message.clone());
+                    ui.colored_label(egui::Color32::from_rgb(255, 110, 110), message);
+                    false
+                }
+            }
+        }
+    }
+}
+
+fn edit_imported_table_payload(
+    ui: &mut egui::Ui,
+    definition: &mut TableImportDefinition,
+    edit_mode: DataEditorMode,
+    cell_page: &mut usize,
+) -> bool {
+    match edit_mode {
+        DataEditorMode::Raw => {
+            crate::ui::table_editor::edit_table_import(ui, definition);
+            definition.validate().is_ok()
+        }
+        DataEditorMode::Cells => {
+            ui.horizontal(|ui| {
+                if ui.button("Auto Detect").clicked() {
+                    definition.auto_configure();
+                }
+                egui::ComboBox::from_label("Delimiter")
+                    .selected_text(definition.delimiter.label())
+                    .show_ui(ui, |ui| {
+                        for delimiter in crate::plot::table::TableDelimiter::ALL {
+                            ui.selectable_value(&mut definition.delimiter, delimiter, delimiter.label());
+                        }
+                    });
+                ui.checkbox(&mut definition.header_row, "Header row");
+            });
+            ui.label(egui::RichText::new(definition.source_summary()).small().weak());
+            let delimiter = delimiter_char(definition.delimiter);
+            edit_text_or_cells(
+                ui,
+                &mut definition.raw_text,
+                DataEditorMode::Cells,
+                &[],
+                delimiter,
+                cell_page,
+            );
+            ui.separator();
+            let preview = definition.preview();
+            ui.label(format!(
+                "{} columns, {} data rows",
+                preview.column_count,
+                preview.rows.len()
+            ));
+            match definition.validate() {
+                Ok(_) => {
+                    ui.colored_label(egui::Color32::from_rgb(120, 210, 150), "Import is valid");
+                    true
+                }
+                Err(errors) => {
+                    for error in errors.iter().take(5) {
+                        ui.colored_label(egui::Color32::from_rgb(255, 110, 110), error.display());
+                    }
+                    false
+                }
+            }
+        }
+    }
+}
+
+fn edit_text_or_cells(
+    ui: &mut egui::Ui,
+    raw_text: &mut String,
+    edit_mode: DataEditorMode,
+    fallback_headers: &[&str],
+    delimiter: char,
+    cell_page: &mut usize,
+) {
+    const CELL_PAGE_SIZE: usize = 100;
+    match edit_mode {
+        DataEditorMode::Raw => {
+            ui.add(
+                egui::TextEdit::multiline(raw_text)
+                    .font(egui::TextStyle::Monospace)
+                    .desired_rows(16),
+            );
+        }
+        DataEditorMode::Cells => {
+            let mut rows = parse_rows_for_cells(raw_text, delimiter);
+            if rows.is_empty() && !fallback_headers.is_empty() {
+                rows.push(fallback_headers.iter().map(|value| (*value).to_string()).collect());
+            }
+            let column_count = rows.iter().map(Vec::len).max().unwrap_or(fallback_headers.len()).max(1);
+            for row in &mut rows {
+                row.resize(column_count, String::new());
+            }
+
+            let total_rows = rows.len();
+            let page_count = total_rows.max(1).div_ceil(CELL_PAGE_SIZE);
+            *cell_page = (*cell_page).min(page_count.saturating_sub(1));
+            let start_row = *cell_page * CELL_PAGE_SIZE;
+            let end_row = (start_row + CELL_PAGE_SIZE).min(total_rows);
+
+            ui.horizontal(|ui| {
+                ui.label(format!(
+                    "Rows {}-{} of {}",
+                    if total_rows == 0 { 0 } else { start_row + 1 },
+                    end_row,
+                    total_rows
+                ));
+                ui.add_space(10.0);
+                if ui
+                    .add_enabled(*cell_page > 0, egui::Button::new("Previous 100"))
+                    .clicked()
+                {
+                    *cell_page -= 1;
+                }
+                if ui
+                    .add_enabled(end_row < total_rows, egui::Button::new("Next 100"))
+                    .clicked()
+                {
+                    *cell_page += 1;
+                }
+                ui.add_space(10.0);
+                if ui.button("Add Row").clicked() {
+                    rows.push(vec![String::new(); column_count]);
+                    let new_total_rows = rows.len();
+                    *cell_page = new_total_rows.saturating_sub(1) / CELL_PAGE_SIZE;
+                }
+            });
+            ui.add_space(4.0);
+
+            let mut remove_row = None;
+            egui::ScrollArea::both().max_height(360.0).show(ui, |ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+                egui::Grid::new(ui.id().with("data_editor_cells"))
+                    .spacing(egui::vec2(0.0, 0.0))
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new("#").strong());
+                        for column in 0..column_count {
+                            let label = fallback_headers
+                                .get(column)
+                                .copied()
+                                .map(str::to_string)
+                                .unwrap_or_else(|| format!("col {}", column + 1));
+                            ui.label(egui::RichText::new(label).strong());
+                        }
+                        ui.label(egui::RichText::new("").strong());
+                        ui.end_row();
+
+                        for row_idx in start_row..end_row {
+                            let row = &mut rows[row_idx];
+                            ui.label((row_idx + 1).to_string());
+                            for cell in row.iter_mut().take(column_count) {
+                                ui.add_sized(
+                                    [110.0, 24.0],
+                                    egui::TextEdit::singleline(cell)
+                                        .font(egui::TextStyle::Monospace)
+                                        .margin(egui::vec2(4.0, 4.0)),
+                                );
+                            }
+                            if ui.small_button("X").clicked() {
+                                remove_row = Some(row_idx);
+                            }
+                            ui.end_row();
+                        }
+                    });
+            });
+            if let Some(row_idx) = remove_row {
+                rows.remove(row_idx);
+                let new_total_rows = rows.len();
+                let new_page_count = new_total_rows.max(1).div_ceil(CELL_PAGE_SIZE);
+                *cell_page = (*cell_page).min(new_page_count.saturating_sub(1));
+            }
+            *raw_text = serialize_rows_from_cells(&rows, delimiter);
+        }
+    }
+}
+
+fn apply_data_editor_payload(kind: &mut PlotKind, payload: &DataEditorPayload) -> bool {
+    match (kind, payload) {
+        (PlotKind::ImportedTable { definition }, DataEditorPayload::ImportedTable(next)) => {
+            *definition = next.clone();
+            true
+        }
+        (
+            PlotKind::PointAnnotations { points, show_labels },
+            DataEditorPayload::PointAnnotations {
+                raw_text,
+                show_labels: next_show_labels,
+                ..
+            },
+        ) => match parse_point_annotations(raw_text) {
+            Ok(next_points) => {
+                *points = next_points;
+                *show_labels = *next_show_labels;
+                true
+            }
+            Err(_) => false,
+        },
+        (
+            PlotKind::ArrowAnnotations { arrows, show_labels },
+            DataEditorPayload::ArrowAnnotations {
+                raw_text,
+                show_labels: next_show_labels,
+                ..
+            },
+        ) => match parse_arrow_annotations(raw_text) {
+            Ok(next_arrows) => {
+                *arrows = next_arrows;
+                *show_labels = *next_show_labels;
+                true
+            }
+            Err(_) => false,
+        },
+        (
+            PlotKind::DerivedPolylineGroups { groups },
+            DataEditorPayload::DerivedPolylineGroups { raw_text, .. },
+        ) => match parse_polyline_groups(raw_text) {
+            Ok(next_groups) => {
+                *groups = next_groups;
+                true
+            }
+            Err(_) => false,
+        },
+        _ => false,
+    }
+}
+
+fn serialize_point_annotations(points: &[poincare_lib::PointAnnotation]) -> String {
+    points
+        .iter()
+        .map(|point| {
+            format!(
+                "{}\t{}\t{}\t{}",
+                point.position[0], point.position[1], point.position[2], point.label
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn serialize_arrow_annotations(arrows: &[poincare_lib::ArrowAnnotation]) -> String {
+    arrows
+        .iter()
+        .map(|arrow| {
+            format!(
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                arrow.origin[0],
+                arrow.origin[1],
+                arrow.origin[2],
+                arrow.vector[0],
+                arrow.vector[1],
+                arrow.vector[2],
+                arrow.label
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn serialize_polyline_groups(groups: &[Vec<[f32; 3]>]) -> String {
+    groups
+        .iter()
+        .enumerate()
+        .flat_map(|(group_idx, group)| {
+            group.iter().map(move |point| {
+                format!("{group_idx}\t{}\t{}\t{}", point[0], point[1], point[2])
+            })
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn parse_point_annotations(raw_text: &str) -> Result<Vec<poincare_lib::PointAnnotation>, String> {
+    let mut points = Vec::new();
+    for (line_idx, line) in raw_text.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let cells = split_editor_line(trimmed, 4);
+        if cells.len() < 3 {
+            return Err(format!("Line {} needs at least 3 columns", line_idx + 1));
+        }
+        points.push(poincare_lib::PointAnnotation {
+            position: [
+                parse_f32_cell(cells[0], line_idx, "x")?,
+                parse_f32_cell(cells[1], line_idx, "y")?,
+                parse_f32_cell(cells[2], line_idx, "z")?,
+            ],
+            label: cells.get(3).copied().unwrap_or_default().to_string(),
+        });
+    }
+    Ok(points)
+}
+
+fn parse_arrow_annotations(raw_text: &str) -> Result<Vec<poincare_lib::ArrowAnnotation>, String> {
+    let mut arrows = Vec::new();
+    for (line_idx, line) in raw_text.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let cells = split_editor_line(trimmed, 7);
+        if cells.len() < 6 {
+            return Err(format!("Line {} needs at least 6 columns", line_idx + 1));
+        }
+        arrows.push(poincare_lib::ArrowAnnotation {
+            origin: [
+                parse_f32_cell(cells[0], line_idx, "ox")?,
+                parse_f32_cell(cells[1], line_idx, "oy")?,
+                parse_f32_cell(cells[2], line_idx, "oz")?,
+            ],
+            vector: [
+                parse_f32_cell(cells[3], line_idx, "vx")?,
+                parse_f32_cell(cells[4], line_idx, "vy")?,
+                parse_f32_cell(cells[5], line_idx, "vz")?,
+            ],
+            label: cells.get(6).copied().unwrap_or_default().to_string(),
+        });
+    }
+    Ok(arrows)
+}
+
+fn parse_polyline_groups(raw_text: &str) -> Result<Vec<Vec<[f32; 3]>>, String> {
+    let mut ordered: Vec<(String, Vec<[f32; 3]>)> = Vec::new();
+    for (line_idx, line) in raw_text.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let cells = split_editor_line(trimmed, 4);
+        if cells.len() < 4 {
+            return Err(format!("Line {} needs 4 columns", line_idx + 1));
+        }
+        let group_name = cells[0].to_string();
+        let point = [
+            parse_f32_cell(cells[1], line_idx, "x")?,
+            parse_f32_cell(cells[2], line_idx, "y")?,
+            parse_f32_cell(cells[3], line_idx, "z")?,
+        ];
+        if let Some((_, group)) = ordered.iter_mut().find(|(name, _)| *name == group_name) {
+            group.push(point);
+        } else {
+            ordered.push((group_name, vec![point]));
+        }
+    }
+    Ok(ordered.into_iter().map(|(_, group)| group).collect())
+}
+
+fn split_editor_line<'a>(line: &'a str, max_columns: usize) -> Vec<&'a str> {
+    let delimiter = if line.contains('\t') { '\t' } else { ',' };
+    line.splitn(max_columns, delimiter).map(str::trim).collect()
+}
+
+fn delimiter_char(delimiter: crate::plot::table::TableDelimiter) -> char {
+    match delimiter {
+        crate::plot::table::TableDelimiter::Comma => ',',
+        crate::plot::table::TableDelimiter::Semicolon => ';',
+        crate::plot::table::TableDelimiter::Tab => '\t',
+        crate::plot::table::TableDelimiter::Space => ' ',
+        crate::plot::table::TableDelimiter::Pipe => '|',
+    }
+}
+
+fn parse_rows_for_cells(raw_text: &str, delimiter: char) -> Vec<Vec<String>> {
+    raw_text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| {
+            if delimiter == ' ' {
+                line.split_whitespace().map(|cell| cell.trim().to_string()).collect()
+            } else {
+                line.split(delimiter).map(|cell| cell.trim().to_string()).collect()
+            }
+        })
+        .collect()
+}
+
+fn serialize_rows_from_cells(rows: &[Vec<String>], delimiter: char) -> String {
+    let sep = delimiter.to_string();
+    rows.iter()
+        .map(|row| row.join(&sep))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn parse_f32_cell(value: &str, line_idx: usize, label: &str) -> Result<f32, String> {
+    value
+        .parse::<f32>()
+        .map_err(|_| format!("Line {} has invalid {} value `{}`", line_idx + 1, label, value))
+}
+
 impl eframe::App for App {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         persistence::save_persisted_state(storage, self);
@@ -1225,6 +2254,9 @@ impl eframe::App for App {
         }
 
         self.handle_shortcuts(ctx);
+        if let Some(committed) = self.eq_editor.take_committed_selected_plot() {
+            self.apply_selected_plot_equation_edit(committed);
+        }
         let settings_pressed = ctx.input_mut(|i| {
             i.consume_key(egui::Modifiers::COMMAND, egui::Key::Comma)
                 || i.consume_key(egui::Modifiers::CTRL, egui::Key::Comma)
@@ -1284,6 +2316,8 @@ impl eframe::App for App {
         self.show_add_plot_modal(ctx);
         self.show_interpolate_modal(ctx);
         self.show_axis_derivative_modal(ctx);
+        self.show_fit_curve_modal(ctx);
+        self.show_data_editor_modal(ctx);
         self.show_command_palette(ctx);
         self.show_shortcuts_modal(ctx);
         if self.settings_open {

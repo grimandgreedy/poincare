@@ -801,6 +801,20 @@ impl App {
                     );
                 }
             });
+            ui.add_space(6.0);
+            ui.label("Curve fitting");
+            ui.horizontal(|ui| {
+                if ui.button("Fit Curve...").clicked() {
+                    self.open_fit_curve_modal(plot_idx, &selected);
+                }
+            });
+            ui.label(
+                egui::RichText::new(
+                    "Create fitted curves, optional control points, residual plots, and fit diagnostics.",
+                )
+                .small()
+                .weak(),
+            );
         } else {
             ui.label(
                 egui::RichText::new(
@@ -985,10 +999,22 @@ impl App {
 
     fn push_analysis_output(&mut self, doc_idx: usize, output: AnalysisOutput) {
         match output {
-            AnalysisOutput::DerivedPlots { plots, .. }
-            | AnalysisOutput::Composite { plots, .. } => {
+            AnalysisOutput::DerivedPlots { plots, .. } => {
                 for plot in plots {
                     self.push_analysis_plot(doc_idx, PlotEntry::from_plot_spec(plot));
+                }
+            }
+            AnalysisOutput::Composite { plots, reports, .. } => {
+                for plot in plots {
+                    self.push_analysis_plot(doc_idx, PlotEntry::from_plot_spec(plot));
+                }
+                if let Some(report) = reports.first() {
+                    self.documents[doc_idx].export_status = report
+                        .values
+                        .iter()
+                        .map(|(label, value)| format!("{label}: {value}"))
+                        .collect::<Vec<_>>()
+                        .join(", ");
                 }
             }
             AnalysisOutput::Report { report, .. } => {
@@ -1383,6 +1409,155 @@ impl App {
         self.axis_derivative_modal = open.then_some(state);
     }
 
+    pub(crate) fn show_fit_curve_modal(&mut self, ctx: &egui::Context) {
+        let Some(mut state) = self.fit_curve_modal.clone() else {
+            return;
+        };
+
+        let Some(plot) = self.documents[self.active_document_idx]
+            .plots
+            .get(state.source_plot_idx)
+            .cloned()
+        else {
+            self.fit_curve_modal = None;
+            return;
+        };
+
+        let plot_spec = plot.to_plot_spec();
+        let Ok(groups) = sample_groups(&plot_spec, SampleGroupsKind::Curve) else {
+            self.fit_curve_modal = None;
+            return;
+        };
+
+        let mut open = true;
+        let mut create_plot = false;
+        let mut cancel_clicked = false;
+        egui::Window::new("Fit Curve")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Fit {} sampled point(s) across {} curve(s).",
+                        groups.iter().map(Vec::len).sum::<usize>(),
+                        groups.len()
+                    ))
+                    .small()
+                    .weak(),
+                );
+                ui.add_space(8.0);
+
+                let previous_method = state.method;
+                ui.label("Method");
+                egui::ComboBox::from_id_salt("fit_curve_method")
+                    .selected_text(curve_fit_method_label(state.method))
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut state.method,
+                            crate::FitCurveMethodUi::Polynomial,
+                            curve_fit_method_label(crate::FitCurveMethodUi::Polynomial),
+                        );
+                        ui.selectable_value(
+                            &mut state.method,
+                            crate::FitCurveMethodUi::RobustPolynomial,
+                            curve_fit_method_label(crate::FitCurveMethodUi::RobustPolynomial),
+                        );
+                        ui.selectable_value(
+                            &mut state.method,
+                            crate::FitCurveMethodUi::Spline,
+                            curve_fit_method_label(crate::FitCurveMethodUi::Spline),
+                        );
+                        ui.selectable_value(
+                            &mut state.method,
+                            crate::FitCurveMethodUi::Fourier,
+                            curve_fit_method_label(crate::FitCurveMethodUi::Fourier),
+                        );
+                    });
+                if state.method != previous_method {
+                    state.output_name =
+                        format!("{} {}", curve_fit_method_label(state.method), plot.name);
+                }
+
+                match state.method {
+                    crate::FitCurveMethodUi::Polynomial
+                    | crate::FitCurveMethodUi::RobustPolynomial => {
+                        ui.add(egui::Slider::new(&mut state.degree, 1..=12).text("Degree"));
+                    }
+                    crate::FitCurveMethodUi::Spline => {
+                        ui.add(
+                            egui::Slider::new(&mut state.smoothing_window, 3..=25)
+                                .text("Smoothing Window"),
+                        );
+                        state.smoothing_window = normalized_window_value(state.smoothing_window);
+                        ui.add(
+                            egui::Slider::new(&mut state.samples_per_segment, 1..=64)
+                                .text("Samples per segment"),
+                        );
+                    }
+                    crate::FitCurveMethodUi::Fourier => {
+                        ui.add(
+                            egui::Slider::new(&mut state.harmonics, 1..=16).text("Harmonics"),
+                        );
+                    }
+                }
+
+                ui.checkbox(&mut state.show_control_points, "Show control points");
+                ui.checkbox(&mut state.show_residual_plot, "Show residual plot");
+                ui.label(
+                    egui::RichText::new(match state.method {
+                        crate::FitCurveMethodUi::Polynomial => {
+                            "Least-squares polynomial fit for smooth trend estimation."
+                        }
+                        crate::FitCurveMethodUi::RobustPolynomial => {
+                            "Huber-weighted polynomial fit that resists outliers better than plain least squares."
+                        }
+                        crate::FitCurveMethodUi::Spline => {
+                            "Smooth the sampled data first, then rebuild a dense spline through the filtered path."
+                        }
+                        crate::FitCurveMethodUi::Fourier => {
+                            "Fit a Fourier series to periodic data and resample the resulting waveform."
+                        }
+                    })
+                    .small()
+                    .weak(),
+                );
+
+                ui.add_space(8.0);
+                ui.label("Output Name");
+                ui.text_edit_singleline(&mut state.output_name);
+                if !state.error.is_empty() {
+                    ui.colored_label(egui::Color32::from_rgb(255, 110, 110), &state.error);
+                }
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Create Fitted Plot").clicked() {
+                        create_plot = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        cancel_clicked = true;
+                    }
+                });
+            });
+
+        if cancel_clicked {
+            open = false;
+        }
+
+        if create_plot {
+            match self.create_fit_curve_from_modal(&state, &plot_spec) {
+                Ok(()) => {
+                    self.fit_curve_modal = None;
+                    return;
+                }
+                Err(error) => state.error = error,
+            }
+        }
+
+        self.fit_curve_modal = open.then_some(state);
+    }
+
     fn open_interpolate_modal(&mut self, plot_idx: usize, plot: &PlotEntry) {
         self.interpolate_modal = Some(crate::InterpolateModalState {
             source_plot_idx: plot_idx,
@@ -1410,6 +1585,22 @@ impl App {
                 axis_name(denominator_axis),
                 plot.name
             ),
+            error: String::new(),
+        });
+    }
+
+    fn open_fit_curve_modal(&mut self, plot_idx: usize, plot: &PlotEntry) {
+        let method = crate::FitCurveMethodUi::Polynomial;
+        self.fit_curve_modal = Some(crate::FitCurveModalState {
+            source_plot_idx: plot_idx,
+            method,
+            output_name: format!("{} {}", curve_fit_method_label(method), plot.name),
+            degree: 5,
+            harmonics: 3,
+            smoothing_window: 7,
+            samples_per_segment: 8,
+            show_control_points: true,
+            show_residual_plot: true,
             error: String::new(),
         });
     }
@@ -1477,6 +1668,54 @@ impl App {
         );
         Ok(())
     }
+
+    fn create_fit_curve_from_modal(
+        &mut self,
+        state: &crate::FitCurveModalState,
+        source_plot: &poincare_lib::PlotSpec,
+    ) -> Result<(), String> {
+        let name = state.output_name.trim();
+        if name.is_empty() {
+            return Err("Output name is required.".to_string());
+        }
+        self.run_single_plot_analysis(
+            self.active_document_idx,
+            source_plot,
+            AnalysisKind::FitCurve,
+            vec![
+                (
+                    "fit_method".to_string(),
+                    curve_fit_method_key(state.method).to_string(),
+                ),
+                ("output_name".to_string(), name.to_string()),
+                ("degree".to_string(), state.degree.to_string()),
+                ("harmonics".to_string(), state.harmonics.to_string()),
+                (
+                    "smoothing_window".to_string(),
+                    state.smoothing_window.to_string(),
+                ),
+                (
+                    "samples_per_segment".to_string(),
+                    state.samples_per_segment.to_string(),
+                ),
+                (
+                    "show_control_points".to_string(),
+                    state.show_control_points.to_string(),
+                ),
+                (
+                    "show_residual_plot".to_string(),
+                    state.show_residual_plot.to_string(),
+                ),
+            ],
+        );
+        if self.documents[self.active_document_idx].export_status.starts_with("Method:") {
+            Ok(())
+        } else if self.documents[self.active_document_idx].export_status.is_empty() {
+            Ok(())
+        } else {
+            Err(self.documents[self.active_document_idx].export_status.clone())
+        }
+    }
 }
 
 fn interpolation_kind_label(kind: CurveInterpolationKind) -> &'static str {
@@ -1498,6 +1737,24 @@ fn interpolation_kind_key(kind: CurveInterpolationKind) -> &'static str {
         CurveInterpolationKind::CentripetalCatmullRom => "centripetal_catmull_rom",
         CurveInterpolationKind::MovingAverage => "moving_average",
         CurveInterpolationKind::SavitzkyGolay => "savitzky_golay",
+    }
+}
+
+fn curve_fit_method_label(method: crate::FitCurveMethodUi) -> &'static str {
+    match method {
+        crate::FitCurveMethodUi::Polynomial => "Fit (Polynomial)",
+        crate::FitCurveMethodUi::RobustPolynomial => "Fit (Robust Polynomial)",
+        crate::FitCurveMethodUi::Spline => "Fit (Spline / Smoothed Catmull-Rom)",
+        crate::FitCurveMethodUi::Fourier => "Fit (Fourier Series)",
+    }
+}
+
+fn curve_fit_method_key(method: crate::FitCurveMethodUi) -> &'static str {
+    match method {
+        crate::FitCurveMethodUi::Polynomial => "polynomial",
+        crate::FitCurveMethodUi::RobustPolynomial => "robust_polynomial",
+        crate::FitCurveMethodUi::Spline => "spline",
+        crate::FitCurveMethodUi::Fourier => "fourier",
     }
 }
 
@@ -1527,7 +1784,7 @@ fn axis_name(axis: usize) -> &'static str {
 
 fn axis_derivative_formula(numerator_axis: usize, denominator_axis: usize) -> String {
     format!(
-        "d{}/d{} as a 2D graph in the XY plane",
+        "d{}/d{} plotted on the selected curve axes",
         axis_name(numerator_axis),
         axis_name(denominator_axis)
     )

@@ -164,7 +164,7 @@ impl App {
                     [0.98, 0.85, 0.22, 1.0],
                 );
                 hover_outline.line_width = 2.0;
-                hover_outline.id = 0;
+                hover_outline.settings.pick_id = viewport_lib::PickId::NONE;
                 frame_data.scene.polylines.push(hover_outline);
             }
         }

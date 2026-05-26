@@ -12,9 +12,11 @@ All notable changes to this crate will be documented in this file.
 - Added `Extract Points` in the `Analysis` tab for polyline-like plots, including imported curves, derived polylines, and interpolated curves.
 - Expanded `Curve Analysis` in the `Analysis` tab with derivative, integral, tangent, arc-length, curvature, normal, and binormal derived-curve outputs, including graph-space handling for Cartesian line plots.
 - Added a modal-driven `Differentiate by Axis...` curve-analysis workflow for sampled and expression-backed curves, with explicit axis choices for outputs such as `dy/dx` and `dz/dx`.
-
-
-
+- Added a modal-driven `Fit Curve...` analysis workflow with polynomial, robust polynomial, spline, and Fourier fitting, plus optional control-point previews, residual plots, and fit diagnostics.
+- Added keyboard shortcuts for selected-plot workflows, including `V` to toggle visibility, `J`/`K` to cycle plot selection, `E` to edit the selected plot, and `Shift+A` to open the add-plot modal with input focus.
+- Added selected-plot editing flows that open the equation editor for expression-backed plots and a data editor for imported tables, intersection markers, and derived intersection polylines.
+- Added raw/cell editing modes to the data editor, including spreadsheet-style contiguous cell editing and 100-row paging for larger datasets.
+- Made the left plot list auto-scroll to keep the newly selected plot visible.
 
 ## [0.5.0]
 
@@ -32,6 +34,7 @@ All notable changes to this crate will be documented in this file.
 
 ### Fixes
 - Focus on plot properties tab by default.
+- Fixed the viewport going black after the latest `viewport-lib` HDR callback-path changes by returning the renderer's `prepare()` command buffers from the egui viewport callback.
 - Fixed vector-field glyph colouring so `Glyph Scale` no longer changes magnitude-based colour mapping.
 - Fixed vector-field opacity controls so the style opacity slider affects rendered glyphs.
 - Made vector fields render unlit by default so glyphs stay clearly visible regardless of scene lighting.
@@ -43,6 +46,8 @@ All notable changes to this crate will be documented in this file.
 - Fixed quit confirmation so `Quit Without Saving` actually closes the app after confirmation.
 - Removed the temporary `Solo` viewport control.
 - Fixed generated annotation plots so label visibility can be toggled per plot and large annotation sets no longer truncate label editing after the first four items.
+- Added modal close handling so the equation editor and data editor discard immediately when unchanged, and otherwise prompt with `discard` / `save` / `cancel` when closed via `Escape`.
+- Made the add-plot modal close on `Escape` when its inputs are still empty.
 
 ## [0.3.0]
 
