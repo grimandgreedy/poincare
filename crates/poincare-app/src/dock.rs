@@ -18,18 +18,19 @@ pub(crate) enum DockTab {
 }
 
 pub(crate) fn tab(title: &str, id: DockTab) -> Tab<DockTab> {
-    let (icon, color) = match id {
-        DockTab::Plots => ("☰", egui::Color32::from_rgb(110, 160, 220)),
-        DockTab::Viewport => ("⬡", egui::Color32::from_rgb(100, 200, 140)),
-        DockTab::PlotProperties => ("⚙", egui::Color32::from_rgb(210, 150, 80)), // amber
-        DockTab::CameraProperties => ("◎", egui::Color32::from_rgb(150, 190, 230)),
-        DockTab::ExportProperties => ("⇩", egui::Color32::from_rgb(180, 220, 140)),
-        DockTab::DataPanel => ("▤", egui::Color32::from_rgb(220, 180, 110)),
+    let (icon, color, max_width) = match id {
+        DockTab::Plots => ("☰", egui::Color32::from_rgb(110, 160, 220), Some(120.0)),
+        DockTab::Viewport => ("⬡", egui::Color32::from_rgb(100, 200, 140), Some(120.0)),
+        DockTab::PlotProperties => ("⚙", egui::Color32::from_rgb(210, 150, 80), Some(150.0)),
+        DockTab::CameraProperties => ("◎", egui::Color32::from_rgb(150, 190, 230), Some(120.0)),
+        DockTab::ExportProperties => ("⇩", egui::Color32::from_rgb(180, 220, 140), Some(120.0)),
+        DockTab::DataPanel => ("▤", egui::Color32::from_rgb(220, 180, 110), Some(120.0)),
     };
     Tab::new(title, id)
         .with_leading_visual(icon)
         .with_style_override(TabStyleOverride {
             icon_color: Some(color),
+            max_width,
             ..TabStyleOverride::none()
         })
 }

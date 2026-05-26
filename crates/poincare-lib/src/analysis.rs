@@ -143,21 +143,21 @@ impl AnalysisError {
 pub fn available_analyses(plot: &PlotSpec) -> Vec<AnalysisCapability> {
     let metadata = plot.metadata();
     let mut capabilities = capabilities_for_metadata(&metadata);
-    if supports_sample_data_analysis(plot) {
-        capabilities.extend([
-            AnalysisCapability {
-                kind: AnalysisKind::PointCloudStatistics,
-                target_kind: AnalysisTargetKind::SampledData,
-                output_kind: AnalysisOutputKind::Composite,
-                parameters: vec![],
-            },
-            AnalysisCapability {
-                kind: AnalysisKind::DataQualityChecks,
-                target_kind: AnalysisTargetKind::SampledData,
-                output_kind: AnalysisOutputKind::Composite,
-                parameters: vec![],
-            },
-        ]);
+    if supports_point_cloud_statistics(plot) {
+        capabilities.push(AnalysisCapability {
+            kind: AnalysisKind::PointCloudStatistics,
+            target_kind: AnalysisTargetKind::SampledData,
+            output_kind: AnalysisOutputKind::Composite,
+            parameters: vec![],
+        });
+    }
+    if supports_data_quality_analysis(plot) {
+        capabilities.push(AnalysisCapability {
+            kind: AnalysisKind::DataQualityChecks,
+            target_kind: AnalysisTargetKind::SampledData,
+            output_kind: AnalysisOutputKind::Composite,
+            parameters: vec![],
+        });
     }
     capabilities
 }
@@ -246,7 +246,13 @@ pub fn run_analysis(
     Ok(AnalysisOutput::DerivedPlots { plots, provenance })
 }
 
-fn supports_sample_data_analysis(plot: &PlotSpec) -> bool {
+fn supports_point_cloud_statistics(plot: &PlotSpec) -> bool {
+    sample_data_groups(plot)
+        .map(|groups| groups.iter().map(Vec::len).sum::<usize>() >= 1)
+        .unwrap_or(false)
+}
+
+fn supports_data_quality_analysis(plot: &PlotSpec) -> bool {
     sample_data_groups(plot)
         .map(|groups| groups.iter().map(Vec::len).sum::<usize>() >= 2)
         .unwrap_or(false)
@@ -929,6 +935,7 @@ fn polyline_sample_groups(plot: &PlotSpec) -> Result<Vec<Vec<[f32; 3]>>, Analysi
 
 fn sample_data_groups(plot: &PlotSpec) -> Result<Vec<Vec<[f32; 3]>>, AnalysisError> {
     match &plot.definition {
+        crate::PlotDefinition::ScatterCloud => Ok(vec![scatter_cloud_points()]),
         crate::PlotDefinition::PointAnnotations { points, .. } => {
             Ok(vec![points.iter().map(|point| point.position).collect()])
         }
@@ -1093,9 +1100,9 @@ fn curve_sample_groups(plot: &PlotSpec) -> Result<Vec<Vec<[f32; 3]>>, AnalysisEr
 fn make_point_cloud_statistics_output(plot: &PlotSpec) -> Result<AnalysisOutput, AnalysisError> {
     let groups = sample_data_groups(plot)?;
     let samples = flatten_sample_groups(&groups);
-    if samples.len() < 2 {
+    if samples.is_empty() {
         return Err(AnalysisError::invalid(
-            "Point-cloud statistics require at least two samples.",
+            "Point-cloud statistics require at least one sample.",
         ));
     }
 
@@ -1230,6 +1237,19 @@ fn make_point_cloud_statistics_output(plot: &PlotSpec) -> Result<AnalysisOutput,
             notes: vec!["Computed from sampled point positions.".to_string()],
         },
     })
+}
+
+fn scatter_cloud_points() -> Vec<[f32; 3]> {
+    (0..200)
+        .map(|i| {
+            glam::Vec3::new(
+                (i as f32 * 0.37).sin() * 5.0,
+                (i as f32 * 0.73).cos() * 5.0,
+                (i as f32 * 0.11).sin() * 5.0,
+            )
+            .to_array()
+        })
+        .collect()
 }
 
 fn make_data_quality_output(plot: &PlotSpec) -> Result<AnalysisOutput, AnalysisError> {
