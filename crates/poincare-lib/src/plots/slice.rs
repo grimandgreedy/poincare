@@ -182,7 +182,7 @@ impl PlotObject for PlaneVectorFieldPlot {
                 let raw = (self.vector_fn)(x, y, z);
                 glyphs.push(GlyphInstance {
                     position: glam::vec3(x as f32, y as f32, z as f32),
-                    vector: raw.normalize_or_zero() * self.style.glyph_scale,
+                    vector: raw.normalize_or_zero(),
                     raw_vector: raw,
                 });
             }

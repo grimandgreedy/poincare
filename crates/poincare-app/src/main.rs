@@ -50,7 +50,12 @@ fn default_panel_style() -> PanelStyle {
 }
 
 fn app_icon() -> Arc<egui::IconData> {
-    let image = image::load_from_memory(include_bytes!("../assets/icon.png"))
+    #[cfg(target_os = "macos")]
+    let icon_bytes = include_bytes!("../../../assets/icon_macos.png");
+    #[cfg(not(target_os = "macos"))]
+    let icon_bytes = include_bytes!("../../../assets/icon.png");
+
+    let image = image::load_from_memory(icon_bytes)
         .expect("embedded app icon png should decode")
         .into_rgba8();
     let (width, height) = image.dimensions();
@@ -232,10 +237,10 @@ struct App {
     surface_intersection_tolerance: f32,
     surface_intersection_stitch_distance: f32,
     surface_intersection_make_points: bool,
-    surface_intersection_show_point_labels: bool,
     interpolate_modal: Option<InterpolateModalState>,
     axis_derivative_modal: Option<AxisDerivativeModalState>,
     fit_curve_modal: Option<FitCurveModalState>,
+    surface_normals_modal: Option<SurfaceNormalsModalState>,
     data_editor_modal: Option<DataEditorModalState>,
     data_panel: Option<DataPanelState>,
     export_job: Option<ExportJob>,
@@ -277,6 +282,14 @@ struct FitCurveModalState {
     samples_per_segment: u32,
     show_control_points: bool,
     show_residual_plot: bool,
+    error: String,
+}
+
+#[derive(Clone)]
+struct SurfaceNormalsModalState {
+    source_plot_idx: usize,
+    max_samples: u32,
+    vector_scale: f32,
     error: String,
 }
 
@@ -430,10 +443,10 @@ impl App {
             surface_intersection_tolerance: 0.01,
             surface_intersection_stitch_distance: 0.05,
             surface_intersection_make_points: true,
-            surface_intersection_show_point_labels: true,
             interpolate_modal: None,
             axis_derivative_modal: None,
             fit_curve_modal: None,
+            surface_normals_modal: None,
             data_editor_modal: None,
             data_panel: None,
             export_job: None,
@@ -2464,6 +2477,7 @@ impl eframe::App for App {
         self.show_interpolate_modal(ctx);
         self.show_axis_derivative_modal(ctx);
         self.show_fit_curve_modal(ctx);
+        self.show_surface_normals_modal(ctx);
         self.show_data_editor_modal(ctx);
         self.show_command_palette(ctx);
         self.show_shortcuts_modal(ctx);

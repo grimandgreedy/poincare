@@ -2,7 +2,7 @@ use eframe::egui;
 use poincare_lib::{
     AnalysisKind, AnalysisOutput, AnalysisRequest, AnalysisTarget, CurveInterpolation,
     CurveInterpolationKind, SampleGroupsKind, available_analyses, run_analysis,
-    sample_curve_points, sample_groups,
+    run_surface_mesh_analysis, sample_curve_points, sample_groups,
 };
 use serde_json::json;
 use viewport_lib::{Easing, Projection, ViewPreset};
@@ -788,7 +788,7 @@ impl App {
                     },
                     kind: PlotKind::PointAnnotations {
                         points: make_point_annotations(&points, "Probe"),
-                        show_labels: true,
+                        show_labels: false,
                     },
                 },
             );
@@ -1006,6 +1006,66 @@ impl App {
 
         ui.add_space(8.0);
         ui.separator();
+        ui.label("Surface Geometry");
+        let has_surface_geometry = has_analysis(AnalysisKind::SurfaceNormals)
+            || has_analysis(AnalysisKind::SurfaceCurvature)
+            || has_analysis(AnalysisKind::SurfaceArea)
+            || has_analysis(AnalysisKind::SurfaceMeshQuality);
+        if has_surface_geometry {
+            ui.label(
+                egui::RichText::new(
+                    "Run geometry analysis on the selected surface mesh, including normals, curvature, area, and mesh quality diagnostics.",
+                )
+                .small()
+                .weak(),
+            );
+            ui.horizontal(|ui| {
+                if has_analysis(AnalysisKind::SurfaceNormals)
+                    && ui.button("Visualize Normals").clicked()
+                {
+                    self.open_surface_normals_modal(plot_idx);
+                }
+                if has_analysis(AnalysisKind::SurfaceCurvature)
+                    && ui.button("Surface Curvature").clicked()
+                {
+                    self.run_surface_plot_analysis(
+                        doc_idx,
+                        plot_idx,
+                        AnalysisKind::SurfaceCurvature,
+                        vec![],
+                    );
+                }
+                if has_analysis(AnalysisKind::SurfaceArea) && ui.button("Surface Area").clicked() {
+                    self.run_surface_plot_analysis(
+                        doc_idx,
+                        plot_idx,
+                        AnalysisKind::SurfaceArea,
+                        vec![],
+                    );
+                }
+                if has_analysis(AnalysisKind::SurfaceMeshQuality)
+                    && ui.button("Mesh Quality").clicked()
+                {
+                    self.run_surface_plot_analysis(
+                        doc_idx,
+                        plot_idx,
+                        AnalysisKind::SurfaceMeshQuality,
+                        vec![],
+                    );
+                }
+            });
+        } else {
+            ui.label(
+                egui::RichText::new(
+                    "Surface geometry analysis is available for surface-like plots with cached mesh geometry.",
+                )
+                .small()
+                .weak(),
+            );
+        }
+
+        ui.add_space(8.0);
+        ui.separator();
         ui.label("Intersections");
         ui.label("Curves");
         if self.documents[doc_idx].intersection_cache.is_empty() {
@@ -1037,7 +1097,7 @@ impl App {
                     },
                     kind: PlotKind::PointAnnotations {
                         points: make_point_annotations(&points, "Intersection"),
-                        show_labels: true,
+                        show_labels: false,
                     },
                 },
             );
@@ -1111,12 +1171,6 @@ impl App {
             &mut self.surface_intersection_make_points,
             "Create point markers for isolated contacts",
         );
-        ui.add_enabled_ui(self.surface_intersection_make_points, |ui| {
-            ui.checkbox(
-                &mut self.surface_intersection_show_point_labels,
-                "Show point labels",
-            );
-        });
         if self.documents[doc_idx].scene_dirty {
             ui.label(
                 egui::RichText::new(
@@ -1186,7 +1240,11 @@ impl App {
                 }
                 if matches!(
                     provenance.kind,
-                    AnalysisKind::PointCloudStatistics | AnalysisKind::DataQualityChecks
+                    AnalysisKind::PointCloudStatistics
+                        | AnalysisKind::DataQualityChecks
+                        | AnalysisKind::SurfaceCurvature
+                        | AnalysisKind::SurfaceMeshQuality
+                        | AnalysisKind::SurfaceArea
                 ) && (!reports.is_empty() || !tables.is_empty() || !diagnostics.is_empty())
                 {
                     if let Some(source_plot_idx) = source_plot_idx {
@@ -1213,7 +1271,11 @@ impl App {
                     .join(", ");
                 if matches!(
                     provenance.kind,
-                    AnalysisKind::PointCloudStatistics | AnalysisKind::DataQualityChecks
+                    AnalysisKind::PointCloudStatistics
+                        | AnalysisKind::DataQualityChecks
+                        | AnalysisKind::SurfaceCurvature
+                        | AnalysisKind::SurfaceMeshQuality
+                        | AnalysisKind::SurfaceArea
                 ) {
                     self.open_analysis_results_panel(
                         report.title.clone(),
@@ -1231,7 +1293,11 @@ impl App {
                     format!("Generated analysis table with {} row(s).", table.rows.len());
                 if matches!(
                     provenance.kind,
-                    AnalysisKind::PointCloudStatistics | AnalysisKind::DataQualityChecks
+                    AnalysisKind::PointCloudStatistics
+                        | AnalysisKind::DataQualityChecks
+                        | AnalysisKind::SurfaceCurvature
+                        | AnalysisKind::SurfaceMeshQuality
+                        | AnalysisKind::SurfaceArea
                 ) {
                     self.open_analysis_results_panel(
                         format!("Analysis Table: {}", provenance.source_plots.join(", ")),
@@ -1263,6 +1329,40 @@ impl App {
             parameters,
         };
         match run_analysis(plot, &request) {
+            Ok(output) => {
+                self.documents[doc_idx].export_status.clear();
+                self.push_analysis_output(doc_idx, output);
+            }
+            Err(error) => {
+                self.documents[doc_idx].export_status = error.diagnostic.to_string();
+            }
+        }
+    }
+
+    pub(crate) fn run_surface_plot_analysis(
+        &mut self,
+        doc_idx: usize,
+        plot_idx: usize,
+        kind: AnalysisKind,
+        parameters: Vec<(String, String)>,
+    ) {
+        let plot_spec = self.documents[doc_idx].plots[plot_idx].to_plot_spec();
+        let pick_id = (plot_idx + 1) as u64;
+        let probe_data = self.documents[doc_idx].scene.probe_data();
+        let surfaces = probe_data
+            .surfaces
+            .iter()
+            .filter(|surface| surface.pick_id == pick_id)
+            .map(|surface| surface.mesh)
+            .collect::<Vec<_>>();
+        if surfaces.is_empty() {
+            self.documents[doc_idx].export_status =
+                "Surface analysis failed: the selected plot has no cached surface mesh."
+                    .to_string();
+            return;
+        }
+
+        match run_surface_mesh_analysis(&plot_spec, kind, &surfaces, &parameters) {
             Ok(output) => {
                 self.documents[doc_idx].export_status.clear();
                 self.push_analysis_output(doc_idx, output);
@@ -1388,7 +1488,7 @@ impl App {
                     },
                     kind: PlotKind::PointAnnotations {
                         points: make_point_annotations(&points, "Surface Contact"),
-                        show_labels: self.surface_intersection_show_point_labels,
+                        show_labels: false,
                     },
                 },
             );
@@ -1791,6 +1891,89 @@ impl App {
         self.fit_curve_modal = open.then_some(state);
     }
 
+    pub(crate) fn show_surface_normals_modal(&mut self, ctx: &egui::Context) {
+        let Some(mut state) = self.surface_normals_modal.clone() else {
+            return;
+        };
+
+        let Some(plot) = self.documents[self.active_document_idx]
+            .plots
+            .get(state.source_plot_idx)
+            .cloned()
+        else {
+            self.surface_normals_modal = None;
+            return;
+        };
+
+        let mut open = true;
+        let mut create_plot = false;
+        let mut cancel_clicked = false;
+        egui::Window::new("Visualize Surface Normals")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Create a derived surface-normal plot for {}.",
+                        plot.name
+                    ))
+                    .small()
+                    .weak(),
+                );
+                ui.add_space(8.0);
+                ui.add(
+                    egui::Slider::new(&mut state.max_samples, 16..=4096).text("Normal Count"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut state.vector_scale, 0.1..=4.0).text("Vector Scale"),
+                );
+                ui.label(
+                    egui::RichText::new(
+                        "Higher counts sample more cached surface vertices. Vector scale changes the displayed normal length.",
+                    )
+                    .small()
+                    .weak(),
+                );
+                if !state.error.is_empty() {
+                    ui.colored_label(egui::Color32::from_rgb(255, 110, 110), &state.error);
+                }
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Create Normal Plot").clicked() {
+                        create_plot = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        cancel_clicked = true;
+                    }
+                });
+            });
+
+        if cancel_clicked {
+            open = false;
+        }
+
+        if create_plot {
+            self.run_surface_plot_analysis(
+                self.active_document_idx,
+                state.source_plot_idx,
+                AnalysisKind::SurfaceNormals,
+                vec![
+                    ("max_samples".to_string(), state.max_samples.to_string()),
+                    (
+                        "vector_scale".to_string(),
+                        format!("{:.4}", state.vector_scale),
+                    ),
+                ],
+            );
+            self.surface_normals_modal = None;
+            return;
+        }
+
+        self.surface_normals_modal = open.then_some(state);
+    }
+
     pub(crate) fn open_interpolate_modal(&mut self, plot_idx: usize, plot: &PlotEntry) {
         self.interpolate_modal = Some(crate::InterpolateModalState {
             source_plot_idx: plot_idx,
@@ -1834,6 +2017,15 @@ impl App {
             samples_per_segment: 8,
             show_control_points: true,
             show_residual_plot: true,
+            error: String::new(),
+        });
+    }
+
+    pub(crate) fn open_surface_normals_modal(&mut self, plot_idx: usize) {
+        self.surface_normals_modal = Some(crate::SurfaceNormalsModalState {
+            source_plot_idx: plot_idx,
+            max_samples: 512,
+            vector_scale: 1.0,
             error: String::new(),
         });
     }

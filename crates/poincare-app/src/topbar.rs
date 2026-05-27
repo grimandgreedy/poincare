@@ -35,6 +35,10 @@ enum PaletteCommand {
 enum SelectedPlotAnalysisAction {
     PointCloudStatistics,
     DataQualityChecks,
+    SurfaceNormals,
+    SurfaceCurvature,
+    SurfaceArea,
+    SurfaceMeshQuality,
     ScalarSliceZ,
     GradientField,
     VectorSliceZ,
@@ -354,6 +358,31 @@ impl App {
                 AnalysisKind::DataQualityChecks,
                 vec![],
             ),
+            SelectedPlotAnalysisAction::SurfaceNormals => {
+                self.open_surface_normals_modal(plot_idx)
+            }
+            SelectedPlotAnalysisAction::SurfaceCurvature => {
+                self.run_surface_plot_analysis(
+                    doc_idx,
+                    plot_idx,
+                    AnalysisKind::SurfaceCurvature,
+                    vec![],
+                )
+            }
+            SelectedPlotAnalysisAction::SurfaceArea => {
+                self.run_surface_plot_analysis(
+                    doc_idx,
+                    plot_idx,
+                    AnalysisKind::SurfaceArea,
+                    vec![],
+                )
+            }
+            SelectedPlotAnalysisAction::SurfaceMeshQuality => self.run_surface_plot_analysis(
+                doc_idx,
+                plot_idx,
+                AnalysisKind::SurfaceMeshQuality,
+                vec![],
+            ),
             SelectedPlotAnalysisAction::ScalarSliceZ => self.run_single_plot_analysis(
                 doc_idx,
                 &plot_spec,
@@ -468,6 +497,26 @@ impl App {
             "Data Quality Checks",
             SelectedPlotAnalysisAction::DataQualityChecks,
             has_analysis(AnalysisKind::DataQualityChecks),
+        );
+        push(
+            "Visualize Surface Normals",
+            SelectedPlotAnalysisAction::SurfaceNormals,
+            has_analysis(AnalysisKind::SurfaceNormals),
+        );
+        push(
+            "Surface Curvature",
+            SelectedPlotAnalysisAction::SurfaceCurvature,
+            has_analysis(AnalysisKind::SurfaceCurvature),
+        );
+        push(
+            "Surface Area",
+            SelectedPlotAnalysisAction::SurfaceArea,
+            has_analysis(AnalysisKind::SurfaceArea),
+        );
+        push(
+            "Surface Mesh Quality",
+            SelectedPlotAnalysisAction::SurfaceMeshQuality,
+            has_analysis(AnalysisKind::SurfaceMeshQuality),
         );
         push(
             "Add Z Slice",

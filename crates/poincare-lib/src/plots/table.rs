@@ -35,7 +35,7 @@ impl PlotObject for TableVectorFieldPlot {
             .iter()
             .map(|sample| GlyphInstance {
                 position: sample.position,
-                vector: sample.vector.normalize_or_zero() * self.style.glyph_scale,
+                vector: sample.vector.normalize_or_zero(),
                 raw_vector: sample.vector,
             })
             .collect();

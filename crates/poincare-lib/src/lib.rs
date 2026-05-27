@@ -40,7 +40,8 @@ pub mod ticks;
 pub use analysis::{
     AnalysisCapability, AnalysisError, AnalysisKind, AnalysisOutput, AnalysisOutputKind,
     AnalysisProvenance, AnalysisReport, AnalysisRequest, AnalysisTable, AnalysisTarget,
-    AnalysisTargetKind, SampleGroupsKind, available_analyses, run_analysis, sample_groups,
+    AnalysisTargetKind, SampleGroupsKind, available_analyses, run_analysis,
+    run_surface_mesh_analysis, sample_groups,
 };
 pub use axis::AxisConfig;
 pub use coordinate::{CoordinateSystem, ParametricDomain};

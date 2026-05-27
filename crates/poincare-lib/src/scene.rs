@@ -2,9 +2,10 @@ use glam::Vec3;
 
 use viewport_lib::{
     AttributeKind, AttributeRef, Camera, ColourmapId, FrameData, GlyphItem, ItemSettings,
-    LabelItem, LicOverlay, LightKind, LightSource, LightingSettings, Material, MeshId, PickId,
-    PointCloudItem, PolylineItem, RenderCamera, SceneRenderItem, StreamtubeItem, SurfaceLICConfig,
-    SurfaceSubmission, ViewportError, ViewportGpuResources, VolumeData, VolumeId, VolumeItem,
+    LabelItem, LicOverlay, LightKind, LightSource, LightingSettings, Material, MeshData, MeshId,
+    PickId, PointCloudItem, PolylineItem, RenderCamera, SceneRenderItem, StreamtubeItem,
+    SurfaceLICConfig, SurfaceSubmission, ViewportError, ViewportGpuResources, VolumeData,
+    VolumeId, VolumeItem,
 };
 
 use crate::axis::Axis3;
@@ -22,9 +23,8 @@ struct CachedSurface {
     colourmap_id: Option<ColourmapId>,
     matcap_id: Option<viewport_lib::MatcapId>,
     lic_vector_attributes: Vec<String>,
-    /// CPU-side copies kept for probe picking (ray-triangle intersection).
-    cpu_positions: Vec<[f32; 3]>,
-    cpu_indices: Vec<u32>,
+    /// CPU-side mesh copy kept for probe picking and geometry analysis.
+    cpu_mesh: MeshData,
 }
 
 struct CachedPolyline {
@@ -289,13 +289,36 @@ impl GraphScene {
                         .iter()
                         .map(|g| g.position.to_array())
                         .collect();
-                    item.vectors = glyphs
+                    let display_vectors = glyphs
                         .instances
                         .iter()
-                        .map(|g| g.vector.to_array())
-                        .collect();
-                    item.scale = 1.0;
-                    item.scale_by_magnitude = false;
+                        .map(|g| g.vector)
+                        .collect::<Vec<_>>();
+                    let magnitudes = display_vectors
+                        .iter()
+                        .map(|vector| vector.length())
+                        .collect::<Vec<_>>();
+                    let (min_magnitude, max_magnitude) = magnitudes
+                        .iter()
+                        .copied()
+                        .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), value| {
+                            (min.min(value), max.max(value))
+                        });
+                    let nearly_uniform = display_vectors.is_empty()
+                        || (max_magnitude - min_magnitude).abs() < 1.0e-5;
+                    if nearly_uniform {
+                        let uniform_scale = magnitudes.first().copied().unwrap_or(1.0).max(0.0001);
+                        item.vectors = display_vectors
+                            .iter()
+                            .map(|vector| vector.normalize_or_zero().to_array())
+                            .collect();
+                        item.scale = glyphs.style.glyph_scale * uniform_scale;
+                        item.scale_by_magnitude = false;
+                    } else {
+                        item.vectors = display_vectors.iter().map(|g| g.to_array()).collect();
+                        item.scale = glyphs.style.glyph_scale;
+                        item.scale_by_magnitude = true;
+                    }
                     item.glyph_type = glyphs.style.glyph_type;
                     item.default_colour = default_colour_rgba(&glyphs.style);
                     item.use_default_colour =
@@ -501,8 +524,6 @@ fn cache_geometry(
     let matcap_id = resolve_matcap_id(&style, resources);
     match geometry {
         PlotGeometry::Surface(mesh_data) => {
-            let cpu_positions = mesh_data.positions.clone();
-            let cpu_indices = mesh_data.indices.clone();
             let lic_vector_attributes: Vec<String> = mesh_data
                 .attributes
                 .iter()
@@ -518,8 +539,7 @@ fn cache_geometry(
                 colourmap_id,
                 matcap_id,
                 lic_vector_attributes,
-                cpu_positions,
-                cpu_indices,
+                cpu_mesh: mesh_data,
             });
         }
         PlotGeometry::Polyline {
@@ -759,7 +779,21 @@ fn apply_glyph_colour_mode(
     match &style.colour_mode {
         ColourMode::Solid(_) => {}
         ColourMode::Colormap { scalar_range, .. } => {
-            item.scalars = instances.iter().map(|g| g.raw_vector.length()).collect();
+            let magnitudes = instances
+                .iter()
+                .map(|g| g.raw_vector.length())
+                .collect::<Vec<_>>();
+            let (min_magnitude, max_magnitude) = magnitudes
+                .iter()
+                .copied()
+                .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), value| {
+                    (min.min(value), max.max(value))
+                });
+            item.scalars = if (max_magnitude - min_magnitude).abs() < 1.0e-5 {
+                instances.iter().map(|g| g.raw_vector.z).collect()
+            } else {
+                magnitudes
+            };
             item.scalar_range = *scalar_range;
             item.colourmap_id = resolved_colourmap_id;
         }
@@ -798,6 +832,7 @@ pub struct SurfacePickData<'a> {
     pub pick_id: u64,
     pub positions: &'a [[f32; 3]],
     pub indices: &'a [u32],
+    pub mesh: &'a MeshData,
 }
 
 /// CPU-side positions for one polyline (may consist of multiple strips).
@@ -831,11 +866,12 @@ impl GraphScene {
             .zip(self.plot_pick_ids.iter().copied())
         {
             for s in &plot.surfaces {
-                if !s.cpu_positions.is_empty() && !s.cpu_indices.is_empty() {
+                if !s.cpu_mesh.positions.is_empty() && !s.cpu_mesh.indices.is_empty() {
                     surfaces.push(SurfacePickData {
                         pick_id,
-                        positions: &s.cpu_positions,
-                        indices: &s.cpu_indices,
+                        positions: &s.cpu_mesh.positions,
+                        indices: &s.cpu_mesh.indices,
+                        mesh: &s.cpu_mesh,
                     });
                 }
             }

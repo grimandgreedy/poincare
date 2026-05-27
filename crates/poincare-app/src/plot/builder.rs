@@ -525,9 +525,9 @@ pub(crate) fn build_plot_entry_from_inputs(
                 domain: default_domain,
                 resolution: Resolution::default(),
                 style: PlotStyle {
-                    colour_mode: ColourMode::ByAttribute {
-                        name: "magnitude".to_string(),
-                        kind: AttributeKind::Vertex,
+                    colour_mode: ColourMode::Colormap {
+                        colormap: ColormapSource::Builtin(BuiltinColourmap::RdBu),
+                        scalar_range: None,
                     },
                     glyph_scale: 0.8,
                     shading: ShadingMode::Unlit,
@@ -567,9 +567,9 @@ pub(crate) fn build_plot_entry_from_inputs(
                 domain: default_domain,
                 resolution: Resolution { u: 5, v: 5 },
                 style: PlotStyle {
-                    colour_mode: ColourMode::ByAttribute {
-                        name: "magnitude".to_string(),
-                        kind: AttributeKind::Vertex,
+                    colour_mode: ColourMode::Colormap {
+                        colormap: ColormapSource::Builtin(BuiltinColourmap::RdBu),
+                        scalar_range: None,
                     },
                     glyph_scale: 0.8,
                     shading: ShadingMode::Unlit,

@@ -109,8 +109,8 @@ impl PlotObject for VectorField3D {
                     let z = z0 + tz * (z1 - z0);
 
                     let raw = (self.field_fn)(x, y, z);
-                    // Normalize to unit length, then scale by glyph_scale for uniform glyph sizes.
-                    let display = raw.normalize_or_zero() * self.style.glyph_scale;
+                    // Normalize to unit length; glyph_scale is applied at render submission.
+                    let display = raw.normalize_or_zero();
 
                     instances.push(GlyphInstance {
                         position: Vec3::new(x as f32, y as f32, z as f32),

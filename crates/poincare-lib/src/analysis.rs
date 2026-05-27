@@ -2,12 +2,13 @@ use std::collections::HashMap;
 use std::f64::consts::PI;
 
 use glam::Vec3;
+use viewport_lib::{AttributeData, BuiltinColourmap, MeshData};
 
 use crate::{
-    ArrowAnnotation, ColourMode, CurveInterpolation, CurveInterpolationKind, Diagnostic,
-    DiagnosticKind, DiagnosticLocation, PlotMetadata, PlotSpec, PlotStyle, PointAnnotation,
-    SliceAxis, TableDataSet, default_slice_position, eval_curve_point, eval_with_vars,
-    parse_curve_expr, parse_expr_with_vars, sample_curve_points,
+    ArrowAnnotation, ColormapSource, ColourMode, CurveInterpolation, CurveInterpolationKind,
+    Diagnostic, DiagnosticKind, DiagnosticLocation, PlotMetadata, PlotSpec, PlotStyle,
+    PointAnnotation, SliceAxis, TableDataSet, default_slice_position, eval_curve_point,
+    eval_with_vars, parse_curve_expr, parse_expr_with_vars, sample_curve_points,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -30,6 +31,10 @@ pub enum AnalysisKind {
     GradientField,
     DivergenceField,
     CurlField,
+    SurfaceNormals,
+    SurfaceCurvature,
+    SurfaceArea,
+    SurfaceMeshQuality,
     SurfaceIntersection,
 }
 
@@ -237,6 +242,14 @@ pub fn run_analysis(
             build_interpolation(&params),
             params.get("output_name").cloned(),
         )?,
+        AnalysisKind::SurfaceNormals
+        | AnalysisKind::SurfaceCurvature
+        | AnalysisKind::SurfaceArea
+        | AnalysisKind::SurfaceMeshQuality => {
+            return Err(AnalysisError::unsupported(
+                "Surface geometry analyses operate on cached sampled surface meshes.",
+            ));
+        }
         AnalysisKind::SurfaceIntersection => {
             return Err(AnalysisError::unsupported(
                 "Surface intersection remains a geometry-level app workflow.",
@@ -257,6 +270,36 @@ fn supports_data_quality_analysis(plot: &PlotSpec) -> bool {
     sample_data_groups(plot)
         .map(|groups| groups.iter().map(Vec::len).sum::<usize>() >= 2)
         .unwrap_or(false)
+}
+
+pub fn run_surface_mesh_analysis(
+    source: &PlotSpec,
+    kind: AnalysisKind,
+    meshes: &[&MeshData],
+    parameters: &[(String, String)],
+) -> Result<AnalysisOutput, AnalysisError> {
+    let combined = CombinedSurfaceMesh::from_meshes(meshes)?;
+    let params = parameter_map(parameters);
+    match kind {
+        AnalysisKind::SurfaceNormals => make_surface_normals_output(
+            source,
+            &combined,
+            params
+                .get("max_samples")
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(256),
+            params
+                .get("vector_scale")
+                .and_then(|value| value.parse::<f32>().ok())
+                .unwrap_or(1.0),
+        ),
+        AnalysisKind::SurfaceCurvature => make_surface_curvature_output(source, &combined),
+        AnalysisKind::SurfaceArea => make_surface_area_output(source, &combined),
+        AnalysisKind::SurfaceMeshQuality => make_surface_mesh_quality_output(source, &combined),
+        _ => Err(AnalysisError::unsupported(
+            "Not a surface-mesh analysis kind.",
+        )),
+    }
 }
 
 fn capabilities_for_metadata(metadata: &PlotMetadata) -> Vec<AnalysisCapability> {
@@ -389,12 +432,38 @@ fn capabilities_for_metadata(metadata: &PlotMetadata) -> Vec<AnalysisCapability>
     }
 
     if metadata.supports_surface_intersection {
-        capabilities.push(AnalysisCapability {
-            kind: AnalysisKind::SurfaceIntersection,
-            target_kind: AnalysisTargetKind::PlotPair,
-            output_kind: AnalysisOutputKind::PlotSpec,
-            parameters: vec!["samples", "tolerance"],
-        });
+        capabilities.extend([
+            AnalysisCapability {
+                kind: AnalysisKind::SurfaceNormals,
+                target_kind: AnalysisTargetKind::Geometry,
+                output_kind: AnalysisOutputKind::PlotSpec,
+                parameters: vec![],
+            },
+            AnalysisCapability {
+                kind: AnalysisKind::SurfaceCurvature,
+                target_kind: AnalysisTargetKind::Geometry,
+                output_kind: AnalysisOutputKind::Composite,
+                parameters: vec![],
+            },
+            AnalysisCapability {
+                kind: AnalysisKind::SurfaceArea,
+                target_kind: AnalysisTargetKind::Geometry,
+                output_kind: AnalysisOutputKind::NumericReport,
+                parameters: vec![],
+            },
+            AnalysisCapability {
+                kind: AnalysisKind::SurfaceMeshQuality,
+                target_kind: AnalysisTargetKind::Geometry,
+                output_kind: AnalysisOutputKind::Composite,
+                parameters: vec![],
+            },
+            AnalysisCapability {
+                kind: AnalysisKind::SurfaceIntersection,
+                target_kind: AnalysisTargetKind::PlotPair,
+                output_kind: AnalysisOutputKind::PlotSpec,
+                parameters: vec!["samples", "tolerance"],
+            },
+        ]);
     }
 
     capabilities
@@ -1209,7 +1278,10 @@ fn make_point_cloud_statistics_output(plot: &PlotSpec) -> Result<AnalysisOutput,
             domain: plot.domain.clone(),
             resolution: plot.resolution,
             style: PlotStyle {
-                colour_mode: ColourMode::Solid([0.5, 0.8, 1.0, 1.0]),
+                colour_mode: ColourMode::Colormap {
+                    colormap: ColormapSource::Builtin(BuiltinColourmap::RdBu),
+                    scalar_range: Some((-1.0, 1.0)),
+                },
                 glyph_scale: 1.0,
                 shading: crate::ShadingMode::Unlit,
                 ..PlotStyle::default()
@@ -1525,13 +1597,12 @@ fn make_data_quality_output(plot: &PlotSpec) -> Result<AnalysisOutput, AnalysisE
             definition: crate::PlotDefinition::PointAnnotations {
                 points: outliers
                     .iter()
-                    .enumerate()
-                    .map(|(index, sample)| PointAnnotation {
+                    .map(|sample| PointAnnotation {
                         position: sample.position.to_array(),
-                        label: format!("Outlier {}", index + 1),
+                        label: String::new(),
                     })
                     .collect(),
-                show_labels: true,
+                show_labels: false,
             },
         });
     }
@@ -1548,6 +1619,883 @@ fn make_data_quality_output(plot: &PlotSpec) -> Result<AnalysisOutput, AnalysisE
             notes: vec!["Ordered-sequence checks operate per sampled sequence.".to_string()],
         },
     })
+}
+
+struct CombinedSurfaceMesh {
+    positions: Vec<Vec3>,
+    indices: Vec<u32>,
+    angle_distortion: Vec<f32>,
+    area_distortion: Vec<f32>,
+}
+
+impl CombinedSurfaceMesh {
+    fn from_meshes(meshes: &[&MeshData]) -> Result<Self, AnalysisError> {
+        if meshes.is_empty() {
+            return Err(AnalysisError::invalid(
+                "Surface analysis requires at least one sampled surface mesh.",
+            ));
+        }
+
+        let mut positions = Vec::new();
+        let mut indices = Vec::new();
+        let mut angle_distortion = Vec::new();
+        let mut area_distortion = Vec::new();
+
+        for mesh in meshes {
+            if mesh.positions.is_empty() || mesh.indices.len() < 3 {
+                continue;
+            }
+            let base = positions.len() as u32;
+            positions.extend(mesh.positions.iter().copied().map(Vec3::from_array));
+            indices.extend(mesh.indices.iter().map(|index| base + *index));
+
+            if let Some(AttributeData::Face(values)) = mesh.attributes.get("angle_distortion") {
+                angle_distortion.extend(values.iter().copied());
+            }
+            if let Some(AttributeData::Face(values)) = mesh.attributes.get("area_distortion") {
+                area_distortion.extend(values.iter().copied());
+            }
+        }
+
+        if positions.is_empty() || indices.len() < 3 {
+            return Err(AnalysisError::invalid(
+                "Surface analysis requires cached triangle mesh geometry.",
+            ));
+        }
+
+        Ok(Self {
+            positions,
+            indices,
+            angle_distortion,
+            area_distortion,
+        })
+    }
+}
+
+struct SurfaceCurvatureSummary {
+    boundary_vertices: Vec<bool>,
+    mean_curvature: Vec<f32>,
+    gaussian_curvature: Vec<f32>,
+    principal_max: Vec<f32>,
+    principal_min: Vec<f32>,
+    neighbors: Vec<Vec<usize>>,
+}
+
+#[derive(Clone)]
+struct SurfaceExtremum {
+    vertex_index: usize,
+    position: Vec3,
+    value: f32,
+    label: String,
+}
+
+#[derive(Clone)]
+struct MeshQualityFaceRow {
+    face_index: usize,
+    centroid: Vec3,
+    area: f32,
+    min_angle_deg: f32,
+    max_angle_deg: f32,
+    aspect_ratio: f32,
+    angle_distortion: Option<f32>,
+    area_distortion: Option<f32>,
+    score: f32,
+}
+
+fn make_surface_normals_output(
+    source: &PlotSpec,
+    mesh: &CombinedSurfaceMesh,
+    max_samples: usize,
+    vector_scale: f32,
+) -> Result<AnalysisOutput, AnalysisError> {
+    let normals = compute_vertex_normals(&mesh.positions, &mesh.indices);
+    let (bbox_min, bbox_max) = bounds_for_points(&mesh.positions);
+    let diagonal = bbox_max.distance(bbox_min);
+    let scale = (diagonal * 0.06 * vector_scale.max(0.05)).max(0.01);
+    let sampled = sampled_vertex_indices(mesh.positions.len(), max_samples.max(1));
+    let plot = PlotSpec {
+        name: format!("Surface Normals {}", source.name),
+        visible: true,
+        domain: source.domain.clone(),
+        resolution: source.resolution,
+        style: PlotStyle {
+            colour_mode: ColourMode::Colormap {
+                colormap: ColormapSource::Builtin(BuiltinColourmap::RdBu),
+                scalar_range: Some((-1.0, 1.0)),
+            },
+            glyph_scale: 1.0,
+            shading: crate::ShadingMode::Unlit,
+            ..PlotStyle::default()
+        },
+        definition: crate::PlotDefinition::ArrowAnnotations {
+            arrows: sampled
+                .into_iter()
+                .map(|index| ArrowAnnotation {
+                    origin: mesh.positions[index].to_array(),
+                    vector: (normals[index] * scale).to_array(),
+                    label: String::new(),
+                })
+                .collect(),
+            show_labels: false,
+        },
+    };
+    Ok(AnalysisOutput::DerivedPlots {
+        plots: vec![plot],
+        provenance: AnalysisProvenance {
+            kind: AnalysisKind::SurfaceNormals,
+            source_plots: vec![source.name.clone()],
+            parameters: vec![
+                ("max_samples".to_string(), max_samples.to_string()),
+                ("vector_scale".to_string(), format_float(vector_scale)),
+            ],
+            notes: vec!["Normals sampled from cached surface vertices.".to_string()],
+        },
+    })
+}
+
+fn make_surface_area_output(
+    source: &PlotSpec,
+    mesh: &CombinedSurfaceMesh,
+) -> Result<AnalysisOutput, AnalysisError> {
+    let face_areas = triangle_areas(&mesh.positions, &mesh.indices);
+    let total_area = face_areas.iter().sum::<f32>();
+    let (min_area, mean_area, max_area) = min_mean_max(&face_areas);
+    Ok(AnalysisOutput::Report {
+        report: AnalysisReport {
+            title: format!("Surface Area {}", source.name),
+            values: vec![
+                ("Vertex Count".to_string(), mesh.positions.len().to_string()),
+                ("Triangle Count".to_string(), (mesh.indices.len() / 3).to_string()),
+                ("Surface Area".to_string(), format_float(total_area)),
+                ("Triangle Area Min".to_string(), format_float(min_area)),
+                ("Triangle Area Mean".to_string(), format_float(mean_area)),
+                ("Triangle Area Max".to_string(), format_float(max_area)),
+            ],
+        },
+        provenance: AnalysisProvenance {
+            kind: AnalysisKind::SurfaceArea,
+            source_plots: vec![source.name.clone()],
+            parameters: Vec::new(),
+            notes: vec!["Surface area is estimated from cached triangle geometry.".to_string()],
+        },
+    })
+}
+
+fn make_surface_curvature_output(
+    source: &PlotSpec,
+    mesh: &CombinedSurfaceMesh,
+) -> Result<AnalysisOutput, AnalysisError> {
+    let summary = estimate_surface_curvatures(mesh);
+    let ridge_extrema = local_principal_maxima(mesh, &summary, 8);
+    let valley_extrema = local_principal_minima(mesh, &summary, 8);
+    let gaussian_peak = top_vertex_extrema(
+        mesh,
+        &summary.gaussian_curvature,
+        2,
+        "Gaussian Peak",
+        true,
+    );
+    let gaussian_pit = top_vertex_extrema(
+        mesh,
+        &summary.gaussian_curvature,
+        2,
+        "Gaussian Pit",
+        false,
+    );
+
+    let mut marker_points = Vec::new();
+    marker_points.extend(ridge_extrema.iter().cloned());
+    marker_points.extend(valley_extrema.iter().cloned());
+    marker_points.extend(gaussian_peak.iter().cloned());
+    marker_points.extend(gaussian_pit.iter().cloned());
+
+    let mean_abs = summary
+        .mean_curvature
+        .iter()
+        .map(|value| value.abs())
+        .collect::<Vec<_>>();
+    let gaussian_abs = summary
+        .gaussian_curvature
+        .iter()
+        .map(|value| value.abs())
+        .collect::<Vec<_>>();
+    let principal_abs = summary
+        .principal_max
+        .iter()
+        .zip(summary.principal_min.iter())
+        .map(|(k1, k2)| k1.abs().max(k2.abs()))
+        .collect::<Vec<_>>();
+
+    let plots = if marker_points.is_empty() {
+        Vec::new()
+    } else {
+        vec![PlotSpec {
+            name: format!("Curvature Markers {}", source.name),
+            visible: true,
+            domain: source.domain.clone(),
+            resolution: source.resolution,
+            style: PlotStyle {
+                colour_mode: ColourMode::Solid([1.0, 0.6, 0.18, 1.0]),
+                point_size: 8.0,
+                ..PlotStyle::default()
+            },
+            definition: crate::PlotDefinition::PointAnnotations {
+                points: marker_points
+                    .iter()
+                    .map(|marker| PointAnnotation {
+                        position: marker.position.to_array(),
+                        label: String::new(),
+                    })
+                    .collect(),
+                show_labels: false,
+            },
+        }]
+    };
+
+    let reports = vec![AnalysisReport {
+        title: format!("Surface Curvature {}", source.name),
+        values: vec![
+            ("Vertex Count".to_string(), mesh.positions.len().to_string()),
+            ("Triangle Count".to_string(), (mesh.indices.len() / 3).to_string()),
+            (
+                "Boundary Vertices".to_string(),
+                summary.boundary_vertices.iter().filter(|value| **value).count().to_string(),
+            ),
+            (
+                "Mean |H|".to_string(),
+                format_float(mean_abs.iter().sum::<f32>() / mean_abs.len().max(1) as f32),
+            ),
+            (
+                "Max |H|".to_string(),
+                format_float(mean_abs.iter().copied().fold(0.0, f32::max)),
+            ),
+            (
+                "Mean |K|".to_string(),
+                format_float(gaussian_abs.iter().sum::<f32>() / gaussian_abs.len().max(1) as f32),
+            ),
+            (
+                "Max |K|".to_string(),
+                format_float(gaussian_abs.iter().copied().fold(0.0, f32::max)),
+            ),
+            (
+                "Max |Principal|".to_string(),
+                format_float(principal_abs.iter().copied().fold(0.0, f32::max)),
+            ),
+        ],
+    }];
+
+    let mut tables = vec![AnalysisTable {
+        title: "Vertex Curvature Samples".to_string(),
+        columns: vec![
+            "vertex".to_string(),
+            "x".to_string(),
+            "y".to_string(),
+            "z".to_string(),
+            "mean_curvature".to_string(),
+            "gaussian_curvature".to_string(),
+            "k_max".to_string(),
+            "k_min".to_string(),
+            "boundary".to_string(),
+        ],
+        rows: mesh
+            .positions
+            .iter()
+            .enumerate()
+            .map(|(index, position)| {
+                vec![
+                    (index + 1).to_string(),
+                    format_float(position.x),
+                    format_float(position.y),
+                    format_float(position.z),
+                    format_float(summary.mean_curvature[index]),
+                    format_float(summary.gaussian_curvature[index]),
+                    format_float(summary.principal_max[index]),
+                    format_float(summary.principal_min[index]),
+                    summary.boundary_vertices[index].to_string(),
+                ]
+            })
+            .collect(),
+    }];
+
+    let mut extrema_rows = Vec::new();
+    extrema_rows.extend(ridge_extrema.iter().cloned());
+    extrema_rows.extend(valley_extrema.iter().cloned());
+    extrema_rows.extend(gaussian_peak.iter().cloned());
+    extrema_rows.extend(gaussian_pit.iter().cloned());
+    if !extrema_rows.is_empty() {
+        tables.push(AnalysisTable {
+            title: "Curvature Extrema".to_string(),
+            columns: vec![
+                "vertex".to_string(),
+                "label".to_string(),
+                "value".to_string(),
+                "x".to_string(),
+                "y".to_string(),
+                "z".to_string(),
+            ],
+            rows: extrema_rows
+                .iter()
+                .map(|row| {
+                    vec![
+                        (row.vertex_index + 1).to_string(),
+                        row.label.clone(),
+                        format_float(row.value),
+                        format_float(row.position.x),
+                        format_float(row.position.y),
+                        format_float(row.position.z),
+                    ]
+                })
+                .collect(),
+        });
+    }
+
+    Ok(AnalysisOutput::Composite {
+        plots,
+        reports,
+        tables,
+        diagnostics: Vec::new(),
+        provenance: AnalysisProvenance {
+            kind: AnalysisKind::SurfaceCurvature,
+            source_plots: vec![source.name.clone()],
+            parameters: Vec::new(),
+            notes: vec![
+                "Curvature estimates use discrete triangle-mesh angle-defect and cotangent-weight formulas."
+                    .to_string(),
+            ],
+        },
+    })
+}
+
+fn make_surface_mesh_quality_output(
+    source: &PlotSpec,
+    mesh: &CombinedSurfaceMesh,
+) -> Result<AnalysisOutput, AnalysisError> {
+    let faces = mesh_quality_rows(mesh);
+    let poor_faces = faces
+        .iter()
+        .filter(|row| row.score > 0.0)
+        .cloned()
+        .collect::<Vec<_>>();
+    let area_values = faces.iter().map(|row| row.area).collect::<Vec<_>>();
+    let aspect_values = faces.iter().map(|row| row.aspect_ratio).collect::<Vec<_>>();
+    let min_angles = faces.iter().map(|row| row.min_angle_deg).collect::<Vec<_>>();
+    let angle_distortion_values = faces
+        .iter()
+        .filter_map(|row| row.angle_distortion)
+        .collect::<Vec<_>>();
+    let area_distortion_values = faces
+        .iter()
+        .filter_map(|row| row.area_distortion)
+        .collect::<Vec<_>>();
+
+    let mut diagnostics = Vec::new();
+    if !poor_faces.is_empty() {
+        diagnostics.push(Diagnostic::warning(
+            DiagnosticKind::Validation,
+            format!("Detected {} mesh-quality warning face(s).", poor_faces.len()),
+        ));
+        diagnostics.extend(poor_faces.iter().take(12).map(|row| {
+            Diagnostic::warning(
+                DiagnosticKind::Validation,
+                format!(
+                    "Face quality warning: aspect {:.3}, min angle {:.2}deg.",
+                    row.aspect_ratio, row.min_angle_deg
+                ),
+            )
+            .with_location(
+                DiagnosticLocation::new()
+                    .with_component("face")
+                    .with_row(row.face_index + 1),
+            )
+        }));
+    }
+
+    let reports = vec![AnalysisReport {
+        title: format!("Surface Mesh Quality {}", source.name),
+        values: vec![
+            ("Triangle Count".to_string(), faces.len().to_string()),
+            ("Warning Faces".to_string(), poor_faces.len().to_string()),
+            (
+                "Triangle Area Min".to_string(),
+                format_float(area_values.iter().copied().fold(f32::INFINITY, f32::min)),
+            ),
+            (
+                "Triangle Area Mean".to_string(),
+                format_float(area_values.iter().sum::<f32>() / area_values.len().max(1) as f32),
+            ),
+            (
+                "Aspect Ratio Mean".to_string(),
+                format_float(
+                    aspect_values.iter().sum::<f32>() / aspect_values.len().max(1) as f32
+                ),
+            ),
+            (
+                "Aspect Ratio Max".to_string(),
+                format_float(aspect_values.iter().copied().fold(0.0, f32::max)),
+            ),
+            (
+                "Min Angle".to_string(),
+                format_float(min_angles.iter().copied().fold(f32::INFINITY, f32::min)),
+            ),
+            (
+                "Mean Angle Distortion".to_string(),
+                format_optional_mean(&angle_distortion_values),
+            ),
+            (
+                "Mean Area Distortion".to_string(),
+                format_optional_mean(&area_distortion_values),
+            ),
+        ],
+    }];
+
+    let mut tables = vec![AnalysisTable {
+        title: "Mesh Face Statistics".to_string(),
+        columns: vec![
+            "face".to_string(),
+            "cx".to_string(),
+            "cy".to_string(),
+            "cz".to_string(),
+            "area".to_string(),
+            "min_angle_deg".to_string(),
+            "max_angle_deg".to_string(),
+            "aspect_ratio".to_string(),
+            "angle_distortion".to_string(),
+            "area_distortion".to_string(),
+            "warning_score".to_string(),
+        ],
+        rows: faces
+            .iter()
+            .map(|row| {
+                vec![
+                    (row.face_index + 1).to_string(),
+                    format_float(row.centroid.x),
+                    format_float(row.centroid.y),
+                    format_float(row.centroid.z),
+                    format_float(row.area),
+                    format_float(row.min_angle_deg),
+                    format_float(row.max_angle_deg),
+                    format_float(row.aspect_ratio),
+                    row.angle_distortion
+                        .map(format_float)
+                        .unwrap_or_else(|| "n/a".to_string()),
+                    row.area_distortion
+                        .map(format_float)
+                        .unwrap_or_else(|| "n/a".to_string()),
+                    format_float(row.score),
+                ]
+            })
+            .collect(),
+    }];
+
+    if !poor_faces.is_empty() {
+        tables.push(AnalysisTable {
+            title: "Mesh Quality Alerts".to_string(),
+            columns: vec![
+                "face".to_string(),
+                "area".to_string(),
+                "min_angle_deg".to_string(),
+                "aspect_ratio".to_string(),
+                "warning_score".to_string(),
+            ],
+            rows: poor_faces
+                .iter()
+                .take(250)
+                .map(|row| {
+                    vec![
+                        (row.face_index + 1).to_string(),
+                        format_float(row.area),
+                        format_float(row.min_angle_deg),
+                        format_float(row.aspect_ratio),
+                        format_float(row.score),
+                    ]
+                })
+                .collect(),
+        });
+    }
+
+    let plots = if poor_faces.is_empty() {
+        Vec::new()
+    } else {
+        vec![PlotSpec {
+            name: format!("Mesh Quality Alerts {}", source.name),
+            visible: true,
+            domain: source.domain.clone(),
+            resolution: source.resolution,
+            style: PlotStyle {
+                colour_mode: ColourMode::Solid([1.0, 0.35, 0.3, 1.0]),
+                point_size: 7.5,
+                ..PlotStyle::default()
+            },
+            definition: crate::PlotDefinition::PointAnnotations {
+                points: poor_faces
+                    .iter()
+                    .take(32)
+                    .map(|row| PointAnnotation {
+                        position: row.centroid.to_array(),
+                        label: String::new(),
+                    })
+                    .collect(),
+                show_labels: false,
+            },
+        }]
+    };
+
+    Ok(AnalysisOutput::Composite {
+        plots,
+        reports,
+        tables,
+        diagnostics,
+        provenance: AnalysisProvenance {
+            kind: AnalysisKind::SurfaceMeshQuality,
+            source_plots: vec![source.name.clone()],
+            parameters: Vec::new(),
+            notes: vec![
+                "Mesh quality uses per-face area, angle, aspect-ratio, and distortion summaries."
+                    .to_string(),
+            ],
+        },
+    })
+}
+
+fn estimate_surface_curvatures(mesh: &CombinedSurfaceMesh) -> SurfaceCurvatureSummary {
+    let vertex_count = mesh.positions.len();
+    let mut vertex_normals_accum = vec![Vec3::ZERO; vertex_count];
+    let mut vertex_area = vec![0.0_f32; vertex_count];
+    let mut angle_sum = vec![0.0_f32; vertex_count];
+    let mut edge_weights: HashMap<(usize, usize), f32> = HashMap::new();
+    let mut edge_counts: HashMap<(usize, usize), u32> = HashMap::new();
+
+    for tri in mesh.indices.chunks_exact(3) {
+        let i0 = tri[0] as usize;
+        let i1 = tri[1] as usize;
+        let i2 = tri[2] as usize;
+        let p0 = mesh.positions[i0];
+        let p1 = mesh.positions[i1];
+        let p2 = mesh.positions[i2];
+
+        let face_cross = (p1 - p0).cross(p2 - p0);
+        let area = 0.5 * face_cross.length();
+        let face_normal = face_cross.normalize_or_zero();
+        vertex_normals_accum[i0] += face_normal * area;
+        vertex_normals_accum[i1] += face_normal * area;
+        vertex_normals_accum[i2] += face_normal * area;
+        vertex_area[i0] += area / 3.0;
+        vertex_area[i1] += area / 3.0;
+        vertex_area[i2] += area / 3.0;
+
+        let angle0 = angle_between_3d_local(p1 - p0, p2 - p0);
+        let angle1 = angle_between_3d_local(p2 - p1, p0 - p1);
+        let angle2 = angle_between_3d_local(p0 - p2, p1 - p2);
+        angle_sum[i0] += angle0;
+        angle_sum[i1] += angle1;
+        angle_sum[i2] += angle2;
+
+        accumulate_edge_weight(&mut edge_weights, &mut edge_counts, i1, i2, cotangent(angle0));
+        accumulate_edge_weight(&mut edge_weights, &mut edge_counts, i0, i2, cotangent(angle1));
+        accumulate_edge_weight(&mut edge_weights, &mut edge_counts, i0, i1, cotangent(angle2));
+    }
+
+    let vertex_normals = vertex_normals_accum
+        .into_iter()
+        .map(|normal| normal.normalize_or_zero())
+        .collect::<Vec<_>>();
+    let mut boundary_vertices = vec![false; vertex_count];
+    let mut neighbors = vec![Vec::new(); vertex_count];
+    let mut mean_curvature_normal_sum = vec![Vec3::ZERO; vertex_count];
+
+    for (&(a, b), &weight) in &edge_weights {
+        neighbors[a].push(b);
+        neighbors[b].push(a);
+        mean_curvature_normal_sum[a] += weight * (mesh.positions[a] - mesh.positions[b]);
+        mean_curvature_normal_sum[b] += weight * (mesh.positions[b] - mesh.positions[a]);
+        if edge_counts.get(&(a, b)).copied().unwrap_or(0) == 1 {
+            boundary_vertices[a] = true;
+            boundary_vertices[b] = true;
+        }
+    }
+
+    let mut mean_curvature = vec![0.0_f32; vertex_count];
+    let mut gaussian_curvature = vec![0.0_f32; vertex_count];
+    let mut principal_max = vec![0.0_f32; vertex_count];
+    let mut principal_min = vec![0.0_f32; vertex_count];
+
+    for index in 0..vertex_count {
+        let area = vertex_area[index].max(1.0e-6);
+        let mean_normal = mean_curvature_normal_sum[index] / (2.0 * area);
+        let signed_mean = 0.5 * mean_normal.dot(vertex_normals[index]);
+        let gaussian = ((if boundary_vertices[index] {
+            std::f32::consts::PI
+        } else {
+            std::f32::consts::TAU
+        }) - angle_sum[index])
+            / area;
+        let discriminant = (signed_mean * signed_mean - gaussian).max(0.0).sqrt();
+        mean_curvature[index] = signed_mean;
+        gaussian_curvature[index] = gaussian;
+        principal_max[index] = signed_mean + discriminant;
+        principal_min[index] = signed_mean - discriminant;
+    }
+
+    SurfaceCurvatureSummary {
+        boundary_vertices,
+        mean_curvature,
+        gaussian_curvature,
+        principal_max,
+        principal_min,
+        neighbors,
+    }
+}
+
+fn mesh_quality_rows(mesh: &CombinedSurfaceMesh) -> Vec<MeshQualityFaceRow> {
+    mesh.indices
+        .chunks_exact(3)
+        .enumerate()
+        .map(|(face_index, tri)| {
+            let p0 = mesh.positions[tri[0] as usize];
+            let p1 = mesh.positions[tri[1] as usize];
+            let p2 = mesh.positions[tri[2] as usize];
+            let edge_lengths = [(p1 - p0).length(), (p2 - p1).length(), (p0 - p2).length()];
+            let longest = edge_lengths.iter().copied().fold(0.0, f32::max);
+            let shortest = edge_lengths
+                .iter()
+                .copied()
+                .fold(f32::INFINITY, f32::min)
+                .max(1.0e-6);
+            let aspect_ratio = longest / shortest;
+            let angles = triangle_angles_3d_local([p0, p1, p2]).map(f32::to_degrees);
+            let min_angle_deg = angles.iter().copied().fold(f32::INFINITY, f32::min);
+            let max_angle_deg = angles.iter().copied().fold(0.0, f32::max);
+            let area = 0.5 * (p1 - p0).cross(p2 - p0).length();
+            let angle_distortion = mesh.angle_distortion.get(face_index).copied();
+            let area_distortion = mesh.area_distortion.get(face_index).copied();
+            let score = mesh_quality_score(area, min_angle_deg, max_angle_deg, aspect_ratio);
+            MeshQualityFaceRow {
+                face_index,
+                centroid: (p0 + p1 + p2) / 3.0,
+                area,
+                min_angle_deg,
+                max_angle_deg,
+                aspect_ratio,
+                angle_distortion,
+                area_distortion,
+                score,
+            }
+        })
+        .collect()
+}
+
+fn local_principal_maxima(
+    mesh: &CombinedSurfaceMesh,
+    summary: &SurfaceCurvatureSummary,
+    limit: usize,
+) -> Vec<SurfaceExtremum> {
+    local_extrema(mesh, &summary.principal_max, &summary.neighbors, limit, true)
+        .into_iter()
+        .filter(|extremum| extremum.value > 0.0)
+        .map(|mut extremum| {
+            extremum.label = "Ridge".to_string();
+            extremum
+        })
+        .collect()
+}
+
+fn local_principal_minima(
+    mesh: &CombinedSurfaceMesh,
+    summary: &SurfaceCurvatureSummary,
+    limit: usize,
+) -> Vec<SurfaceExtremum> {
+    local_extrema(mesh, &summary.principal_min, &summary.neighbors, limit, false)
+        .into_iter()
+        .filter(|extremum| extremum.value < 0.0)
+        .map(|mut extremum| {
+            extremum.label = "Valley".to_string();
+            extremum
+        })
+        .collect()
+}
+
+fn local_extrema(
+    mesh: &CombinedSurfaceMesh,
+    values: &[f32],
+    neighbors: &[Vec<usize>],
+    limit: usize,
+    maxima: bool,
+) -> Vec<SurfaceExtremum> {
+    let mut extrema = values
+        .iter()
+        .enumerate()
+        .filter_map(|(index, value)| {
+            let neighbour_values = neighbors[index]
+                .iter()
+                .filter_map(|neighbor| values.get(*neighbor))
+                .copied()
+                .collect::<Vec<_>>();
+            if neighbour_values.is_empty() {
+                return None;
+            }
+            let is_extremum = if maxima {
+                neighbour_values.iter().all(|other| *value >= *other)
+                    && neighbour_values.iter().any(|other| *value > *other)
+            } else {
+                neighbour_values.iter().all(|other| *value <= *other)
+                    && neighbour_values.iter().any(|other| *value < *other)
+            };
+            is_extremum.then_some(SurfaceExtremum {
+                vertex_index: index,
+                position: mesh.positions[index],
+                value: *value,
+                label: String::new(),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    extrema.sort_by(|a, b| {
+        b.value
+            .abs()
+            .partial_cmp(&a.value.abs())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    extrema.truncate(limit);
+    extrema
+}
+
+fn top_vertex_extrema(
+    mesh: &CombinedSurfaceMesh,
+    values: &[f32],
+    limit: usize,
+    label: &str,
+    descending: bool,
+) -> Vec<SurfaceExtremum> {
+    let mut rows = values
+        .iter()
+        .enumerate()
+        .map(|(index, value)| SurfaceExtremum {
+            vertex_index: index,
+            position: mesh.positions[index],
+            value: *value,
+            label: label.to_string(),
+        })
+        .collect::<Vec<_>>();
+    rows.sort_by(|a, b| {
+        if descending {
+            b.value
+                .partial_cmp(&a.value)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        } else {
+            a.value
+                .partial_cmp(&b.value)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        }
+    });
+    rows.truncate(limit);
+    rows
+}
+
+fn compute_vertex_normals(positions: &[Vec3], indices: &[u32]) -> Vec<Vec3> {
+    let mut normals = vec![Vec3::ZERO; positions.len()];
+    for tri in indices.chunks_exact(3) {
+        let i0 = tri[0] as usize;
+        let i1 = tri[1] as usize;
+        let i2 = tri[2] as usize;
+        let cross = (positions[i1] - positions[i0]).cross(positions[i2] - positions[i0]);
+        normals[i0] += cross;
+        normals[i1] += cross;
+        normals[i2] += cross;
+    }
+    normals
+        .into_iter()
+        .map(|normal| normal.normalize_or_zero())
+        .collect()
+}
+
+fn triangle_areas(positions: &[Vec3], indices: &[u32]) -> Vec<f32> {
+    indices
+        .chunks_exact(3)
+        .map(|tri| {
+            let p0 = positions[tri[0] as usize];
+            let p1 = positions[tri[1] as usize];
+            let p2 = positions[tri[2] as usize];
+            0.5 * (p1 - p0).cross(p2 - p0).length()
+        })
+        .collect()
+}
+
+fn sampled_vertex_indices(vertex_count: usize, max_samples: usize) -> Vec<usize> {
+    if vertex_count <= max_samples {
+        return (0..vertex_count).collect();
+    }
+    let step = ((vertex_count as f32 / max_samples as f32).ceil() as usize).max(1);
+    (0..vertex_count).step_by(step).collect()
+}
+
+fn accumulate_edge_weight(
+    edge_weights: &mut HashMap<(usize, usize), f32>,
+    edge_counts: &mut HashMap<(usize, usize), u32>,
+    a: usize,
+    b: usize,
+    weight: f32,
+) {
+    let key = if a < b { (a, b) } else { (b, a) };
+    *edge_weights.entry(key).or_insert(0.0) += weight;
+    *edge_counts.entry(key).or_insert(0) += 1;
+}
+
+fn cotangent(angle: f32) -> f32 {
+    let sin = angle.sin().abs().max(1.0e-6);
+    angle.cos() / sin
+}
+
+fn triangle_angles_3d_local(points: [Vec3; 3]) -> [f32; 3] {
+    [
+        angle_between_3d_local(points[1] - points[0], points[2] - points[0]),
+        angle_between_3d_local(points[0] - points[1], points[2] - points[1]),
+        angle_between_3d_local(points[0] - points[2], points[1] - points[2]),
+    ]
+}
+
+fn angle_between_3d_local(a: Vec3, b: Vec3) -> f32 {
+    let denom = a.length() * b.length();
+    if denom <= 1.0e-8 {
+        0.0
+    } else {
+        (a.dot(b) / denom).clamp(-1.0, 1.0).acos()
+    }
+}
+
+fn mesh_quality_score(area: f32, min_angle_deg: f32, max_angle_deg: f32, aspect_ratio: f32) -> f32 {
+    let mut score = 0.0;
+    if area <= 1.0e-8 {
+        score += 10.0;
+    }
+    if min_angle_deg < 15.0 {
+        score += (15.0 - min_angle_deg) / 15.0;
+    }
+    if max_angle_deg > 150.0 {
+        score += (max_angle_deg - 150.0) / 30.0;
+    }
+    if aspect_ratio > 4.0 {
+        score += (aspect_ratio - 4.0) / 2.0;
+    }
+    score
+}
+
+fn min_mean_max(values: &[f32]) -> (f32, f32, f32) {
+    if values.is_empty() {
+        return (0.0, 0.0, 0.0);
+    }
+    (
+        values.iter().copied().fold(f32::INFINITY, f32::min),
+        values.iter().sum::<f32>() / values.len() as f32,
+        values.iter().copied().fold(f32::NEG_INFINITY, f32::max),
+    )
+}
+
+fn format_optional_mean(values: &[f32]) -> String {
+    if values.is_empty() {
+        "n/a".to_string()
+    } else {
+        format_float(values.iter().sum::<f32>() / values.len() as f32)
+    }
 }
 
 #[derive(Clone)]
@@ -2829,13 +3777,12 @@ fn table_errors(errors: Vec<crate::TableValidationError>) -> AnalysisError {
     AnalysisError::invalid(summary)
 }
 
-fn make_point_annotations(points: &[[f32; 3]], prefix: &str) -> Vec<PointAnnotation> {
+fn make_point_annotations(points: &[[f32; 3]], _prefix: &str) -> Vec<PointAnnotation> {
     points
         .iter()
-        .enumerate()
-        .map(|(index, position)| PointAnnotation {
+        .map(|position| PointAnnotation {
             position: *position,
-            label: format!("{prefix} {}", index + 1),
+            label: String::new(),
         })
         .collect()
 }
@@ -3426,6 +4373,7 @@ fn tangent_vectors(group: &[[f32; 3]]) -> Vec<Vec3> {
 mod tests {
     use super::*;
     use crate::{Domain, PlotDefinition, PlotSpec, PlotStyle, Resolution};
+    use viewport_lib::MeshData;
 
     fn approx_eq(a: f32, b: f32) -> bool {
         (a - b).abs() <= 1.0e-3
@@ -3450,6 +4398,29 @@ mod tests {
                 show_labels: false,
             },
         }
+    }
+
+    fn square_surface_plot() -> PlotSpec {
+        PlotSpec {
+            name: "Surface".to_string(),
+            visible: true,
+            domain: Domain::default(),
+            resolution: Resolution::default(),
+            style: PlotStyle::default(),
+            definition: PlotDefinition::GridSurface,
+        }
+    }
+
+    fn square_surface_mesh() -> MeshData {
+        let mut mesh = MeshData::default();
+        mesh.positions = vec![
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ];
+        mesh.indices = vec![0, 1, 2, 0, 2, 3];
+        mesh
     }
 
     #[test]
@@ -3561,6 +4532,39 @@ mod tests {
             message.contains("Near-duplicate")
                 && *component == Some("sequence 1 sample")
                 && *row == Some(3)
+        }));
+    }
+
+    #[test]
+    fn surface_area_and_curvature_on_plane_are_stable() {
+        let plot = square_surface_plot();
+        let mesh = square_surface_mesh();
+
+        let area = run_surface_mesh_analysis(&plot, AnalysisKind::SurfaceArea, &[&mesh], &[])
+            .expect("surface area");
+        let AnalysisOutput::Report { report, .. } = area else {
+            panic!("expected report output");
+        };
+        assert!(report.values.iter().any(|(label, value)| {
+            label == "Surface Area" && value == "1.00000"
+        }));
+
+        let curvature = run_surface_mesh_analysis(
+            &plot,
+            AnalysisKind::SurfaceCurvature,
+            &[&mesh],
+            &[],
+        )
+                .expect("surface curvature");
+        let AnalysisOutput::Composite { tables, .. } = curvature else {
+            panic!("expected composite output");
+        };
+        let sample_table = tables
+            .iter()
+            .find(|table| table.title == "Vertex Curvature Samples")
+            .expect("curvature sample table");
+        assert!(sample_table.rows.iter().all(|row| {
+            row[4].parse::<f32>().unwrap_or(1.0).abs() < 1.0e-3
         }));
     }
 }
