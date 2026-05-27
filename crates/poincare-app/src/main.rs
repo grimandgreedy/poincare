@@ -64,14 +64,9 @@ fn app_icon() -> Arc<egui::IconData> {
 fn install_app_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     fonts.font_data.insert(
-        "hack_regular".to_string(),
-        egui::FontData::from_static(include_bytes!("../../../assets/fonts/Hack-Regular.ttf"))
-            .into(),
-    );
-    fonts.font_data.insert(
-        "nerd_font_3270".to_string(),
+        "fira_code_nerd_regular".to_string(),
         egui::FontData::from_static(include_bytes!(
-            "../../../assets/fonts/3270NerdFontMono-Regular.ttf"
+            "../../../assets/fonts/FiraCodeNerdFont-Regular.ttf"
         ))
         .into(),
     );
@@ -80,12 +75,7 @@ fn install_app_fonts(ctx: &egui::Context) {
             .families
             .entry(family.clone())
             .or_default()
-            .insert(0, "hack_regular".to_string());
-        fonts
-            .families
-            .entry(family)
-            .or_default()
-            .insert(1, "nerd_font_3270".to_string());
+            .insert(0, "fira_code_nerd_regular".to_string());
     }
     ctx.set_fonts(fonts);
 }

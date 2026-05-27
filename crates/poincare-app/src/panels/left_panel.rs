@@ -417,10 +417,12 @@ impl App {
                             PlotMarkerKind::from_plot_kind(&plot.kind),
                         )
                     };
-                    let label = truncate_str(&plot_name, 28);
                     let row_width = viewport_width;
                     let indent = depth as f32 * 18.0;
                     let content_width = (row_width - indent).max(64.0);
+                    let title_width = (content_width - indent - 94.0).max(64.0);
+                    let max_label_chars = ((title_width / 8.0).floor() as usize).max(6);
+                    let label = truncate_str(&plot_name, max_label_chars);
 
                     let row_response = ui
                         .allocate_ui_with_layout(
@@ -477,7 +479,6 @@ impl App {
                                                     cancel_rename = true;
                                                 }
                                             } else {
-                                                let title_width = (content_width - 94.0).max(64.0);
                                                 let response = ui.add_sized(
                                                     [title_width, 22.0],
                                                     egui::Button::new(label).selected(is_selected),
@@ -503,7 +504,7 @@ impl App {
                                                 self.mark_dirty();
                                             }
 
-                                            ui.menu_button("...", |ui| {
+                                            ui.menu_button(egui::RichText::new("󰇙"), |ui| {
                                                 self.plot_row_menu(
                                                     ui,
                                                     index,
