@@ -249,10 +249,11 @@ impl App {
         if let Some(idx) = self.documents[self.active_document_idx].selected_plot {
             let mut cloned = self.documents[self.active_document_idx].plots[idx].clone();
             cloned.name = format!("{} (copy)", cloned.name);
-            self.documents[self.active_document_idx]
-                .plots
-                .insert(idx + 1, cloned);
-            self.set_selected_plot(self.active_document_idx, Some(idx + 1));
+            cloned.plot_id = 0;
+            cloned.parent_plot_id = None;
+            cloned.relationship = crate::plot::entry::PlotRelationship::Primary;
+            let inserted_idx = self.insert_plot_entry(self.active_document_idx, idx + 1, cloned);
+            self.set_selected_plot(self.active_document_idx, Some(inserted_idx));
             self.documents[self.active_document_idx].viewport_selection_hidden_for = None;
             self.mark_dirty();
         }
@@ -275,7 +276,7 @@ impl App {
             self.set_selected_plot(self.active_document_idx, Some(idx));
         }
         if let Some(idx) = self.documents[self.active_document_idx].selected_plot {
-            self.documents[self.active_document_idx].plots.remove(idx);
+            self.documents[self.active_document_idx].remove_plot_family(idx);
             let n = self.documents[self.active_document_idx].plots.len();
             self.documents[self.active_document_idx].selected_plot = if n == 0 {
                 None
@@ -288,11 +289,10 @@ impl App {
 
     fn load_example_plot(&mut self, example: ExamplePlot) {
         self.record_undo_point();
+        let selected_idx = self.append_plot_entry(self.active_document_idx, example.build());
         let doc = &mut self.documents[self.active_document_idx];
-        doc.plots.push(example.build());
         doc.sweep_config
             .resize_with(doc.plots.len(), Default::default);
-        let selected_idx = doc.plots.len() - 1;
         let _ = doc;
         self.set_selected_plot(self.active_document_idx, Some(selected_idx));
         let doc = &mut self.documents[self.active_document_idx];

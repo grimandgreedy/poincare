@@ -51,10 +51,7 @@ impl App {
                         );
                     });
                     let copy_button = ui
-                        .button(
-                            egui::RichText::new("")
-                                .family(egui::FontFamily::Monospace),
-                        )
+                        .button(egui::RichText::new("").family(egui::FontFamily::Monospace))
                         .on_hover_text("Copy structured plot metadata");
                     if copy_button.clicked() {
                         copy_metadata_for_plot = Some(index);
@@ -697,6 +694,9 @@ impl App {
                     self.push_analysis_plot(
                         doc_idx,
                         PlotEntry {
+                            plot_id: 0,
+                            parent_plot_id: None,
+                            relationship: crate::plot::entry::PlotRelationship::Primary,
                             name: "Probe Annotation".to_string(),
                             visible: true,
                             domain: self.documents[doc_idx].plots[plot_idx].domain.clone(),
@@ -722,6 +722,9 @@ impl App {
                     self.push_analysis_plot(
                         doc_idx,
                         PlotEntry {
+                            plot_id: 0,
+                            parent_plot_id: None,
+                            relationship: crate::plot::entry::PlotRelationship::Primary,
                             name: "Probe Direction".to_string(),
                             visible: true,
                             domain: self.documents[doc_idx].plots[plot_idx].domain.clone(),
@@ -771,6 +774,9 @@ impl App {
             self.push_analysis_plot(
                 doc_idx,
                 PlotEntry {
+                    plot_id: 0,
+                    parent_plot_id: None,
+                    relationship: crate::plot::entry::PlotRelationship::Primary,
                     name: "Pinned Probe Samples".to_string(),
                     visible: true,
                     domain: self.documents[doc_idx].plots[plot_idx].domain.clone(),
@@ -1017,6 +1023,9 @@ impl App {
             self.push_analysis_plot(
                 doc_idx,
                 PlotEntry {
+                    plot_id: 0,
+                    parent_plot_id: None,
+                    relationship: crate::plot::entry::PlotRelationship::Primary,
                     name: "Intersection Markers".to_string(),
                     visible: true,
                     domain: self.documents[doc_idx].plots[plot_idx].domain.clone(),
@@ -1125,18 +1134,30 @@ impl App {
     }
 
     fn push_analysis_plot(&mut self, doc_idx: usize, plot: PlotEntry) {
-        self.documents[doc_idx].plots.push(plot);
-        self.documents[doc_idx].selected_plot = Some(self.documents[doc_idx].plots.len() - 1);
+        let selected_idx = self.append_plot_entry(doc_idx, plot);
+        self.documents[doc_idx].selected_plot = Some(selected_idx);
         self.documents[doc_idx].viewport_selection_hidden_for = None;
         self.mark_dirty();
     }
 
     fn push_analysis_output(&mut self, doc_idx: usize, output: AnalysisOutput) {
         let source_plot_idx = self.documents[doc_idx].selected_plot;
+        let source_plot_id = source_plot_idx.and_then(|idx| {
+            self.documents[doc_idx]
+                .plots
+                .get(idx)
+                .map(|plot| plot.plot_id)
+        });
         match output {
             AnalysisOutput::DerivedPlots { plots, .. } => {
                 for plot in plots {
-                    self.push_analysis_plot(doc_idx, PlotEntry::from_plot_spec(plot));
+                    let entry = PlotEntry::from_plot_spec(plot);
+                    let entry = if let Some(parent_plot_id) = source_plot_id {
+                        entry.as_analysis_child(parent_plot_id)
+                    } else {
+                        entry
+                    };
+                    self.push_analysis_plot(doc_idx, entry);
                 }
             }
             AnalysisOutput::Composite {
@@ -1147,7 +1168,13 @@ impl App {
                 provenance,
             } => {
                 for plot in plots {
-                    self.push_analysis_plot(doc_idx, PlotEntry::from_plot_spec(plot));
+                    let entry = PlotEntry::from_plot_spec(plot);
+                    let entry = if let Some(parent_plot_id) = source_plot_id {
+                        entry.as_analysis_child(parent_plot_id)
+                    } else {
+                        entry
+                    };
+                    self.push_analysis_plot(doc_idx, entry);
                 }
                 if let Some(report) = reports.first() {
                     self.documents[doc_idx].export_status = report
@@ -1318,6 +1345,9 @@ impl App {
             self.push_analysis_plot(
                 doc_idx,
                 PlotEntry {
+                    plot_id: 0,
+                    parent_plot_id: None,
+                    relationship: crate::plot::entry::PlotRelationship::Primary,
                     name: format!("{} intersect {}", source.name, target.name),
                     visible: true,
                     domain: source.domain.clone(),
@@ -1344,6 +1374,9 @@ impl App {
             self.push_analysis_plot(
                 doc_idx,
                 PlotEntry {
+                    plot_id: 0,
+                    parent_plot_id: None,
+                    relationship: crate::plot::entry::PlotRelationship::Primary,
                     name: format!("{} intersect {} Points", source.name, target.name),
                     visible: true,
                     domain: source.domain.clone(),
@@ -2238,9 +2271,11 @@ fn plot_data_shape_json(plot: &PlotEntry) -> serde_json::Value {
         PlotKind::Streamlines { seeds } => json!({
             "seed_count": seeds.len(),
         }),
-        PlotKind::Isosurface { isovalues, .. } | PlotKind::ExprIsosurface { isovalues, .. } => json!({
-            "isovalue_count": isovalues.len(),
-        }),
+        PlotKind::Isosurface { isovalues, .. } | PlotKind::ExprIsosurface { isovalues, .. } => {
+            json!({
+                "isovalue_count": isovalues.len(),
+            })
+        }
         PlotKind::ImportedTable { definition } => {
             let preview = definition.preview();
             match definition.validate() {
@@ -2263,7 +2298,9 @@ fn plot_data_shape_json(plot: &PlotEntry) -> serde_json::Value {
                         "point_count": point_count,
                     })
                 }
-                Ok(TableDataSet::Scatter { points, scalars, .. }) => json!({
+                Ok(TableDataSet::Scatter {
+                    points, scalars, ..
+                }) => json!({
                     "table_target": definition.target.label(),
                     "preview_row_count": preview.rows.len(),
                     "preview_column_count": preview.column_count,

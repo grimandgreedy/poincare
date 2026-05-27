@@ -402,7 +402,9 @@ impl App {
                 let mut cancel_rename = false;
                 let escape_pressed = ui.input(|i| i.key_pressed(egui::Key::Escape));
 
-                for index in 0..plot_count {
+                let display_rows =
+                    plot_display_rows(&self.documents[self.active_document_idx].plots);
+                for (index, depth) in display_rows {
                     let is_selected =
                         self.documents[self.active_document_idx].selected_plot == Some(index);
                     let is_renaming = self.renaming_plot == Some(index);
@@ -417,10 +419,12 @@ impl App {
                     };
                     let label = truncate_str(&plot_name, 28);
                     let row_width = viewport_width;
+                    let indent = depth as f32 * 18.0;
+                    let content_width = (row_width - indent).max(64.0);
 
                     let row_response = ui
                         .allocate_ui_with_layout(
-                            egui::vec2(row_width, 0.0),
+                            egui::vec2(content_width, 0.0),
                             egui::Layout::top_down(egui::Align::Min),
                             |ui| {
                                 egui::Frame::group(ui.style())
@@ -437,10 +441,13 @@ impl App {
                                     .corner_radius(8.0)
                                     .inner_margin(egui::Margin::same(8))
                                     .show(ui, |ui| {
-                                        ui.set_width(row_width);
+                                        ui.set_width(content_width);
                                         ui.horizontal(|ui| {
-                                            let (marker_rect, marker_response) =
-                                                ui.allocate_exact_size(
+                                            if indent > 0.0 {
+                                                ui.add_space(indent);
+                                            }
+                                            let (marker_rect, marker_response) = ui
+                                                .allocate_exact_size(
                                                     egui::vec2(14.0, 14.0),
                                                     egui::Sense::hover(),
                                                 );
@@ -470,11 +477,11 @@ impl App {
                                                     cancel_rename = true;
                                                 }
                                             } else {
-                                                let title_width = (row_width - 94.0).max(64.0);
+                                                let title_width =
+                                                    (content_width - 94.0).max(64.0);
                                                 let response = ui.add_sized(
                                                     [title_width, 22.0],
-                                                    egui::Button::new(label)
-                                                        .selected(is_selected),
+                                                    egui::Button::new(label).selected(is_selected),
                                                 );
                                                 if response.clicked() {
                                                     self.set_selected_plot(
@@ -492,9 +499,8 @@ impl App {
                                                 .plots[index]
                                                 .visible;
                                             if ui.checkbox(&mut visible, "").changed() {
-                                                self.documents[self.active_document_idx].plots
-                                                    [index]
-                                                    .visible = visible;
+                                                self.documents[self.active_document_idx]
+                                                    .set_plot_family_visibility(index, visible);
                                                 self.mark_dirty();
                                             }
 
@@ -554,10 +560,12 @@ impl App {
                             let mut cloned =
                                 self.documents[self.active_document_idx].plots[index].clone();
                             cloned.name = format!("{} (copy)", cloned.name);
-                            self.documents[self.active_document_idx]
-                                .plots
-                                .insert(index + 1, cloned);
-                            self.set_selected_plot(self.active_document_idx, Some(index + 1));
+                            cloned.plot_id = 0;
+                            cloned.parent_plot_id = None;
+                            cloned.relationship = crate::plot::entry::PlotRelationship::Primary;
+                            let inserted_idx =
+                                self.insert_plot_entry(self.active_document_idx, index + 1, cloned);
+                            self.set_selected_plot(self.active_document_idx, Some(inserted_idx));
                             self.documents[self.active_document_idx]
                                 .viewport_selection_hidden_for = None;
                             self.renaming_plot = None;
@@ -596,25 +604,7 @@ impl App {
                             self.mark_dirty();
                         }
                         PlotAction::Remove(index) => {
-                            self.documents[self.active_document_idx].plots.remove(index);
-                            self.documents[self.active_document_idx].selected_plot =
-                                match self.documents[self.active_document_idx].selected_plot {
-                                    Some(_)
-                                        if self.documents[self.active_document_idx]
-                                            .plots
-                                            .is_empty() =>
-                                    {
-                                        None
-                                    }
-                                    Some(sel) if sel == index => Some(index.saturating_sub(1))
-                                        .filter(|_| {
-                                            !self.documents[self.active_document_idx]
-                                                .plots
-                                                .is_empty()
-                                        }),
-                                    Some(sel) if sel > index => Some(sel - 1),
-                                    other => other,
-                                };
+                            self.documents[self.active_document_idx].remove_plot_family(index);
                             self.renaming_plot = match self.renaming_plot {
                                 Some(r) if r == index => None,
                                 Some(r) if r > index => Some(r - 1),
@@ -996,9 +986,8 @@ impl App {
         match result {
             Ok(mut entry) => {
                 self.apply_default_colormap_to_entry(&mut entry);
-                self.documents[self.active_document_idx].plots.push(entry);
-                self.documents[self.active_document_idx].selected_plot =
-                    Some(self.documents[self.active_document_idx].plots.len() - 1);
+                let selected_idx = self.append_plot_entry(self.active_document_idx, entry);
+                self.documents[self.active_document_idx].selected_plot = Some(selected_idx);
                 self.add_error.clear();
                 self.mark_dirty();
                 true
@@ -1024,4 +1013,29 @@ fn builtin_colormap_color(preset: BuiltinColourmap) -> egui::Color32 {
         BuiltinColourmap::Jet => egui::Color32::from_rgb(72, 155, 235),
         BuiltinColourmap::RdBu => egui::Color32::from_rgb(178, 118, 206),
     }
+}
+
+fn plot_display_rows(plots: &[PlotEntry]) -> Vec<(usize, usize)> {
+    let mut rows = Vec::new();
+    let valid_ids = plots
+        .iter()
+        .map(|plot| plot.plot_id)
+        .collect::<std::collections::HashSet<_>>();
+    for (index, plot) in plots.iter().enumerate() {
+        if plot
+            .parent_plot_id
+            .is_some_and(|parent| valid_ids.contains(&parent))
+        {
+            continue;
+        }
+        rows.push((index, 0));
+        rows.extend(
+            plots
+                .iter()
+                .enumerate()
+                .filter(|(_, child)| child.parent_plot_id == Some(plot.plot_id))
+                .map(|(child_index, _)| (child_index, 1)),
+        );
+    }
+    rows
 }

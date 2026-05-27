@@ -21,6 +21,9 @@ pub fn build() -> Vec<PlotEntry> {
 
     vec![
         PlotEntry {
+            plot_id: 0,
+            parent_plot_id: None,
+            relationship: crate::plot::entry::PlotRelationship::Primary,
             name: "Spherical Harmonic (expr)".to_string(),
             visible: true,
             domain: Domain::default(),
@@ -39,6 +42,9 @@ pub fn build() -> Vec<PlotEntry> {
             },
         },
         PlotEntry {
+            plot_id: 0,
+            parent_plot_id: None,
+            relationship: crate::plot::entry::PlotRelationship::Primary,
             name: "Torus (R,r params)".to_string(),
             visible: true,
             domain: Domain::default(),
@@ -57,6 +63,9 @@ pub fn build() -> Vec<PlotEntry> {
             },
         },
         PlotEntry {
+            plot_id: 0,
+            parent_plot_id: None,
+            relationship: crate::plot::entry::PlotRelationship::Primary,
             name: "CSV Scatter".to_string(),
             visible: true,
             domain: Domain::default(),
@@ -88,6 +97,9 @@ pub fn build() -> Vec<PlotEntry> {
             },
         },
         PlotEntry {
+            plot_id: 0,
+            parent_plot_id: None,
+            relationship: crate::plot::entry::PlotRelationship::Primary,
             name: "Vector Field (-y, x, 0)".to_string(),
             visible: true,
             domain: Domain {
@@ -111,6 +123,9 @@ pub fn build() -> Vec<PlotEntry> {
             },
         },
         PlotEntry {
+            plot_id: 0,
+            parent_plot_id: None,
+            relationship: crate::plot::entry::PlotRelationship::Primary,
             name: "Gaussian Volume".to_string(),
             visible: true,
             domain: Domain {
@@ -134,6 +149,9 @@ pub fn build() -> Vec<PlotEntry> {
             },
         },
         PlotEntry {
+            plot_id: 0,
+            parent_plot_id: None,
+            relationship: crate::plot::entry::PlotRelationship::Primary,
             name: "Concentric Spheres (expr)".to_string(),
             visible: true,
             domain: Domain {

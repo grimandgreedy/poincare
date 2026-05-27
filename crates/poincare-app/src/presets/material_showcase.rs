@@ -9,6 +9,9 @@ use crate::plot::kind::PlotKind;
 pub fn build() -> Vec<PlotEntry> {
     vec![
         PlotEntry {
+            plot_id: 0,
+            parent_plot_id: None,
+            relationship: crate::plot::entry::PlotRelationship::Primary,
             name: "Clay Torus".to_string(),
             visible: true,
             domain: Domain {
@@ -31,6 +34,9 @@ pub fn build() -> Vec<PlotEntry> {
             },
         },
         PlotEntry {
+            plot_id: 0,
+            parent_plot_id: None,
+            relationship: crate::plot::entry::PlotRelationship::Primary,
             name: "Candy Mobius".to_string(),
             visible: true,
             domain: Domain {
@@ -53,6 +59,9 @@ pub fn build() -> Vec<PlotEntry> {
             },
         },
         PlotEntry {
+            plot_id: 0,
+            parent_plot_id: None,
+            relationship: crate::plot::entry::PlotRelationship::Primary,
             name: "Jade Enneper".to_string(),
             visible: true,
             domain: Domain {
