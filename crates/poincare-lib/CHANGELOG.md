@@ -2,6 +2,16 @@
 
 All notable changes to this crate will be documented in this file.
 
+## [Unreleased]
+- Added Phase 3 analysis support with `PointCloudStatistics` and `DataQualityChecks`.
+- Added sample-data analysis for point-backed and sampled plots, including imported scatter data, vector sample positions, surface-grid samples, interpolated curves, derived polylines, and built-in scatter clouds.
+- Added point-cloud statistics outputs including centroid, bounds, variance/covariance, PCA directions, and optional derived centroid/PCA geometry.
+- Added data-quality outputs including exact duplicate detection, near-duplicate detection, nearest-neighbour spacing diagnostics, sparse-sample warnings, monotonicity summaries, and positional outlier detection with optional derived outlier geometry.
+- Added `AnalysisOutput::Composite` report/table/diagnostic flows used by richer analysis results.
+- Added `SampleGroupsKind::SampleData` so applications can query general sample-backed plot data consistently.
+- Improved curve integral behaviour for planar graph-style curves by normalizing antiderivatives to avoid repeated-integration drift from carried offsets.
+- Fixed curve derivative and integral outputs for planar sampled curves so graph-style plots preserve their original plotting plane.
+
 ## [0.5.0]
 - Redefine the intended app/lib boundary around equations/plot structs.
 
