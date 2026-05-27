@@ -89,11 +89,11 @@ impl PlotObject for AnnotatedArrowsPlot {
             .arrows
             .iter()
             .map(|arrow| {
-                let vector = glam::Vec3::from_array(arrow.vector);
+                let raw_vector = glam::Vec3::from_array(arrow.vector);
                 GlyphInstance {
                     position: glam::Vec3::from_array(arrow.origin),
-                    vector,
-                    raw_vector: vector,
+                    vector: raw_vector,
+                    raw_vector,
                 }
             })
             .collect::<Vec<_>>();

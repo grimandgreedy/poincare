@@ -207,7 +207,7 @@ impl PlotObject for PlaneVectorFieldPlot {
                 let raw = (self.vector_fn)(x, y, z);
                 glyphs.push(GlyphInstance {
                     position: glam::vec3(x as f32, y as f32, z as f32),
-                    vector: raw.normalize_or_zero() * self.style.glyph_scale,
+                    vector: raw.normalize_or_zero(),
                     raw_vector: raw,
                 });
             }
@@ -292,11 +292,11 @@ impl PlotObject for AnnotatedArrowsPlot {
             .arrows
             .iter()
             .map(|arrow| {
-                let vector = glam::Vec3::from_array(arrow.vector);
+                let raw_vector = glam::Vec3::from_array(arrow.vector);
                 GlyphInstance {
                     position: glam::Vec3::from_array(arrow.origin),
-                    vector,
-                    raw_vector: vector,
+                    vector: raw_vector,
+                    raw_vector,
                 }
             })
             .collect::<Vec<_>>();
@@ -402,13 +402,12 @@ pub(crate) fn default_slice_position(domain: &Domain, axis: SliceAxis) -> f64 {
     }
 }
 
-pub(crate) fn make_point_annotations(points: &[[f32; 3]], prefix: &str) -> Vec<PointAnnotation> {
+pub(crate) fn make_point_annotations(points: &[[f32; 3]], _prefix: &str) -> Vec<PointAnnotation> {
     points
         .iter()
-        .enumerate()
-        .map(|(index, &position)| PointAnnotation {
+        .map(|&position| PointAnnotation {
             position,
-            label: format!("{prefix} {}", index + 1),
+            label: String::new(),
         })
         .collect()
 }

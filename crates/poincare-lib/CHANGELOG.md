@@ -9,6 +9,7 @@ All notable changes to this crate will be documented in this file.
 - Added data-quality outputs including exact duplicate detection, near-duplicate detection, nearest-neighbour spacing diagnostics, sparse-sample warnings, monotonicity summaries, and positional outlier detection with optional derived outlier geometry.
 - Added `AnalysisOutput::Composite` report/table/diagnostic flows used by richer analysis results.
 - Added titled analysis tables plus sample-linked duplicate, near-duplicate, sparse-region, and outlier diagnostics/tables so flagged findings can be traced back to concrete sampled rows.
+- Added Phase 4 surface-geometry analysis support for cached sampled meshes, including surface normals, curvature summaries/extrema markers, surface area reports, and mesh-quality diagnostics.
 - Added `SampleGroupsKind::SampleData` so applications can query general sample-backed plot data consistently.
 - Improved curve integral behaviour for planar graph-style curves by normalizing antiderivatives to avoid repeated-integration drift from carried offsets.
 - Fixed curve derivative and integral outputs for planar sampled curves so graph-style plots preserve their original plotting plane.

@@ -23,6 +23,7 @@ All notable changes to this crate will be documented in this file.
 - Added titled analysis tables in the `Data` tab so Phase 3 flagged-sample outputs are surfaced as named datasets instead of anonymous table slots.
 - Made point-statistics and data-quality tools available for more sample-backed plot kinds, including imported scatter data and built-in scatter clouds.
 - Allowed point-statistics analysis for single-point datasets while keeping data-quality checks gated to datasets with at least two samples.
+- Added Phase 4 surface-analysis actions in the `Analysis` tab and command palette for normals, curvature, area, and mesh-quality workflows backed by cached surface meshes.
 
 ### Fixes
 - Fixed analysis-result table widget id collisions in the `Data` panel.
