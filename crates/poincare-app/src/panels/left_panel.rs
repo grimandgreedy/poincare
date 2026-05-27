@@ -477,8 +477,7 @@ impl App {
                                                     cancel_rename = true;
                                                 }
                                             } else {
-                                                let title_width =
-                                                    (content_width - 94.0).max(64.0);
+                                                let title_width = (content_width - 94.0).max(64.0);
                                                 let response = ui.add_sized(
                                                     [title_width, 22.0],
                                                     egui::Button::new(label).selected(is_selected),

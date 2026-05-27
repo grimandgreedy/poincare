@@ -20,6 +20,7 @@ All notable changes to this crate will be documented in this file.
 - Added `Point Statistics` and `Data Quality Checks` actions in the `Analysis` tab and command palette for sample-backed plots.
 - Added a right-side `Data` tab that opens for Phase 3 analysis results and shows reports, diagnostics, and read-only tables.
 - Added source-data tables to Phase 3 analysis results so reports include the sampled positions they were computed from.
+- Added titled analysis tables in the `Data` tab so Phase 3 flagged-sample outputs are surfaced as named datasets instead of anonymous table slots.
 - Made point-statistics and data-quality tools available for more sample-backed plot kinds, including imported scatter data and built-in scatter clouds.
 - Allowed point-statistics analysis for single-point datasets while keeping data-quality checks gated to datasets with at least two samples.
 

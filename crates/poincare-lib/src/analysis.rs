@@ -86,6 +86,7 @@ pub struct AnalysisReport {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AnalysisTable {
+    pub title: String,
     pub columns: Vec<String>,
     pub rows: Vec<Vec<String>>,
 }
@@ -1135,6 +1136,7 @@ fn make_point_cloud_statistics_output(plot: &PlotSpec) -> Result<AnalysisOutput,
     let tables = vec![
         sample_positions_table(&groups),
         AnalysisTable {
+            title: "Covariance Matrix".to_string(),
             columns: vec![
                 "axis".to_string(),
                 "x".to_string(),
@@ -1163,6 +1165,7 @@ fn make_point_cloud_statistics_output(plot: &PlotSpec) -> Result<AnalysisOutput,
             ],
         },
         AnalysisTable {
+            title: "Principal Components".to_string(),
             columns: vec![
                 "component".to_string(),
                 "eigenvalue".to_string(),
@@ -1276,13 +1279,18 @@ fn make_data_quality_output(plot: &PlotSpec) -> Result<AnalysisOutput, AnalysisE
         None
     };
     let near_duplicate_epsilon = diag * 1.0e-3;
-    let near_duplicate_count = nearest.as_ref().map_or(0, |stats| {
-        stats
-            .nearest_distances
-            .iter()
-            .filter(|distance| **distance > 0.0 && **distance <= near_duplicate_epsilon)
-            .count()
-    });
+    let near_duplicate_samples = nearest
+        .as_ref()
+        .map(|stats| {
+            stats
+                .nearest_distances
+                .iter()
+                .enumerate()
+                .filter(|(_, distance)| **distance > 0.0 && **distance <= near_duplicate_epsilon)
+                .map(|(index, distance)| (indexed[index].clone(), *distance))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
     let (distance_mean, distance_std) = mean_std(
         &samples
             .iter()
@@ -1331,12 +1339,13 @@ fn make_data_quality_output(plot: &PlotSpec) -> Result<AnalysisOutput, AnalysisE
             ),
         ));
     }
-    if near_duplicate_count > 0 {
+    if !near_duplicate_samples.is_empty() {
         diagnostics.push(Diagnostic::warning(
             DiagnosticKind::Validation,
             format!(
                 "Detected {} near-duplicate sample(s) within {:.4}.",
-                near_duplicate_count, near_duplicate_epsilon
+                near_duplicate_samples.len(),
+                near_duplicate_epsilon
             ),
         ));
     }
@@ -1358,30 +1367,48 @@ fn make_data_quality_output(plot: &PlotSpec) -> Result<AnalysisOutput, AnalysisE
             "Skipped nearest-neighbor heavy checks for datasets above 4000 samples.",
         ));
     }
-    diagnostics.extend(duplicate_rows.iter().take(12).map(|sample| {
-        Diagnostic::warning(
-            DiagnosticKind::Validation,
-            "Exact duplicate sample.".to_string(),
-        )
-        .with_location(
-            DiagnosticLocation::new()
-                .with_component("sample")
-                .with_row(sample.sequence_row),
+    diagnostics.extend(
+        duplicate_rows
+            .iter()
+            .take(12)
+            .map(|sample| sample_warning(sample, "Exact duplicate sample.".to_string())),
+    );
+    diagnostics.extend(
+        near_duplicate_samples
+            .iter()
+            .take(12)
+            .map(|(sample, distance)| {
+                sample_warning(
+                    sample,
+                    format!(
+                        "Near-duplicate sample with nearest-neighbour distance {:.4}.",
+                        distance
+                    ),
+                )
+            }),
+    );
+    diagnostics.extend(sparse_samples.iter().take(12).map(|sample| {
+        let nearest_distance = nearest
+            .as_ref()
+            .and_then(|stats| stats.nearest_distances.get(sample.sample_index))
+            .copied()
+            .unwrap_or_default();
+        sample_warning(
+            sample,
+            format!(
+                "Sparse-region sample with nearest-neighbour distance {:.4}.",
+                nearest_distance
+            ),
         )
     }));
     diagnostics.extend(outliers.iter().take(12).map(|sample| {
-        Diagnostic::warning(
-            DiagnosticKind::Validation,
+        sample_warning(
+            sample,
             format!(
                 "Outlier distance {:.4} exceeds threshold {:.4}.",
                 sample.position.distance(centroid),
                 outlier_threshold
             ),
-        )
-        .with_location(
-            DiagnosticLocation::new()
-                .with_component("sample")
-                .with_row(sample.sequence_row),
         )
     }));
 
@@ -1395,7 +1422,7 @@ fn make_data_quality_output(plot: &PlotSpec) -> Result<AnalysisOutput, AnalysisE
             ),
             (
                 "Near Duplicates".to_string(),
-                near_duplicate_count.to_string(),
+                near_duplicate_samples.len().to_string(),
             ),
             ("Outliers".to_string(), outliers.len().to_string()),
             (
@@ -1417,33 +1444,62 @@ fn make_data_quality_output(plot: &PlotSpec) -> Result<AnalysisOutput, AnalysisE
         });
     }
 
-    let mut tables = vec![
-        sample_positions_table(&groups),
-        AnalysisTable {
-            columns: vec![
-                "sequence".to_string(),
-                "x".to_string(),
-                "y".to_string(),
-                "z".to_string(),
-                "distance_from_centroid".to_string(),
-            ],
-            rows: outliers
+    let mut tables = vec![sample_positions_table(&groups)];
+    if !duplicate_rows.is_empty() {
+        tables.push(flagged_samples_table(
+            "Exact Duplicates",
+            "duplicate_count",
+            duplicate_rows
                 .iter()
-                .take(250)
                 .map(|sample| {
-                    vec![
-                        sample.sequence_row.to_string(),
-                        format_float(sample.position.x),
-                        format_float(sample.position.y),
-                        format_float(sample.position.z),
-                        format_float(sample.position.distance(centroid)),
-                    ]
+                    (
+                        sample,
+                        sample_position_occurrences(&indexed, sample.position),
+                    )
                 })
-                .collect(),
-        },
-    ];
+                .take(250),
+        ));
+    }
+    if !near_duplicate_samples.is_empty() {
+        tables.push(flagged_samples_table(
+            "Near Duplicates",
+            "nearest_distance",
+            near_duplicate_samples
+                .iter()
+                .map(|(sample, distance)| (sample, *distance))
+                .take(250),
+        ));
+    }
+    if !sparse_samples.is_empty() {
+        tables.push(flagged_samples_table(
+            "Sparse Samples",
+            "nearest_distance",
+            sparse_samples
+                .iter()
+                .map(|sample| {
+                    let nearest_distance = nearest
+                        .as_ref()
+                        .and_then(|stats| stats.nearest_distances.get(sample.sample_index))
+                        .copied()
+                        .unwrap_or_default();
+                    (sample, nearest_distance)
+                })
+                .take(250),
+        ));
+    }
+    if !outliers.is_empty() {
+        tables.push(flagged_samples_table(
+            "Outliers",
+            "distance_from_centroid",
+            outliers
+                .iter()
+                .map(|sample| (sample, sample.position.distance(centroid)))
+                .take(250),
+        ));
+    }
     if !monotonicity_rows.is_empty() {
         tables.push(AnalysisTable {
+            title: "Monotonicity by Sequence".to_string(),
             columns: vec![
                 "sequence".to_string(),
                 "x monotonic".to_string(),
@@ -1496,7 +1552,9 @@ fn make_data_quality_output(plot: &PlotSpec) -> Result<AnalysisOutput, AnalysisE
 
 #[derive(Clone)]
 struct IndexedSample {
+    sequence_index: usize,
     sequence_row: usize,
+    sample_index: usize,
     position: Vec3,
 }
 
@@ -1520,14 +1578,21 @@ fn flatten_indexed_sample_groups(groups: &[Vec<[f32; 3]>]) -> Vec<IndexedSample>
     groups
         .iter()
         .enumerate()
-        .flat_map(|(_, group)| {
+        .flat_map(|(sequence_index, group)| {
             group
                 .iter()
                 .enumerate()
                 .map(move |(row, point)| IndexedSample {
+                    sequence_index: sequence_index + 1,
                     sequence_row: row + 1,
+                    sample_index: 0,
                     position: Vec3::from_array(*point),
                 })
+        })
+        .enumerate()
+        .map(|(sample_index, mut sample)| {
+            sample.sample_index = sample_index;
+            sample
         })
         .collect()
 }
@@ -1697,6 +1762,7 @@ fn format_vec3(value: Vec3) -> String {
 
 fn sample_positions_table(groups: &[Vec<[f32; 3]>]) -> AnalysisTable {
     AnalysisTable {
+        title: "Sample Positions".to_string(),
         columns: vec![
             "sequence".to_string(),
             "row".to_string(),
@@ -1720,6 +1786,54 @@ fn sample_positions_table(groups: &[Vec<[f32; 3]>]) -> AnalysisTable {
             })
             .collect(),
     }
+}
+
+fn flagged_samples_table<'a>(
+    title: impl Into<String>,
+    metric_label: &str,
+    rows: impl IntoIterator<Item = (&'a IndexedSample, f32)>,
+) -> AnalysisTable {
+    AnalysisTable {
+        title: title.into(),
+        columns: vec![
+            "sequence".to_string(),
+            "row".to_string(),
+            "sample".to_string(),
+            "x".to_string(),
+            "y".to_string(),
+            "z".to_string(),
+            metric_label.to_string(),
+        ],
+        rows: rows
+            .into_iter()
+            .map(|(sample, metric)| {
+                vec![
+                    sample.sequence_index.to_string(),
+                    sample.sequence_row.to_string(),
+                    (sample.sample_index + 1).to_string(),
+                    format_float(sample.position.x),
+                    format_float(sample.position.y),
+                    format_float(sample.position.z),
+                    format_float(metric),
+                ]
+            })
+            .collect(),
+    }
+}
+
+fn sample_position_occurrences(samples: &[IndexedSample], position: Vec3) -> f32 {
+    samples
+        .iter()
+        .filter(|sample| sample.position == position)
+        .count() as f32
+}
+
+fn sample_warning(sample: &IndexedSample, message: String) -> Diagnostic {
+    Diagnostic::warning(DiagnosticKind::Validation, message).with_location(
+        DiagnosticLocation::new()
+            .with_component(format!("sequence {} sample", sample.sequence_index))
+            .with_row(sample.sequence_row),
+    )
 }
 
 fn fit_curve_group(
@@ -3311,9 +3425,31 @@ fn tangent_vectors(group: &[[f32; 3]]) -> Vec<Vec3> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{Domain, PlotDefinition, PlotSpec, PlotStyle, Resolution};
 
     fn approx_eq(a: f32, b: f32) -> bool {
         (a - b).abs() <= 1.0e-3
+    }
+
+    fn point_annotations_plot(points: &[[f32; 3]]) -> PlotSpec {
+        PlotSpec {
+            name: "Points".to_string(),
+            visible: true,
+            domain: Domain::default(),
+            resolution: Resolution::default(),
+            style: PlotStyle::default(),
+            definition: PlotDefinition::PointAnnotations {
+                points: points
+                    .iter()
+                    .enumerate()
+                    .map(|(index, position)| PointAnnotation {
+                        position: *position,
+                        label: format!("P{}", index + 1),
+                    })
+                    .collect(),
+                show_labels: false,
+            },
+        }
     }
 
     #[test]
@@ -3372,5 +3508,59 @@ mod tests {
 
         assert!(mean.abs() < 1.0e-3);
         assert!((left - right).abs() < 0.2);
+    }
+
+    #[test]
+    fn phase_three_quality_output_titles_and_links_flagged_samples() {
+        let plot = point_annotations_plot(&[
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [0.0001, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+            [20.0, 0.0, 0.0],
+        ]);
+
+        let output = make_data_quality_output(&plot).expect("quality output");
+        let AnalysisOutput::Composite {
+            reports: _,
+            tables,
+            diagnostics,
+            ..
+        } = output
+        else {
+            panic!("expected composite output");
+        };
+
+        let table_titles = tables
+            .iter()
+            .map(|table| table.title.as_str())
+            .collect::<Vec<_>>();
+        assert!(table_titles.contains(&"Sample Positions"));
+        assert!(table_titles.contains(&"Exact Duplicates"));
+        assert!(table_titles.contains(&"Near Duplicates"));
+
+        let linked_messages = diagnostics
+            .iter()
+            .filter_map(|diagnostic| {
+                diagnostic.location.as_ref().map(|location| {
+                    (
+                        diagnostic.message.as_str(),
+                        location.component.as_deref(),
+                        location.row,
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+
+        assert!(linked_messages.iter().any(|(message, component, row)| {
+            message.contains("Exact duplicate")
+                && *component == Some("sequence 1 sample")
+                && *row == Some(2)
+        }));
+        assert!(linked_messages.iter().any(|(message, component, row)| {
+            message.contains("Near-duplicate")
+                && *component == Some("sequence 1 sample")
+                && *row == Some(3)
+        }));
     }
 }
