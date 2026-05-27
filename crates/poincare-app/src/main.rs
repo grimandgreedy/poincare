@@ -792,7 +792,7 @@ impl App {
                 }
                 for (index, table) in state.tables.iter().enumerate() {
                     ui.add_space(8.0);
-                    ui.label(egui::RichText::new(format!("Table {}", index + 1)).strong());
+                    ui.label(egui::RichText::new(&table.title).strong());
                     let mut rows = table.rows.clone();
                     let headers = table.columns.clone();
                     let table_id = format!("analysis_table_{index}");
