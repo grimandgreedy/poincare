@@ -67,6 +67,9 @@ pub(crate) fn build_plot_entry_from_inputs(
                     let parsed = parse_expr_with_vars(rhs, &["x", "y"])
                         .map_err(|e| format!("Parse error: {e}"))?;
                     PlotEntry {
+                        plot_id: 0,
+                        parent_plot_id: None,
+                        relationship: crate::plot::entry::PlotRelationship::Primary,
                         name: full.clone(),
                         visible: true,
                         domain: default_domain,
@@ -91,6 +94,9 @@ pub(crate) fn build_plot_entry_from_inputs(
                     let parsed = parse_expr_with_vars(rhs, &["theta", "phi"])
                         .map_err(|e| format!("Parse error: {e}"))?;
                     PlotEntry {
+                        plot_id: 0,
+                        parent_plot_id: None,
+                        relationship: crate::plot::entry::PlotRelationship::Primary,
                         name: full.clone(),
                         visible: true,
                         domain: Domain::default(),
@@ -115,6 +121,9 @@ pub(crate) fn build_plot_entry_from_inputs(
                     let parsed = parse_expr_with_vars(rhs, &["theta", "z"])
                         .map_err(|e| format!("Parse error: {e}"))?;
                     PlotEntry {
+                        plot_id: 0,
+                        parent_plot_id: None,
+                        relationship: crate::plot::entry::PlotRelationship::Primary,
                         name: full.clone(),
                         visible: true,
                         domain: default_domain,
@@ -139,6 +148,9 @@ pub(crate) fn build_plot_entry_from_inputs(
                     let parsed = parse_expr_with_vars(rhs, &["theta"])
                         .map_err(|e| format!("Parse error: {e}"))?;
                     PlotEntry {
+                        plot_id: 0,
+                        parent_plot_id: None,
+                        relationship: crate::plot::entry::PlotRelationship::Primary,
                         name: full.clone(),
                         visible: true,
                         domain: Domain::default(),
@@ -163,6 +175,9 @@ pub(crate) fn build_plot_entry_from_inputs(
                     let parsed = parse_expr_with_vars(rhs, &[ind.as_str()])
                         .map_err(|e| format!("Parse error: {e}"))?;
                     PlotEntry {
+                        plot_id: 0,
+                        parent_plot_id: None,
+                        relationship: crate::plot::entry::PlotRelationship::Primary,
                         name: full.clone(),
                         visible: true,
                         domain: default_domain,
@@ -215,6 +230,9 @@ pub(crate) fn build_plot_entry_from_inputs(
                     }
                     let expression = format!("{}|{}|{}", ex, ey, ez);
                     PlotEntry {
+                        plot_id: 0,
+                        parent_plot_id: None,
+                        relationship: crate::plot::entry::PlotRelationship::Primary,
                         name: full.clone(),
                         visible: true,
                         domain: Domain::default(),
@@ -247,6 +265,9 @@ pub(crate) fn build_plot_entry_from_inputs(
             let parsed = parse_expr_with_vars(&expr, &["x", "y"])
                 .map_err(|e| format!("Parse error: {e}"))?;
             PlotEntry {
+                plot_id: 0,
+                parent_plot_id: None,
+                relationship: crate::plot::entry::PlotRelationship::Primary,
                 name: format!("f(x,y) = {expr}"),
                 visible: true,
                 domain: default_domain,
@@ -270,6 +291,9 @@ pub(crate) fn build_plot_entry_from_inputs(
             let parsed = parse_expr_with_vars(&expr, &["theta", "phi"])
                 .map_err(|e| format!("Parse error: {e}"))?;
             PlotEntry {
+                plot_id: 0,
+                parent_plot_id: None,
+                relationship: crate::plot::entry::PlotRelationship::Primary,
                 name: format!("r(theta,phi) = {expr}"),
                 visible: true,
                 domain: Domain::default(),
@@ -293,6 +317,9 @@ pub(crate) fn build_plot_entry_from_inputs(
             let parsed = parse_expr_with_vars(&expr, &["theta", "z"])
                 .map_err(|e| format!("Parse error: {e}"))?;
             PlotEntry {
+                plot_id: 0,
+                parent_plot_id: None,
+                relationship: crate::plot::entry::PlotRelationship::Primary,
                 name: format!("r(theta,z) = {expr}"),
                 visible: true,
                 domain: default_domain,
@@ -316,6 +343,9 @@ pub(crate) fn build_plot_entry_from_inputs(
             let parsed =
                 parse_expr_with_vars(&expr, &["theta"]).map_err(|e| format!("Parse error: {e}"))?;
             PlotEntry {
+                plot_id: 0,
+                parent_plot_id: None,
+                relationship: crate::plot::entry::PlotRelationship::Primary,
                 name: format!("r(theta) = {expr}"),
                 visible: true,
                 domain: Domain::default(),
@@ -356,6 +386,9 @@ pub(crate) fn build_plot_entry_from_inputs(
             }
             let expression = format!("{}|{}|{}", ex, ey, ez);
             PlotEntry {
+                plot_id: 0,
+                parent_plot_id: None,
+                relationship: crate::plot::entry::PlotRelationship::Primary,
                 name: format!("parametric({ex}, {ey}, {ez})"),
                 visible: true,
                 domain: Domain::default(),
@@ -377,6 +410,9 @@ pub(crate) fn build_plot_entry_from_inputs(
         SelectedPlotType::DataGridSurface => {
             table_import.validate().map_err(|errs| errs[0].display())?;
             PlotEntry {
+                plot_id: 0,
+                parent_plot_id: None,
+                relationship: crate::plot::entry::PlotRelationship::Primary,
                 name: "Imported Surface Grid".to_string(),
                 visible: true,
                 domain: Domain::default(),
@@ -416,6 +452,9 @@ pub(crate) fn build_plot_entry_from_inputs(
             }
             let expression = format!("({ex}, {ey}, {ez})");
             PlotEntry {
+                plot_id: 0,
+                parent_plot_id: None,
+                relationship: crate::plot::entry::PlotRelationship::Primary,
                 name: format!("({ex}, {ey}, {ez})"),
                 visible: true,
                 domain: Domain::default(),
@@ -435,6 +474,9 @@ pub(crate) fn build_plot_entry_from_inputs(
         SelectedPlotType::CurvePoints => {
             table_import.validate().map_err(|errs| errs[0].display())?;
             PlotEntry {
+                plot_id: 0,
+                parent_plot_id: None,
+                relationship: crate::plot::entry::PlotRelationship::Primary,
                 name: "Imported Curve".to_string(),
                 visible: true,
                 domain: Domain::default(),
@@ -452,6 +494,9 @@ pub(crate) fn build_plot_entry_from_inputs(
         SelectedPlotType::Scatter => {
             table_import.validate().map_err(|errs| errs[0].display())?;
             PlotEntry {
+                plot_id: 0,
+                parent_plot_id: None,
+                relationship: crate::plot::entry::PlotRelationship::Primary,
                 name: "Imported Scatter".to_string(),
                 visible: true,
                 domain: Domain::default(),
@@ -472,6 +517,9 @@ pub(crate) fn build_plot_entry_from_inputs(
         SelectedPlotType::TableVectorField => {
             table_import.validate().map_err(|errs| errs[0].display())?;
             PlotEntry {
+                plot_id: 0,
+                parent_plot_id: None,
+                relationship: crate::plot::entry::PlotRelationship::Primary,
                 name: "Imported Vector Field".to_string(),
                 visible: true,
                 domain: default_domain,
@@ -511,6 +559,9 @@ pub(crate) fn build_plot_entry_from_inputs(
                 }
             }
             PlotEntry {
+                plot_id: 0,
+                parent_plot_id: None,
+                relationship: crate::plot::entry::PlotRelationship::Primary,
                 name: format!("VF ({ex},{ey},{ez})"),
                 visible: true,
                 domain: default_domain,
@@ -535,6 +586,9 @@ pub(crate) fn build_plot_entry_from_inputs(
             let parsed = parse_expr_with_vars(&expr, &["x", "y", "z"])
                 .map_err(|e| format!("Parse error: {e}"))?;
             PlotEntry {
+                plot_id: 0,
+                parent_plot_id: None,
+                relationship: crate::plot::entry::PlotRelationship::Primary,
                 name: format!("volume f(x,y,z) = {expr}"),
                 visible: true,
                 domain: default_domain,
@@ -570,6 +624,9 @@ pub(crate) fn build_plot_entry_from_inputs(
                 .map(|(i, _)| DEFAULT_ISO_PALETTE[i % DEFAULT_ISO_PALETTE.len()])
                 .collect();
             PlotEntry {
+                plot_id: 0,
+                parent_plot_id: None,
+                relationship: crate::plot::entry::PlotRelationship::Primary,
                 name: format!("isosurface f(x,y,z) = {expr}"),
                 visible: true,
                 domain: default_domain,
@@ -605,6 +662,9 @@ pub(crate) fn build_plot_entry_from_inputs(
                 }
             }
             PlotEntry {
+                plot_id: 0,
+                parent_plot_id: None,
+                relationship: crate::plot::entry::PlotRelationship::Primary,
                 name: format!("streamlines ({ex},{ey},{ez})"),
                 visible: true,
                 domain: default_domain,

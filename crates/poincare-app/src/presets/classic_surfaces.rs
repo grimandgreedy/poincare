@@ -12,6 +12,9 @@ use crate::plot::kind::PlotKind;
 pub fn build() -> Vec<PlotEntry> {
     vec![
         PlotEntry {
+            plot_id: 0,
+            parent_plot_id: None,
+            relationship: crate::plot::entry::PlotRelationship::Primary,
             name: "Torus".to_string(),
             visible: true,
             // domain.x = u range [0, 2π], domain.y = v range [0, 2π]
@@ -37,6 +40,9 @@ pub fn build() -> Vec<PlotEntry> {
             },
         },
         PlotEntry {
+            plot_id: 0,
+            parent_plot_id: None,
+            relationship: crate::plot::entry::PlotRelationship::Primary,
             name: "Möbius Strip".to_string(),
             visible: true,
             // u ∈ [0, 2π], v ∈ [-1, 1]
@@ -63,6 +69,9 @@ pub fn build() -> Vec<PlotEntry> {
             },
         },
         PlotEntry {
+            plot_id: 0,
+            parent_plot_id: None,
+            relationship: crate::plot::entry::PlotRelationship::Primary,
             name: "Enneper Surface".to_string(),
             visible: true,
             // u, v ∈ [-2, 2]
@@ -87,6 +96,9 @@ pub fn build() -> Vec<PlotEntry> {
             },
         },
         PlotEntry {
+            plot_id: 0,
+            parent_plot_id: None,
+            relationship: crate::plot::entry::PlotRelationship::Primary,
             name: "Monkey Saddle".to_string(),
             visible: true,
             domain: Domain {
@@ -109,6 +121,9 @@ pub fn build() -> Vec<PlotEntry> {
             },
         },
         PlotEntry {
+            plot_id: 0,
+            parent_plot_id: None,
+            relationship: crate::plot::entry::PlotRelationship::Primary,
             name: "Gaussian Bell".to_string(),
             visible: true,
             domain: Domain {
@@ -131,6 +146,9 @@ pub fn build() -> Vec<PlotEntry> {
             },
         },
         PlotEntry {
+            plot_id: 0,
+            parent_plot_id: None,
+            relationship: crate::plot::entry::PlotRelationship::Primary,
             name: "Dini's Surface".to_string(),
             visible: true,
             // u ∈ [0, 4π], v ∈ [0.1, 2] — avoid singularity at v = 0

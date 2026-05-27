@@ -65,10 +65,8 @@ fn install_app_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     fonts.font_data.insert(
         "hack_regular".to_string(),
-        egui::FontData::from_static(include_bytes!(
-            "../../../assets/fonts/Hack-Regular.ttf"
-        ))
-        .into(),
+        egui::FontData::from_static(include_bytes!("../../../assets/fonts/Hack-Regular.ttf"))
+            .into(),
     );
     fonts.font_data.insert(
         "nerd_font_3270".to_string(),
@@ -77,10 +75,7 @@ fn install_app_fonts(ctx: &egui::Context) {
         ))
         .into(),
     );
-    for family in [
-        egui::FontFamily::Proportional,
-        egui::FontFamily::Monospace,
-    ] {
+    for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
         fonts
             .families
             .entry(family.clone())
@@ -551,6 +546,29 @@ impl App {
         self.documents[doc_idx].selected_plot = selected_plot;
     }
 
+    pub(crate) fn append_plot_entry(&mut self, doc_idx: usize, entry: PlotEntry) -> usize {
+        let entry = self.documents[doc_idx].prepare_plot_entry(entry);
+        self.documents[doc_idx].plots.push(entry);
+        self.documents[doc_idx].plots.len() - 1
+    }
+
+    pub(crate) fn insert_plot_entry(
+        &mut self,
+        doc_idx: usize,
+        index: usize,
+        entry: PlotEntry,
+    ) -> usize {
+        let entry = self.documents[doc_idx].prepare_plot_entry(entry);
+        let insert_idx = index.min(self.documents[doc_idx].plots.len());
+        self.documents[doc_idx].plots.insert(insert_idx, entry);
+        insert_idx
+    }
+
+    pub(crate) fn replace_document_plots(&mut self, doc_idx: usize, plots: Vec<PlotEntry>) {
+        self.documents[doc_idx].plots = plots;
+        self.documents[doc_idx].normalize_plot_hierarchy();
+    }
+
     fn show_data_editor_modal(&mut self, ctx: &egui::Context) {
         let Some(mut state) = self.data_editor_modal.clone() else {
             return;
@@ -805,7 +823,7 @@ impl App {
 
     pub(crate) fn load_preset(&mut self, preset: PlotPreset) {
         self.record_undo_point();
-        self.documents[self.active_document_idx].plots = preset.build();
+        self.replace_document_plots(self.active_document_idx, preset.build());
         self.documents[self.active_document_idx].sweep_config = Vec::new();
         let selected = (!self.documents[self.active_document_idx].plots.is_empty()).then_some(0);
         self.set_selected_plot(self.active_document_idx, selected);

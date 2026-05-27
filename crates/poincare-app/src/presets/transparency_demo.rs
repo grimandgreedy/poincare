@@ -6,6 +6,9 @@ use crate::plot::kind::PlotKind;
 pub fn build() -> Vec<PlotEntry> {
     vec![
         PlotEntry {
+            plot_id: 0,
+            parent_plot_id: None,
+            relationship: crate::plot::entry::PlotRelationship::Primary,
             name: "Outer Sphere".to_string(),
             visible: true,
             domain: Domain::default(),
@@ -22,6 +25,9 @@ pub fn build() -> Vec<PlotEntry> {
             },
         },
         PlotEntry {
+            plot_id: 0,
+            parent_plot_id: None,
+            relationship: crate::plot::entry::PlotRelationship::Primary,
             name: "Inner Saddle".to_string(),
             visible: true,
             domain: Domain {
@@ -42,6 +48,9 @@ pub fn build() -> Vec<PlotEntry> {
             },
         },
         PlotEntry {
+            plot_id: 0,
+            parent_plot_id: None,
+            relationship: crate::plot::entry::PlotRelationship::Primary,
             name: "Concentric Iso".to_string(),
             visible: true,
             domain: Domain {

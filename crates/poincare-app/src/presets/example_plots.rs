@@ -52,6 +52,9 @@ impl ExamplePlot {
     pub(crate) fn build(self) -> PlotEntry {
         match self {
             Self::ContouredSurface => PlotEntry {
+                plot_id: 0,
+                parent_plot_id: None,
+                relationship: crate::plot::entry::PlotRelationship::Primary,
                 name: "Cartesian Surface".to_string(),
                 visible: true,
                 domain: Domain {
@@ -75,6 +78,9 @@ impl ExamplePlot {
                 },
             },
             Self::SphericalHarmonic => PlotEntry {
+                plot_id: 0,
+                parent_plot_id: None,
+                relationship: crate::plot::entry::PlotRelationship::Primary,
                 name: "Spherical Surface".to_string(),
                 visible: true,
                 domain: Domain::default(),
@@ -92,6 +98,9 @@ impl ExamplePlot {
                 kind: PlotKind::SphericalHarmonic,
             },
             Self::HelixCurve => PlotEntry {
+                plot_id: 0,
+                parent_plot_id: None,
+                relationship: crate::plot::entry::PlotRelationship::Primary,
                 name: "Helix Curve".to_string(),
                 visible: true,
                 domain: Domain::default(),
@@ -104,6 +113,9 @@ impl ExamplePlot {
                 kind: PlotKind::HelixCurve,
             },
             Self::ScatterCloud => PlotEntry {
+                plot_id: 0,
+                parent_plot_id: None,
+                relationship: crate::plot::entry::PlotRelationship::Primary,
                 name: "Scatter Cloud".to_string(),
                 visible: true,
                 domain: Domain::default(),
@@ -119,6 +131,9 @@ impl ExamplePlot {
                 kind: PlotKind::ScatterCloud,
             },
             Self::VectorField => PlotEntry {
+                plot_id: 0,
+                parent_plot_id: None,
+                relationship: crate::plot::entry::PlotRelationship::Primary,
                 name: "Vector Field".to_string(),
                 visible: true,
                 domain: Domain {
@@ -139,6 +154,9 @@ impl ExamplePlot {
                 kind: PlotKind::VectorField,
             },
             Self::GridSurface => PlotEntry {
+                plot_id: 0,
+                parent_plot_id: None,
+                relationship: crate::plot::entry::PlotRelationship::Primary,
                 name: "Grid Surface".to_string(),
                 visible: true,
                 domain: Domain {
@@ -174,6 +192,9 @@ impl ExamplePlot {
                     }
                 }
                 PlotEntry {
+                    plot_id: 0,
+                    parent_plot_id: None,
+                    relationship: crate::plot::entry::PlotRelationship::Primary,
                     name: "ABC Flow Streamlines".to_string(),
                     visible: true,
                     domain: Domain {
@@ -194,6 +215,9 @@ impl ExamplePlot {
                 }
             }
             Self::VolumeRender => PlotEntry {
+                plot_id: 0,
+                parent_plot_id: None,
+                relationship: crate::plot::entry::PlotRelationship::Primary,
                 name: "Gaussian Volume".to_string(),
                 visible: true,
                 domain: Domain {
@@ -215,6 +239,9 @@ impl ExamplePlot {
                 },
             },
             Self::Isosurface => PlotEntry {
+                plot_id: 0,
+                parent_plot_id: None,
+                relationship: crate::plot::entry::PlotRelationship::Primary,
                 name: "Concentric Spheres".to_string(),
                 visible: true,
                 domain: Domain {

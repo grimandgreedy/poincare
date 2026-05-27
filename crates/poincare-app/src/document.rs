@@ -7,7 +7,7 @@ use viewport_lib::{Aabb, Camera, GroundPlaneMode};
 use crate::picking::ProbeHit;
 use crate::picking::segment_segment_closest;
 use crate::plot::analysis::SliceAxis;
-use crate::plot::entry::{PlotEntry, build_graph_spec};
+use crate::plot::entry::{PlotEntry, PlotId, PlotRelationship, build_graph_spec};
 use crate::plot::kind::{DomainLabels, PlotKind, PlotKindExt};
 use crate::plot::sweep::ParameterSweep;
 use crate::plot::table::TableDataSet;
@@ -57,6 +57,7 @@ pub(crate) struct DocumentUndoState {
     sweep_config: Vec<HashMap<String, ParameterSweep>>,
     export_format: ExportFormat,
     export_fps: u32,
+    next_plot_id: PlotId,
 }
 
 pub(crate) struct Document {
@@ -103,6 +104,7 @@ pub(crate) struct Document {
     pub sweep_config: Vec<HashMap<String, ParameterSweep>>,
     pub export_format: ExportFormat,
     pub export_fps: u32,
+    pub next_plot_id: PlotId,
     history_head: Option<DocumentUndoState>,
     undo_stack: Vec<DocumentUndoState>,
     redo_stack: Vec<DocumentUndoState>,
@@ -149,6 +151,7 @@ impl Document {
             sweep_config: Vec::new(),
             export_format: ExportFormat::Png,
             export_fps: 24,
+            next_plot_id: 1,
             history_head: None,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
@@ -372,6 +375,7 @@ impl Document {
             sweep_config: self.sweep_config.clone(),
             export_format: self.export_format,
             export_fps: self.export_fps,
+            next_plot_id: self.next_plot_id,
         }
     }
 
@@ -398,6 +402,7 @@ impl Document {
         self.sweep_config = state.sweep_config;
         self.export_format = state.export_format;
         self.export_fps = state.export_fps;
+        self.next_plot_id = state.next_plot_id;
         self.scene_dirty = true;
         self.export_status.clear();
         self.export_progress = None;
@@ -408,6 +413,99 @@ impl Document {
         self.intersection_cache.clear();
         self.probe_snap_point = None;
         self.probe_snap_locked = false;
+    }
+
+    pub(crate) fn mint_plot_id(&mut self) -> PlotId {
+        let plot_id = self.next_plot_id;
+        self.next_plot_id = self.next_plot_id.saturating_add(1);
+        plot_id
+    }
+
+    pub(crate) fn prepare_plot_entry(&mut self, mut entry: PlotEntry) -> PlotEntry {
+        if entry.plot_id == 0 {
+            entry.plot_id = self.mint_plot_id();
+        } else {
+            self.next_plot_id = self.next_plot_id.max(entry.plot_id.saturating_add(1));
+        }
+        entry
+    }
+
+    pub(crate) fn normalize_plot_hierarchy(&mut self) {
+        let mut seen_ids = std::collections::HashSet::new();
+        for index in 0..self.plots.len() {
+            let needs_new_id =
+                self.plots[index].plot_id == 0 || !seen_ids.insert(self.plots[index].plot_id);
+            if needs_new_id {
+                self.plots[index].plot_id = self.mint_plot_id();
+                let _ = seen_ids.insert(self.plots[index].plot_id);
+            } else {
+                self.next_plot_id = self
+                    .next_plot_id
+                    .max(self.plots[index].plot_id.saturating_add(1));
+            }
+        }
+
+        let valid_ids = self
+            .plots
+            .iter()
+            .map(|plot| plot.plot_id)
+            .collect::<std::collections::HashSet<_>>();
+        for plot in &mut self.plots {
+            if plot
+                .parent_plot_id
+                .is_some_and(|parent| !valid_ids.contains(&parent))
+            {
+                plot.parent_plot_id = None;
+                plot.relationship = PlotRelationship::Primary;
+            }
+        }
+    }
+
+    pub(crate) fn child_plot_indices(&self, parent_plot_id: PlotId) -> Vec<usize> {
+        self.plots
+            .iter()
+            .enumerate()
+            .filter(|(_, plot)| plot.parent_plot_id == Some(parent_plot_id))
+            .map(|(index, _)| index)
+            .collect()
+    }
+
+    pub(crate) fn set_plot_family_visibility(&mut self, index: usize, visible: bool) {
+        let Some(parent_plot_id) = self.plots.get(index).map(|plot| plot.plot_id) else {
+            return;
+        };
+        if let Some(plot) = self.plots.get_mut(index) {
+            plot.visible = visible;
+        }
+        for child_idx in self.child_plot_indices(parent_plot_id) {
+            if let Some(plot) = self.plots.get_mut(child_idx) {
+                plot.visible = visible;
+            }
+        }
+    }
+
+    pub(crate) fn remove_plot_family(&mut self, index: usize) {
+        let Some(parent_plot_id) = self.plots.get(index).map(|plot| plot.plot_id) else {
+            return;
+        };
+        let mut removal = self
+            .plots
+            .iter()
+            .enumerate()
+            .filter(|(_, plot)| {
+                plot.plot_id == parent_plot_id || plot.parent_plot_id == Some(parent_plot_id)
+            })
+            .map(|(idx, _)| idx)
+            .collect::<Vec<_>>();
+        removal.sort_unstable_by(|a, b| b.cmp(a));
+        for remove_idx in removal {
+            self.plots.remove(remove_idx);
+        }
+        self.selected_plot = match self.selected_plot {
+            Some(_) if self.plots.is_empty() => None,
+            Some(sel) if sel >= self.plots.len() => Some(self.plots.len() - 1),
+            other => other,
+        };
     }
 }
 

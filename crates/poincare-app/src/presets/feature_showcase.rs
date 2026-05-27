@@ -12,6 +12,9 @@ use crate::plot::kind::PlotKind;
 pub fn build() -> Vec<PlotEntry> {
     vec![
         PlotEntry {
+            plot_id: 0,
+            parent_plot_id: None,
+            relationship: crate::plot::entry::PlotRelationship::Primary,
             name: "UV Grid Torus".to_string(),
             visible: true,
             domain: Domain {
@@ -36,6 +39,9 @@ pub fn build() -> Vec<PlotEntry> {
             },
         },
         PlotEntry {
+            plot_id: 0,
+            parent_plot_id: None,
+            relationship: crate::plot::entry::PlotRelationship::Primary,
             name: "Angle Distortion Mobius".to_string(),
             visible: true,
             domain: Domain {
@@ -61,6 +67,9 @@ pub fn build() -> Vec<PlotEntry> {
             },
         },
         PlotEntry {
+            plot_id: 0,
+            parent_plot_id: None,
+            relationship: crate::plot::entry::PlotRelationship::Primary,
             name: "Area Distortion Dini".to_string(),
             visible: true,
             domain: Domain {

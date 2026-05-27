@@ -9,6 +9,9 @@ use crate::plot::kind::PlotKind;
 pub fn build() -> Vec<PlotEntry> {
     vec![
         PlotEntry {
+            plot_id: 0,
+            parent_plot_id: None,
+            relationship: crate::plot::entry::PlotRelationship::Primary,
             name: "Trefoil Knot".to_string(),
             visible: true,
             domain: Domain::default(),
@@ -29,6 +32,9 @@ pub fn build() -> Vec<PlotEntry> {
             },
         },
         PlotEntry {
+            plot_id: 0,
+            parent_plot_id: None,
+            relationship: crate::plot::entry::PlotRelationship::Primary,
             name: "Torus Knot (3,5)".to_string(),
             visible: true,
             domain: Domain::default(),
@@ -48,6 +54,9 @@ pub fn build() -> Vec<PlotEntry> {
             },
         },
         PlotEntry {
+            plot_id: 0,
+            parent_plot_id: None,
+            relationship: crate::plot::entry::PlotRelationship::Primary,
             name: "Lissajous 3D".to_string(),
             visible: true,
             domain: Domain {
@@ -68,6 +77,9 @@ pub fn build() -> Vec<PlotEntry> {
             },
         },
         PlotEntry {
+            plot_id: 0,
+            parent_plot_id: None,
+            relationship: crate::plot::entry::PlotRelationship::Primary,
             name: "Viviani Curve".to_string(),
             visible: true,
             domain: Domain {
@@ -88,6 +100,9 @@ pub fn build() -> Vec<PlotEntry> {
             },
         },
         PlotEntry {
+            plot_id: 0,
+            parent_plot_id: None,
+            relationship: crate::plot::entry::PlotRelationship::Primary,
             name: "Logarithmic Spiral".to_string(),
             visible: true,
             domain: Domain {
