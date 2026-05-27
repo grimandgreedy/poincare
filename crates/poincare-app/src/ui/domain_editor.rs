@@ -107,13 +107,18 @@ pub(crate) fn edit_resolution(
     changed
 }
 
-/// Truncate `s` to at most `max_chars` Unicode characters, appending "…" if cut.
+/// Truncate `s` to at most `max_chars` Unicode characters, including the "…" if cut.
 pub(crate) fn truncate_str(s: &str, max_chars: usize) -> String {
-    let mut chars = s.chars();
-    let truncated: String = chars.by_ref().take(max_chars).collect();
-    if chars.next().is_some() {
-        format!("{truncated}…")
-    } else {
-        truncated
+    let char_count = s.chars().count();
+    if char_count <= max_chars {
+        return s.to_string();
     }
+    if max_chars == 0 {
+        return String::new();
+    }
+    if max_chars == 1 {
+        return "…".to_string();
+    }
+    let truncated: String = s.chars().take(max_chars - 1).collect();
+    format!("{truncated}…")
 }
