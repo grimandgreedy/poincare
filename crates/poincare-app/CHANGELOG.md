@@ -2,6 +2,33 @@
 
 All notable changes to this crate will be documented in this file.
 
+## [Unreleased]
+
+### Improvements
+- Added selected-plot analysis actions to the command palette and sorted disabled commands to the bottom of filtered results.
+- Made example plots append to the current document instead of replacing existing plots.
+- Changed empty viewport clicks to keep the same sidebar selection while clearing the in-scene selection highlight, and softened selected-object highlight intensity.
+- Renamed the plot-properties panel source file from `right_panel.rs` to `bottom_panel.rs`.
+- Added a reusable `Data` panel for analysis-driven reports and tables, plus a reusable `data_table` UI component shared with cell-style data editing.
+- Restored modal editing for plot data while keeping the `Data` panel analysis-only.
+- Added structured plot-metadata clipboard export from the plot-properties header, including sample-group support and available analysis capability summaries.
+- Switched the app-wide default font to `Hack-Regular.ttf` with the Nerd Font kept as a glyph fallback for icon coverage.
+- Added app-level plot hierarchy metadata so derived analysis plots can attach to their source plot as child plots.
+- Updated the left plot list to render simple parent/child nesting for derived plots, with child rows indented and width-reduced relative to their parent rows.
+
+### Analysis
+- Added `Point Statistics` and `Data Quality Checks` actions in the `Analysis` tab and command palette for sample-backed plots.
+- Added a right-side `Data` tab that opens for Phase 3 analysis results and shows reports, diagnostics, and read-only tables.
+- Added source-data tables to Phase 3 analysis results so reports include the sampled positions they were computed from.
+- Made point-statistics and data-quality tools available for more sample-backed plot kinds, including imported scatter data and built-in scatter clouds.
+- Allowed point-statistics analysis for single-point datasets while keeping data-quality checks gated to datasets with at least two samples.
+
+### Fixes
+- Fixed analysis-result table widget id collisions in the `Data` panel.
+- Fixed the `Data` tab open/close flow so analysis actions open the tab reliably and switching to unrelated plots closes it and returns focus to `Plot Properties`.
+- Fixed left-panel plot row sizing regressions introduced by the font change, including over-wide rows and incorrect child-row width handling.
+- Switched `grimdock` to the local path dependency and added per-tab max-width overrides so dock tab headers can stay compact by default while giving `Plot Properties` a wider cap.
+
 ## [0.6.0]
 
 ### Improvements
