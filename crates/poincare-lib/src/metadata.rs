@@ -352,15 +352,18 @@ impl PlotDefinition {
                 required_variables: Vec::new(),
             },
             Self::ScalarSlice { .. }
+            | Self::DerivedSurfaceMesh { .. }
             | Self::DerivedPolylineGroups { .. }
             | Self::InterpolatedCurve { .. } => PlotMetadata {
                 style_caps: match self {
-                    Self::ScalarSlice { .. } => StyleCapabilities {
-                        mesh: true,
-                        line: false,
-                        point: false,
-                        glyph: false,
-                    },
+                    Self::ScalarSlice { .. } | Self::DerivedSurfaceMesh { .. } => {
+                        StyleCapabilities {
+                            mesh: true,
+                            line: false,
+                            point: false,
+                            glyph: false,
+                        }
+                    }
                     _ => StyleCapabilities {
                         mesh: false,
                         line: true,
@@ -377,7 +380,10 @@ impl PlotDefinition {
                 default_style,
                 uses_resolution: matches!(self, Self::ScalarSlice { .. }),
                 uses_seed_resolution: false,
-                supports_surface_intersection: matches!(self, Self::ScalarSlice { .. }),
+                supports_surface_intersection: matches!(
+                    self,
+                    Self::ScalarSlice { .. } | Self::DerivedSurfaceMesh { .. }
+                ),
                 coordinate_semantics: CoordinateSemantics::Fixed,
                 required_variables: match self {
                     Self::ScalarSlice { .. } => {

@@ -41,8 +41,9 @@ pub mod ticks;
 pub use analysis::{
     AnalysisCapability, AnalysisError, AnalysisKind, AnalysisOutput, AnalysisOutputKind,
     AnalysisProvenance, AnalysisReport, AnalysisRequest, AnalysisTable, AnalysisTarget,
-    AnalysisTargetKind, FrameField, FrameSample, SampleGroupsKind, available_analyses, run_analysis,
-    run_curve_surface_frame_analysis, run_surface_mesh_analysis, sample_groups,
+    AnalysisTargetKind, FrameField, FrameSample, SampleGroupsKind, available_analyses,
+    run_analysis, run_curve_surface_frame_analysis, run_curve_surface_measurement_analysis,
+    run_surface_mesh_analysis, sample_groups,
 };
 pub use axis::AxisConfig;
 pub use coordinate::{CoordinateSystem, ParametricDomain};

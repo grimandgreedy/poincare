@@ -129,6 +129,12 @@ pub enum PlotDefinition {
         arrows: Vec<ArrowAnnotation>,
         show_labels: bool,
     },
+    DerivedSurfaceMesh {
+        positions: Vec<[f32; 3]>,
+        indices: Vec<u32>,
+        values: Vec<f32>,
+        value_name: String,
+    },
     DerivedPolylineGroups {
         groups: Vec<Vec<[f32; 3]>>,
     },

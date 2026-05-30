@@ -4,8 +4,8 @@ use viewport_lib::{
     AttributeKind, AttributeRef, Camera, ColourmapId, FrameData, GlyphItem, ItemSettings,
     LabelItem, LicOverlay, LightKind, LightSource, LightingSettings, Material, MeshData, MeshId,
     PickId, PointCloudItem, PolylineItem, RenderCamera, SceneRenderItem, StreamtubeItem,
-    SurfaceLICConfig, SurfaceSubmission, ViewportError, ViewportGpuResources, VolumeData,
-    VolumeId, VolumeItem,
+    SurfaceLICConfig, SurfaceSubmission, ViewportError, ViewportGpuResources, VolumeData, VolumeId,
+    VolumeItem,
 };
 
 use crate::axis::Axis3;
