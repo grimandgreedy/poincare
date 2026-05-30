@@ -1,9 +1,7 @@
 ## Poincare
-
 An interactive 3D mathematical graphing application, and a reusable 3D plotting library.
 
-![Poincare demo](https://raw.githubusercontent.com/grimandgreedy/poincare/refs/heads/master/assets/demo1.png)
-
+https://github.com/user-attachments/assets/aaadfb8a-a639-4719-858a-921c876682c7
 
 Install and run:
 
