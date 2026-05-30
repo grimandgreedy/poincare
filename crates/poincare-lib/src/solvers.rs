@@ -1,5 +1,9 @@
 use crate::{Domain, SeedMode};
 
+/// Step-size configuration for finite difference operations.
+///
+/// The actual step used is `(scale * relative_step).clamp(min_step, max_step)`,
+/// where `scale` is derived from the magnitude of any parameter values in play.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FiniteDifferenceConfig {
     pub relative_step: f64,
@@ -27,6 +31,7 @@ impl FiniteDifferenceConfig {
     }
 }
 
+/// Estimate the gradient of a scalar field at `(x, y, z)` using central differences with step `h`.
 pub fn finite_gradient(
     f: impl Fn(f64, f64, f64) -> f64,
     x: f64,
@@ -40,6 +45,7 @@ pub fn finite_gradient(
     glam::vec3(dx as f32, dy as f32, dz as f32)
 }
 
+/// Estimate the divergence of a vector field at `(x, y, z)` using central differences with step `h`.
 pub fn finite_divergence(
     f: impl Fn(f64, f64, f64) -> glam::Vec3,
     x: f64,
@@ -53,6 +59,7 @@ pub fn finite_divergence(
     ddx + ddy + ddz
 }
 
+/// Estimate the curl of a vector field at `(x, y, z)` using central differences with step `h`.
 pub fn finite_curl(
     f: impl Fn(f64, f64, f64) -> glam::Vec3,
     x: f64,
@@ -70,6 +77,7 @@ pub fn finite_curl(
     glam::vec3(d_fz_dy - d_fy_dz, d_fx_dz - d_fz_dx, d_fy_dx - d_fx_dy)
 }
 
+/// Generate seed points for streamline integration according to the given mode and domain.
 pub fn generate_seeds(mode: &SeedMode, domain: &Domain) -> Vec<glam::Vec3> {
     match mode {
         SeedMode::Grid { nx, ny, nz } => {

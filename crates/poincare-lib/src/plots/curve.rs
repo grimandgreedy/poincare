@@ -9,6 +9,7 @@ use crate::plot_object::{PlotGeometry, PlotObject};
 use crate::resolution::Resolution;
 use crate::style::PlotStyle;
 
+/// Interpolation algorithm used when smoothing or resampling a point sequence.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CurveInterpolationKind {
     Linear,
@@ -18,11 +19,15 @@ pub enum CurveInterpolationKind {
     SavitzkyGolay,
 }
 
+/// Interpolation settings for a piecewise curve built from control points.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CurveInterpolation {
     pub kind: CurveInterpolationKind,
+    /// How many output samples to produce between each pair of control points.
     pub samples_per_segment: u32,
+    /// Whether to join the last control point back to the first.
     pub closed: bool,
+    /// Window size for smoothing-based methods (MovingAverage, SavitzkyGolay).
     pub smoothing_window: u32,
 }
 

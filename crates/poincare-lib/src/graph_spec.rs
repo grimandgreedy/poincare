@@ -167,6 +167,7 @@ pub enum PlotDefinition {
     },
 }
 
+/// Which axis a scalar or vector field slice is taken along.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SliceAxis {
     X,
@@ -186,12 +187,14 @@ impl SliceAxis {
     }
 }
 
+/// A single annotated point placed in the scene.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PointAnnotation {
     pub position: [f32; 3],
     pub label: String,
 }
 
+/// A single annotated arrow placed in the scene.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ArrowAnnotation {
     pub origin: [f32; 3],
@@ -199,6 +202,7 @@ pub struct ArrowAnnotation {
     pub label: String,
 }
 
+/// How seed points are generated for streamline integration.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SeedMode {
     Grid { nx: u32, ny: u32, nz: u32 },
@@ -216,6 +220,7 @@ impl Default for SeedMode {
     }
 }
 
+/// Column delimiter used when parsing imported CSV/text data.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TableDelimiter {
     Comma,
@@ -225,6 +230,7 @@ pub enum TableDelimiter {
     Pipe,
 }
 
+/// What kind of plot to build from imported table data.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TablePlotTarget {
     SurfaceGrid,
@@ -233,6 +239,7 @@ pub enum TablePlotTarget {
     VectorField,
 }
 
+/// Full configuration for a CSV/text table import.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TableImportDefinition {
     pub source_path: Option<String>,
@@ -243,12 +250,14 @@ pub struct TableImportDefinition {
     pub mapping: TableColumnMapping,
 }
 
+/// A column mapping that may or may not be present in the source data.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OptionalColumn {
     None,
     Column(usize),
 }
 
+/// Maps source columns to the dimensions required by each plot target type.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum TableColumnMapping {
     SurfaceGrid {
