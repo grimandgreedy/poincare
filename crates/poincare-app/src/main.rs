@@ -52,9 +52,9 @@ fn default_panel_style() -> PanelStyle {
 
 fn app_icon() -> Arc<egui::IconData> {
     #[cfg(target_os = "macos")]
-    let icon_bytes = include_bytes!("../../../assets/icon_macos.png");
+    let icon_bytes = include_bytes!("../assets/icon_macos.png");
     #[cfg(not(target_os = "macos"))]
-    let icon_bytes = include_bytes!("../../../assets/icon.png");
+    let icon_bytes = include_bytes!("../assets/icon.png");
 
     let image = image::load_from_memory(icon_bytes)
         .expect("embedded app icon png should decode")
@@ -72,7 +72,7 @@ fn install_app_fonts(ctx: &egui::Context) {
     fonts.font_data.insert(
         "fira_code_nerd_regular".to_string(),
         egui::FontData::from_static(include_bytes!(
-            "../../../assets/fonts/FiraCodeNerdFont-Regular.ttf"
+            "../assets/fonts/FiraCodeNerdFont-Regular.ttf"
         ))
         .into(),
     );
