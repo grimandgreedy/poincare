@@ -31,7 +31,9 @@ const APP_STATE_KEY: &str = "poincare_app_v2_state";
 
 #[derive(Serialize, Deserialize)]
 struct PersistedAppState {
+    #[serde(default)]
     settings: PersistedAppSettings,
+    #[serde(default)]
     session: Option<DocumentSnapshot>,
 }
 
@@ -42,14 +44,35 @@ struct PersistedAppState {
 
 #[derive(Serialize, Deserialize)]
 struct PersistedAppSettings {
+    #[serde(default = "default_panel_header_bg")]
     panel_header_bg: [u8; 4],
+    #[serde(default = "default_panel_content_bg")]
     panel_content_bg: [u8; 4],
+    #[serde(default = "default_tab_selected_bg")]
     tab_selected_bg: [u8; 4],
+    #[serde(default = "default_tab_highlight")]
     tab_highlight: [u8; 4],
+    #[serde(default)]
     default_colormap: u8,
     #[serde(default)]
     invert_scroll: bool,
+    #[serde(default)]
     save_state_on_exit: bool,
+}
+
+impl Default for PersistedAppSettings {
+    fn default() -> Self {
+        let panel_style = crate::default_panel_style();
+        Self {
+            panel_header_bg: color32_to_rgba(panel_style.header.bg),
+            panel_content_bg: color32_to_rgba(panel_style.content.bg),
+            tab_selected_bg: color32_to_rgba(panel_style.tabs.active.bg),
+            tab_highlight: color32_to_rgba(panel_style.tabs.active.accent_color),
+            default_colormap: builtin_colormap_to_u8(BuiltinColourmap::Viridis),
+            invert_scroll: false,
+            save_state_on_exit: false,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1772,6 +1795,22 @@ fn default_camera_track_segment_duration() -> f32 {
     2.5
 }
 
+fn default_panel_header_bg() -> [u8; 4] {
+    PersistedAppSettings::default().panel_header_bg
+}
+
+fn default_panel_content_bg() -> [u8; 4] {
+    PersistedAppSettings::default().panel_content_bg
+}
+
+fn default_tab_selected_bg() -> [u8; 4] {
+    PersistedAppSettings::default().tab_selected_bg
+}
+
+fn default_tab_highlight() -> [u8; 4] {
+    PersistedAppSettings::default().tab_highlight
+}
+
 // ---------------------------------------------------------------------------
 // Enum/u8 conversion helpers (unchanged)
 // ---------------------------------------------------------------------------
@@ -2016,4 +2055,102 @@ fn color32_to_rgba(color: eframe::egui::Color32) -> [u8; 4] {
 
 fn rgba_to_color32(rgba: [u8; 4]) -> eframe::egui::Color32 {
     eframe::egui::Color32::from_rgba_unmultiplied(rgba[0], rgba[1], rgba[2], rgba[3])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::plot::entry::{PlotEntry, PlotRelationship};
+    use crate::plot::kind::PlotKind;
+    use poincare_lib::{Domain, PlotStyle, Resolution};
+
+    fn sample_document() -> Document {
+        let mut doc = Document::new_default();
+        doc.title = "Saved Project".to_string();
+        doc.selected_plot = Some(0);
+        doc.axis_config.show_grid = true;
+        doc.camera.projection = Projection::Orthographic;
+        doc.export_width = 1920;
+        doc.export_height = 1080;
+        doc.plots.push(PlotEntry {
+            plot_id: 12,
+            parent_plot_id: None,
+            relationship: PlotRelationship::Primary,
+            name: "wave".to_string(),
+            visible: true,
+            domain: Domain::default(),
+            resolution: Resolution { u: 64, v: 48 },
+            style: PlotStyle::default(),
+            kind: PlotKind::ExprCartesian {
+                expression: "sin(x * y)".to_string(),
+                parameters: vec![("a".to_string(), 1.5)],
+            },
+        });
+        doc.saved_views.push(SavedCameraView {
+            name: "View 1".to_string(),
+            camera: doc.camera.clone(),
+        });
+        doc
+    }
+
+    #[test]
+    fn document_snapshot_round_trips_core_state() {
+        let snapshot = DocumentSnapshot::from_document(&sample_document());
+        let doc = snapshot.into_document();
+
+        assert_eq!(doc.title, "Saved Project");
+        assert_eq!(doc.selected_plot, Some(0));
+        assert!(doc.axis_config.show_grid);
+        assert_eq!(doc.camera.projection, Projection::Orthographic);
+        assert_eq!(doc.export_width, 1920);
+        assert_eq!(doc.export_height, 1080);
+        assert_eq!(doc.saved_views.len(), 1);
+        assert_eq!(doc.plots.len(), 1);
+        assert_eq!(doc.plots[0].plot_id, 12);
+        assert_eq!(doc.plots[0].resolution.u, 64);
+        assert_eq!(doc.plots[0].resolution.v, 48);
+        match &doc.plots[0].kind {
+            PlotKind::ExprCartesian {
+                expression,
+                parameters,
+            } => {
+                assert_eq!(expression, "sin(x * y)");
+                assert_eq!(parameters, &vec![("a".to_string(), 1.5)]);
+            }
+            _ => panic!("expected Cartesian expression plot"),
+        }
+    }
+
+    #[test]
+    fn project_file_save_load_round_trips_snapshot() {
+        let path = std::env::temp_dir().join(format!(
+            "poincare-save-load-test-{}.poincare.json",
+            std::process::id()
+        ));
+        let doc = sample_document();
+
+        save_document_to_path(&doc, &path).expect("save project");
+        let loaded = load_document_from_path(&path)
+            .expect("load project")
+            .into_document();
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(loaded.title, doc.title);
+        assert_eq!(loaded.selected_plot, doc.selected_plot);
+        assert_eq!(loaded.plots.len(), doc.plots.len());
+        assert_eq!(loaded.plots[0].name, doc.plots[0].name);
+    }
+
+    #[test]
+    fn app_state_accepts_legacy_empty_blob() {
+        let saved: PersistedAppState =
+            serde_json::from_str("{}").expect("legacy app state should use defaults");
+
+        assert!(saved.session.is_none());
+        assert!(!saved.settings.save_state_on_exit);
+        assert_eq!(
+            u8_to_builtin_colormap(saved.settings.default_colormap),
+            BuiltinColourmap::Viridis
+        );
+    }
 }

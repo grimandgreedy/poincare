@@ -308,6 +308,7 @@ impl App {
         doc.viewport_selection_hidden_for = None;
         doc.scene_dirty = true;
         doc.export_status.clear();
+        doc.mark_dirty();
     }
 
     fn execute_palette_command(&mut self, command: PaletteCommand, ctx: &egui::Context) {

@@ -1178,6 +1178,7 @@ impl App {
         self.documents[self.active_document_idx]
             .export_status
             .clear();
+        self.documents[self.active_document_idx].mark_dirty();
     }
 
     pub(crate) fn mark_dirty(&mut self) {
@@ -2738,14 +2739,9 @@ impl eframe::App for App {
             {
                 match persistence::load_document_from_path(&path) {
                     Ok(snapshot) => {
-                        let stem = path
-                            .file_stem()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or("Untitled")
-                            .to_string();
                         let mut doc = snapshot.into_document();
                         if doc.title.is_empty() {
-                            doc.title = stem;
+                            doc.title = project_title_from_path(&path);
                         }
                         doc.path = Some(path);
                         doc.dirty = false;
@@ -2782,13 +2778,13 @@ impl eframe::App for App {
                 .save_file()
             {
                 let path = ensure_poincare_extension(path);
-                let stem = path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("Untitled")
-                    .to_string();
                 self.documents[self.active_document_idx].path = Some(path);
-                self.documents[self.active_document_idx].title = stem;
+                let title = self.documents[self.active_document_idx]
+                    .path
+                    .as_deref()
+                    .map(project_title_from_path)
+                    .unwrap_or_else(|| "Untitled".to_string());
+                self.documents[self.active_document_idx].title = title;
                 self.do_save_active_document();
             }
         }
@@ -2993,6 +2989,17 @@ fn ensure_poincare_extension(mut path: PathBuf) -> PathBuf {
     path
 }
 
+fn project_title_from_path(path: &std::path::Path) -> String {
+    let name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("Untitled");
+    name.strip_suffix(".poincare.json")
+        .or_else(|| name.strip_suffix(".json"))
+        .unwrap_or(name)
+        .to_string()
+}
+
 fn normalized_export_path(path_text: &str, format: ExportFormat) -> PathBuf {
     let raw = path_text.trim();
     let mut path = if raw.is_empty() {
@@ -3012,6 +3019,23 @@ fn normalized_export_path(path_text: &str, format: ExportFormat) -> PathBuf {
     }
 
     path
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn project_title_strips_project_suffix() {
+        assert_eq!(
+            project_title_from_path(std::path::Path::new("example.poincare.json")),
+            "example"
+        );
+        assert_eq!(
+            project_title_from_path(std::path::Path::new("example.json")),
+            "example"
+        );
+    }
 }
 
 fn split_export_path(path_text: &str, format: ExportFormat) -> (PathBuf, String) {
