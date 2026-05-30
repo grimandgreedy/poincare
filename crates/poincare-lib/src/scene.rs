@@ -84,10 +84,10 @@ struct CachedPlot {
 ///
 /// # Usage
 ///
-/// 1. Add plots with [`add`].
-/// 2. Upload GPU meshes once at startup (or when plots change) with [`upload_meshes`].
-/// 3. Each frame, call [`build_frame`] with the current camera to get `FrameData`.
-/// 4. Submit `FrameData` to [`viewport_lib::ViewportRenderer::prepare`] / `paint`.
+/// 1. Add plots with [`GraphScene::add`].
+/// 2. Upload GPU meshes once at startup (or when plots change) with [`GraphScene::upload_meshes`].
+/// 3. Each frame, call [`GraphScene::build_frame`] with the current camera to get `FrameData`.
+/// 4. Submit `FrameData` to [`viewport_lib::ViewportRenderer`]'s `pass().prepare()` / `pass_view().paint()`.
 pub struct GraphScene {
     /// Plotting domain applied to all objects in the scene.
     pub domain: Domain,
@@ -826,7 +826,7 @@ fn default_scalars_for_positions(points: &[Vec3]) -> Vec<f32> {
 }
 
 // ---------------------------------------------------------------------------
-// Probe picking data — CPU-side geometry exposed for coordinate probing.
+// Probe picking data: CPU-side geometry exposed for coordinate probing.
 // ---------------------------------------------------------------------------
 
 /// CPU-side mesh geometry for one surface, usable for ray-triangle picking.
@@ -938,7 +938,7 @@ fn derive_glyph_scalars(attribute: &str, instances: &[GlyphInstance]) -> Option<
 ///
 /// The hemisphere provides smooth, orientation-aware ambient fill: surfaces facing up
 /// receive sky color, surfaces facing down receive ground color. The key light adds
-/// shape definition and specular highlights. Shadows are disabled — they add cost
+/// shape definition and specular highlights. Shadows are disabled because they add cost
 /// without visual benefit for mathematical plot geometry.
 fn hemisphere_lighting() -> LightingSettings {
     let mut settings = LightingSettings::default();

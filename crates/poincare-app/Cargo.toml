@@ -7,7 +7,7 @@ license = "MIT"
 repository = "https://github.com/grimandgreedy/poincare"
 homepage = "https://github.com/grimandgreedy/poincare"
 documentation = "https://docs.rs/poincare-app"
-readme = "../../README.md"
+readme = "README.md"
 keywords = ["math", "visualization", "visualisation", "3d", "egui"]
 categories = ["graphics", "mathematics", "rendering", "science", "gui"]
 

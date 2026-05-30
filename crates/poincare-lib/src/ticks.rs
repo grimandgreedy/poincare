@@ -10,9 +10,9 @@
 ///
 /// # Arguments
 ///
-/// * `min` — Lower bound of the data range.
-/// * `max` — Upper bound of the data range.
-/// * `target_count` — Approximate number of ticks desired. Returns at most `target_count + 1`
+/// * `min`: lower bound of the data range.
+/// * `max`: upper bound of the data range.
+/// * `target_count`: approximate number of ticks desired. Returns at most `target_count + 1`
 ///   ticks in practice; the exact count depends on the chosen step.
 ///
 /// # Returns
@@ -23,9 +23,9 @@
 ///
 /// # Edge cases
 ///
-/// * `min == max` — returns a single tick at `min`.
-/// * `target_count == 0` — returns an empty vector.
-/// * `min > max` — treated the same as `(max, min)` but still sorted ascending.
+/// * `min == max`: returns a single tick at `min`.
+/// * `target_count == 0`: returns an empty vector.
+/// * `min > max`: treated the same as `(max, min)` but still sorted ascending.
 pub fn nice_ticks(min: f64, max: f64, target_count: u32) -> Vec<(f64, String)> {
     if target_count == 0 {
         return Vec::new();
@@ -35,7 +35,7 @@ pub fn nice_ticks(min: f64, max: f64, target_count: u32) -> Vec<(f64, String)> {
     let (lo, hi) = if min <= max { (min, max) } else { (max, min) };
 
     if (hi - lo).abs() < f64::EPSILON {
-        // Degenerate range — return one tick.
+        // Degenerate range: return one tick.
         let label = format_tick(lo, 0);
         return vec![(lo, label)];
     }
@@ -100,12 +100,12 @@ fn format_tick(value: f64, decimals: usize) -> String {
 mod tests {
     use super::*;
 
-    /// Helper — extract just the values from the tick vec.
+    /// Extract just the values from the tick vec.
     fn values(ticks: &[(f64, String)]) -> Vec<f64> {
         ticks.iter().map(|(v, _)| *v).collect()
     }
 
-    /// Helper — extract just the labels.
+    /// Extract just the labels.
     fn labels(ticks: &[(f64, String)]) -> Vec<&str> {
         ticks.iter().map(|(_, l)| l.as_str()).collect()
     }

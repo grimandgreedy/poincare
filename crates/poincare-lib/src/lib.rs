@@ -1,4 +1,4 @@
-//! `poincare-lib` — a Mathematica-class 3D graphing library built on `viewport-lib`.
+//! `poincare-lib` is a GPU-accelerated 3D graphing library built on [`viewport-lib`].
 //!
 //! # Quick start
 //!
@@ -9,8 +9,9 @@
 //! let mut scene = GraphScene::new();
 //! scene.add(Surface3D::from_fn(|x, y| x.sin() * y.cos()));
 //!
-//! // Upload meshes once at startup (needs wgpu device + ViewportGpuResources).
-//! scene.upload_meshes(device, renderer.resources_mut()).unwrap();
+//! // Upload meshes once at startup. Requires a wgpu Device, Queue, and a
+//! // ViewportGpuResources handle from viewport-lib's ViewportRenderer.
+//! scene.upload_meshes(&device, &queue, renderer.resources_mut()).unwrap();
 //!
 //! // Each frame:
 //! let mut frame = scene.build_frame(&camera);

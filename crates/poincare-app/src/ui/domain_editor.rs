@@ -7,7 +7,7 @@ use crate::ui::scalar_control::{ScalarControl, edit_scalar_control};
 pub(crate) fn edit_domain(ui: &mut egui::Ui, domain: &mut Domain, labels: DomainLabels) -> bool {
     if labels == DomainLabels::None {
         ui.label(
-            egui::RichText::new("Fixed construction data — no domain to edit.")
+            egui::RichText::new("Fixed construction data. No domain to edit.")
                 .weak()
                 .small(),
         );

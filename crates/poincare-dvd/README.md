@@ -1,1 +1,1 @@
-Just a dumb crate to ensure that the graphing lib is separate from the poincare-app application shell.
+Just a dumb crate to show that `poincare-lib` is a standalone graphing lib.

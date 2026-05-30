@@ -25,7 +25,7 @@ enum SurfaceKind {
     Spherical(Box<dyn Fn(f64, f64) -> f64 + Send + Sync>),
     /// r = f(theta, z); theta ∈ [0, 2π], z from domain.z
     Cylindrical(Box<dyn Fn(f64, f64) -> f64 + Send + Sync>),
-    /// r = f(theta); theta ∈ [0, 2π] — filled radial disk at z = 0
+    /// r = f(theta); theta ∈ [0, 2π], fills a radial disk at z = 0
     Polar(Box<dyn Fn(f64) -> f64 + Send + Sync>),
     /// (x, y, z) = f(u, v) over explicit u × v domain
     Parametric {
@@ -304,7 +304,7 @@ impl PlotObject for Surface3D {
             }
 
             SurfaceKind::Polar(f) => {
-                // Build a filled radial disk: u=angular samples, v=radial samples (0 → r).
+                // Build a filled radial disk: u=angular samples, v=radial samples (0 to r).
                 let mut pts = Vec::with_capacity(u_count * v_count);
                 let mut vals = Vec::with_capacity(u_count * v_count);
                 let mut uv_values = Vec::with_capacity(u_count * v_count);
@@ -348,7 +348,7 @@ impl PlotObject for Surface3D {
                     }
                     (pts, vals, uv_values, u_count, v_count)
                 }
-                // Curve domain doesn't make sense for a surface — treat as degenerate.
+                // Curve domain doesn't make sense for a surface; treat as degenerate.
                 ParametricDomain::Curve { .. } => {
                     (Vec::new(), Vec::new(), Vec::new(), u_count, v_count)
                 }

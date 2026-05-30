@@ -4,12 +4,12 @@
 //!
 //! The axis system consists of three visual layers:
 //!
-//! 1. **Box edges** — 12 line segments forming the wireframe bounding box of the domain.
-//! 2. **Tick stubs** — short perpendicular stubs at nice-number positions along each axis.
-//! 3. **Labels** — projected 2D text: one per tick + one axis-name label per axis.
+//! 1. **Box edges**: 12 line segments forming the wireframe bounding box of the domain.
+//! 2. **Tick stubs**: short perpendicular stubs at nice-number positions along each axis.
+//! 3. **Labels**: projected 2D text, one per tick plus one axis-name label per axis.
 //!
-//! All polyline geometry is returned as [`PolylineItem`] values that the caller appends
-//! to [`FrameData::polylines`] before submission.
+//! All polyline geometry is returned as [`viewport_lib::PolylineItem`] values that the caller
+//! appends to the scene's polyline list in `FrameData` before submission.
 
 use glam::{Mat4, Vec2, Vec3};
 use serde::{Deserialize, Serialize};
@@ -18,7 +18,7 @@ use viewport_lib::{LabelItem, PolylineItem};
 use crate::domain::Domain;
 
 // ---------------------------------------------------------------------------
-// Axis3 — axis discriminant
+// Axis3: axis discriminant
 // ---------------------------------------------------------------------------
 
 /// Identifies one of the three Cartesian axes.
@@ -45,7 +45,7 @@ pub struct AxisConfig {
     /// Draw short perpendicular tick stubs along each axis.
     pub show_ticks: bool,
 
-    /// Draw grid planes (not yet implemented — reserved for future use).
+    /// Draw grid planes (not yet implemented).
     pub show_grid: bool,
 
     /// Axis name labels: `[x_label, y_label, z_label]`.
@@ -78,9 +78,9 @@ impl Default for AxisConfig {
             ],
             tick_count: [5, 5, 5],
             axis_colours: [
-                [0.9, 0.2, 0.2, 1.0], // X — red
-                [0.2, 0.9, 0.2, 1.0], // Y — green
-                [0.2, 0.2, 0.9, 1.0], // Z — blue
+                [0.9, 0.2, 0.2, 1.0], // X: red
+                [0.2, 0.9, 0.2, 1.0], // Y: green
+                [0.2, 0.2, 0.9, 1.0], // Z: blue
             ],
             tick_colour: dim,
         }
@@ -455,7 +455,7 @@ pub fn build_axis_labels_projected(
         }
     }
 
-    // --- Axis name labels — placed just beyond the positive end of each axis ---
+    // Axis name labels, placed just beyond the positive end of each axis.
     let name_positions = [
         (
             config.labels[0].as_deref(),

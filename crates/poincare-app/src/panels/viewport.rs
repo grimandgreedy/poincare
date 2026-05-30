@@ -57,9 +57,9 @@ impl App {
                     self.documents[self.active_document_idx].camera.orientation,
                 ) {
                     // Z-up convention:
-                    //   axis 0 (X) → Right (+X) / Left (−X)
-                    //   axis 1 (Y) → Front (+Y) / Back (−Y)
-                    //   axis 2 (Z) → Top  (+Z, looking down at XY) / Bottom (−Z)
+                    //   axis 0 (X): Right (+X) / Left (-X)
+                    //   axis 1 (Y): Front (+Y) / Back (-Y)
+                    //   axis 2 (Z): Top  (+Z, looking down at XY) / Bottom (-Z)
                     let i = hit.axis_index;
                     let preset = if self.last_axes_snap == Some((i, true)) {
                         self.last_axes_snap = Some((i, false));
@@ -369,7 +369,7 @@ impl App {
             }
         }
 
-        // Probe toggle button — top-right corner of the viewport.
+        // Probe toggle button, top-right corner of the viewport.
         let btn_size = egui::vec2(54.0, 22.0);
         let btn_rect = egui::Rect::from_min_size(
             egui::pos2(rect.right() - btn_size.x - 8.0, rect.top() + 8.0),

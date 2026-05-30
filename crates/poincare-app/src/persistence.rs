@@ -36,7 +36,7 @@ struct PersistedAppState {
 }
 
 // ---------------------------------------------------------------------------
-// App-level settings (panel colours, preferences — never written to project
+// App-level settings (panel colours, preferences; never written to project
 // files, never read from them)
 // ---------------------------------------------------------------------------
 
@@ -127,10 +127,10 @@ fn load_slice_axis(axis: u8) -> SliceAxis {
 }
 
 // ---------------------------------------------------------------------------
-// Document snapshot — serializable form of one Document.
+// Document snapshot: serializable form of one Document.
 // Used for:
-//   • eframe session restore (stored inside PersistedAppState.session)
-//   • project file save/load via save_document_to_path / load_document_from_path
+//   - eframe session restore (stored inside PersistedAppState.session)
+//   - project file save/load via save_document_to_path / load_document_from_path
 //
 // All fields are #[serde(default)] so that old eframe storage blobs (which
 // only had `plots` + `selected_plot`) deserialize cleanly when new fields are
@@ -1745,7 +1745,7 @@ fn default_camera_track_segment_duration() -> f32 {
 }
 
 // ---------------------------------------------------------------------------
-// Enum ↔ u8 helpers (unchanged)
+// Enum/u8 conversion helpers (unchanged)
 // ---------------------------------------------------------------------------
 
 fn builtin_colormap_to_u8(value: BuiltinColourmap) -> u8 {

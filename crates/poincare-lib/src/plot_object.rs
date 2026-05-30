@@ -25,13 +25,13 @@ pub struct PlotComponent {
 /// CPU-side geometry produced by `PlotObject::generate()`.
 ///
 /// Each variant maps to a corresponding viewport renderer item:
-/// - `Surface` → `SceneRenderItem` (uploaded mesh)
-/// - `Polyline` → `PolylineItem`
-/// - `Points` → `PointCloudItem`
-/// - `Glyphs` → `GlyphItem`
-/// - `Streamtube` → `StreamtubeItem` (GPU-instanced cylinder tubes)
-/// - `Volume` → `VolumeItem` (GPU volume texture uploaded via `upload_volume`)
-/// - `Composite` → recursively unpacked
+/// - `Surface`: `SceneRenderItem` (uploaded mesh)
+/// - `Polyline`: `PolylineItem`
+/// - `Points`: `PointCloudItem`
+/// - `Glyphs`: `GlyphItem`
+/// - `Streamtube`: `StreamtubeItem` (GPU-instanced cylinder tubes)
+/// - `Volume`: `VolumeItem` (GPU volume texture uploaded via `upload_volume`)
+/// - `Composite`: recursively unpacked
 pub enum PlotGeometry {
     Surface(MeshData),
     Polyline {
@@ -72,7 +72,7 @@ pub enum PlotGeometry {
 /// Common interface for all plot types.
 ///
 /// `generate()` always returns Cartesian-space geometry. Coordinate conversion
-/// (spherical → Cartesian, etc.) happens inside `generate()`.
+/// (spherical to Cartesian, etc.) happens inside `generate()`.
 pub trait PlotObject: Send + Sync {
     fn coordinate_system(&self) -> CoordinateSystem;
 
