@@ -1,5 +1,6 @@
 ## Poincare
-An interactive 3D mathematical graphing application, and a reusable 3D plotting library.
+An interactive 3D mathematical graphing application, and a reusable 3D plotting library. [`viewport-lib`](https://github.com/grimandgreedy/viewport-lib) provides Poincare's interactive 3D viewport and rendering.
+
 
 https://github.com/user-attachments/assets/aaadfb8a-a639-4719-858a-921c876682c7
 
@@ -14,7 +15,6 @@ Plot surfaces, curves, point clouds, vector fields, streamlines, volumes, and is
 
 Analysis tools include surface normals, curvature, moving frames, arc-length, torsion, PCA, and CSV data import.
 
-[`viewport-lib`](https://github.com/grimandgreedy/viewport-lib) provides Poincare's interactive 3D viewport and rendering.
 
 **Hot tip**: Poincare turns equations into sampled geometry: surfaces become triangle meshes, and curves become polylines. That means visual quality and many analysis results are tied to plot resolution.
 
