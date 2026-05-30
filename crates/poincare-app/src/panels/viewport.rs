@@ -159,22 +159,6 @@ impl App {
             shadow_colour: [0.0, 0.0, 0.0, 1.0],
             shadow_opacity: 0.35,
         };
-        if let Some(hovered_plot_idx) = self.documents[doc_idx]
-            .hovered_plot
-            .filter(|&idx| Some(idx) != self.documents[doc_idx].selected_plot)
-        {
-            if let Some(bounds) = self.documents[doc_idx]
-                .plots
-                .get(hovered_plot_idx)
-                .and_then(crate::document::plot_bounds)
-            {
-                let mut hover_outline =
-                    viewport_lib::aabb_wireframe_polyline(&bounds, [0.98, 0.85, 0.22, 1.0]);
-                hover_outline.line_width = 2.0;
-                hover_outline.settings.pick_id = viewport_lib::PickId::NONE;
-                frame_data.scene.polylines.push(hover_outline);
-            }
-        }
         self.inject_frame_attachments(doc_idx, &mut frame_data);
 
         ui.painter()

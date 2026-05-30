@@ -238,6 +238,7 @@ struct App {
     surface_intersection_tolerance: f32,
     surface_intersection_stitch_distance: f32,
     surface_intersection_make_points: bool,
+    analysis_show_all: bool,
     interpolate_modal: Option<InterpolateModalState>,
     axis_derivative_modal: Option<AxisDerivativeModalState>,
     fit_curve_modal: Option<FitCurveModalState>,
@@ -456,6 +457,7 @@ impl App {
             surface_intersection_tolerance: 0.01,
             surface_intersection_stitch_distance: 0.05,
             surface_intersection_make_points: true,
+            analysis_show_all: false,
             interpolate_modal: None,
             axis_derivative_modal: None,
             fit_curve_modal: None,
@@ -1433,42 +1435,61 @@ impl App {
             return;
         }
         if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::J)) {
-            let doc = &mut self.documents[self.active_document_idx];
-            let plot_count = doc.plots.len();
-            if plot_count > 0 {
-                let next = match doc.selected_plot {
-                    Some(idx) => (idx + 1) % plot_count,
-                    None => 0,
-                };
-                let _ = doc;
+            let doc = &self.documents[self.active_document_idx];
+            let display_order = panels::left_panel::plot_display_rows(&doc.plots)
+                .into_iter()
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            if !display_order.is_empty() {
+                let next = doc
+                    .selected_plot
+                    .and_then(|selected| {
+                        display_order
+                            .iter()
+                            .position(|index| *index == selected)
+                            .map(|position| display_order[(position + 1) % display_order.len()])
+                    })
+                    .unwrap_or(display_order[0]);
                 self.set_selected_plot(self.active_document_idx, Some(next));
             }
             return;
         }
         if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::K)) {
-            let doc = &mut self.documents[self.active_document_idx];
-            let plot_count = doc.plots.len();
-            if plot_count > 0 {
-                let next = match doc.selected_plot {
-                    Some(0) | None => plot_count - 1,
-                    Some(idx) => idx - 1,
-                };
-                let _ = doc;
-                self.set_selected_plot(self.active_document_idx, Some(next));
-            }
-            return;
-        }
-        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::G)) {
             let doc = &self.documents[self.active_document_idx];
-            if !doc.plots.is_empty() {
-                self.set_selected_plot(self.active_document_idx, Some(0));
+            let display_order = panels::left_panel::plot_display_rows(&doc.plots)
+                .into_iter()
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            if !display_order.is_empty() {
+                let next = doc
+                    .selected_plot
+                    .and_then(|selected| {
+                        display_order
+                            .iter()
+                            .position(|index| *index == selected)
+                            .map(|position| {
+                                display_order
+                                    [(position + display_order.len() - 1) % display_order.len()]
+                            })
+                    })
+                    .unwrap_or_else(|| *display_order.last().expect("display order is non-empty"));
+                self.set_selected_plot(self.active_document_idx, Some(next));
             }
             return;
         }
         if ctx.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::G)) {
             let doc = &self.documents[self.active_document_idx];
-            if let Some(last) = doc.plots.len().checked_sub(1) {
-                self.set_selected_plot(self.active_document_idx, Some(last));
+            let display_order = panels::left_panel::plot_display_rows(&doc.plots);
+            if let Some((last, _)) = display_order.last() {
+                self.set_selected_plot(self.active_document_idx, Some(*last));
+            }
+            return;
+        }
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::G)) {
+            let doc = &self.documents[self.active_document_idx];
+            let display_order = panels::left_panel::plot_display_rows(&doc.plots);
+            if let Some((first, _)) = display_order.first() {
+                self.set_selected_plot(self.active_document_idx, Some(*first));
             }
             return;
         }

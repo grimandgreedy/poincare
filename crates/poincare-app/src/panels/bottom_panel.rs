@@ -2,7 +2,8 @@ use eframe::egui;
 use poincare_lib::{
     AnalysisKind, AnalysisOutput, AnalysisRequest, AnalysisTarget, CurveInterpolation,
     CurveInterpolationKind, SampleGroupsKind, available_analyses, run_analysis,
-    run_curve_surface_frame_analysis, run_surface_mesh_analysis, sample_curve_points, sample_groups,
+    run_curve_surface_frame_analysis, run_surface_mesh_analysis, sample_curve_points,
+    sample_groups,
 };
 use serde_json::json;
 use viewport_lib::{Easing, Projection, ViewPreset};
@@ -616,193 +617,234 @@ impl App {
         let selected_spec = selected.to_plot_spec();
         let capabilities = available_analyses(&selected_spec);
         let has_analysis = |kind| capabilities.iter().any(|cap| cap.kind == kind);
-        ui.label("Derived Tools");
         let has_derived_tools = has_analysis(AnalysisKind::ScalarSlice)
             || has_analysis(AnalysisKind::VectorSlice)
             || has_analysis(AnalysisKind::GradientField)
             || has_analysis(AnalysisKind::DivergenceField)
             || has_analysis(AnalysisKind::CurlField);
-        if has_derived_tools {
-            ui.horizontal(|ui| {
-                if has_analysis(AnalysisKind::ScalarSlice) && ui.button("Add Z Slice").clicked() {
-                    self.run_single_plot_analysis(
-                        doc_idx,
-                        &selected_spec,
-                        AnalysisKind::ScalarSlice,
-                        vec![("axis".to_string(), "z".to_string())],
+        let has_annotations = self.documents[doc_idx].last_probe_hit.is_some()
+            || !self.documents[doc_idx].pinned_probes.is_empty();
+        let has_data_analysis = has_analysis(AnalysisKind::PointCloudStatistics)
+            || has_analysis(AnalysisKind::DataQualityChecks);
+        let curve_groups = sample_groups(&selected_spec, SampleGroupsKind::Curve).ok();
+        let has_curve_analysis = curve_groups.is_some();
+        let selected_plot_id = self.documents[doc_idx].plots[plot_idx].plot_id;
+        let relevant_frame_fields = self.documents[doc_idx]
+            .frame_fields
+            .iter()
+            .filter(|field| field.source_plot_ids.contains(&selected_plot_id))
+            .map(|field| (field.id, field.title.clone()))
+            .collect::<Vec<_>>();
+        let has_frame_playback = !relevant_frame_fields.is_empty();
+        let interpolation_groups =
+            sample_groups(&selected_spec, SampleGroupsKind::InterpolationSource).ok();
+        let has_interpolation = interpolation_groups.is_some();
+        let polyline_groups = sample_groups(&selected_spec, SampleGroupsKind::Polyline).ok();
+        let has_point_extraction = polyline_groups.is_some();
+        let has_surface_geometry = has_analysis(AnalysisKind::SurfaceNormals)
+            || has_analysis(AnalysisKind::SurfaceCurvature)
+            || has_analysis(AnalysisKind::SurfaceArea)
+            || has_analysis(AnalysisKind::SurfaceMeshQuality);
+        let surface_intersection_candidates =
+            self.surface_intersection_candidates(doc_idx, plot_idx);
+        let has_curve_intersections = !self.documents[doc_idx].intersection_cache.is_empty();
+        let has_surface_intersections = selected.kind.supports_surface_intersection()
+            && !surface_intersection_candidates.is_empty();
+        let has_intersections = has_curve_intersections || has_surface_intersections;
+
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut self.analysis_show_all, "Show all");
+        });
+        let show_all = self.analysis_show_all;
+
+        if show_all || has_derived_tools {
+            ui.label("Derived Tools");
+            if has_derived_tools {
+                ui.horizontal(|ui| {
+                    if has_analysis(AnalysisKind::ScalarSlice) && ui.button("Add Z Slice").clicked()
+                    {
+                        self.run_single_plot_analysis(
+                            doc_idx,
+                            &selected_spec,
+                            AnalysisKind::ScalarSlice,
+                            vec![("axis".to_string(), "z".to_string())],
+                        );
+                    }
+                    if has_analysis(AnalysisKind::GradientField)
+                        && ui.button("Add Gradient Field").clicked()
+                    {
+                        self.run_single_plot_analysis(
+                            doc_idx,
+                            &selected_spec,
+                            AnalysisKind::GradientField,
+                            vec![],
+                        );
+                    }
+                    if has_analysis(AnalysisKind::VectorSlice)
+                        && ui.button("Add Z Vector Slice").clicked()
+                    {
+                        self.run_single_plot_analysis(
+                            doc_idx,
+                            &selected_spec,
+                            AnalysisKind::VectorSlice,
+                            vec![("axis".to_string(), "z".to_string())],
+                        );
+                    }
+                    if has_analysis(AnalysisKind::DivergenceField)
+                        && ui.button("Add Divergence Volume").clicked()
+                    {
+                        self.run_single_plot_analysis(
+                            doc_idx,
+                            &selected_spec,
+                            AnalysisKind::DivergenceField,
+                            vec![],
+                        );
+                    }
+                    if has_analysis(AnalysisKind::CurlField)
+                        && ui.button("Add Curl Field").clicked()
+                    {
+                        self.run_single_plot_analysis(
+                            doc_idx,
+                            &selected_spec,
+                            AnalysisKind::CurlField,
+                            vec![],
+                        );
+                    }
+                });
+                if has_analysis(AnalysisKind::ScalarSlice) {
+                    ui.label(
+                        egui::RichText::new("Slices include contour cross-sections.")
+                            .small()
+                            .weak(),
                     );
                 }
-                if has_analysis(AnalysisKind::GradientField)
-                    && ui.button("Add Gradient Field").clicked()
-                {
-                    self.run_single_plot_analysis(
-                        doc_idx,
-                        &selected_spec,
-                        AnalysisKind::GradientField,
-                        vec![],
-                    );
-                }
-                if has_analysis(AnalysisKind::VectorSlice)
-                    && ui.button("Add Z Vector Slice").clicked()
-                {
-                    self.run_single_plot_analysis(
-                        doc_idx,
-                        &selected_spec,
-                        AnalysisKind::VectorSlice,
-                        vec![("axis".to_string(), "z".to_string())],
-                    );
-                }
-                if has_analysis(AnalysisKind::DivergenceField)
-                    && ui.button("Add Divergence Volume").clicked()
-                {
-                    self.run_single_plot_analysis(
-                        doc_idx,
-                        &selected_spec,
-                        AnalysisKind::DivergenceField,
-                        vec![],
-                    );
-                }
-                if has_analysis(AnalysisKind::CurlField) && ui.button("Add Curl Field").clicked() {
-                    self.run_single_plot_analysis(
-                        doc_idx,
-                        &selected_spec,
-                        AnalysisKind::CurlField,
-                        vec![],
-                    );
-                }
-            });
-            if has_analysis(AnalysisKind::ScalarSlice) {
-                ui.label(
-                    egui::RichText::new("Slices include contour cross-sections.")
-                        .small()
-                        .weak(),
-                );
-            }
-        } else {
-            ui.label(egui::RichText::new(
+            } else {
+                ui.label(egui::RichText::new(
                 "Select a scalar field or vector field plot to generate slices or derived fields.",
             ).small().weak());
+            }
         }
 
-        ui.add_space(8.0);
-        ui.separator();
-        ui.label("Annotations");
+        if show_all || has_annotations {
+            ui.add_space(8.0);
+            ui.separator();
+            ui.label("Annotations");
 
-        if let Some(hit) = self.documents[doc_idx].last_probe_hit.clone() {
-            ui.horizontal(|ui| {
-                if ui.button("Annotate Probe Point").clicked() {
-                    self.push_analysis_plot(
-                        doc_idx,
-                        PlotEntry {
-                            plot_id: 0,
-                            parent_plot_id: None,
-                            relationship: crate::plot::entry::PlotRelationship::Primary,
-                            name: "Probe Annotation".to_string(),
-                            visible: true,
-                            domain: self.documents[doc_idx].plots[plot_idx].domain.clone(),
-                            resolution: self.documents[doc_idx].plots[plot_idx].resolution,
-                            style: poincare_lib::PlotStyle {
-                                colour_mode: poincare_lib::ColourMode::Solid([
-                                    1.0, 0.95, 0.35, 1.0,
-                                ]),
-                                point_size: 10.0,
-                                ..poincare_lib::PlotStyle::default()
+            if let Some(hit) = self.documents[doc_idx].last_probe_hit.clone() {
+                ui.horizontal(|ui| {
+                    if ui.button("Annotate Probe Point").clicked() {
+                        self.push_analysis_plot(
+                            doc_idx,
+                            PlotEntry {
+                                plot_id: 0,
+                                parent_plot_id: None,
+                                relationship: crate::plot::entry::PlotRelationship::Primary,
+                                name: "Probe Annotation".to_string(),
+                                visible: true,
+                                domain: self.documents[doc_idx].plots[plot_idx].domain.clone(),
+                                resolution: self.documents[doc_idx].plots[plot_idx].resolution,
+                                style: poincare_lib::PlotStyle {
+                                    colour_mode: poincare_lib::ColourMode::Solid([
+                                        1.0, 0.95, 0.35, 1.0,
+                                    ]),
+                                    point_size: 10.0,
+                                    ..poincare_lib::PlotStyle::default()
+                                },
+                                kind: PlotKind::PointAnnotations {
+                                    points: vec![PointAnnotation {
+                                        position: hit.world_pos.to_array(),
+                                        label: "Probe".to_string(),
+                                    }],
+                                    show_labels: true,
+                                },
                             },
-                            kind: PlotKind::PointAnnotations {
-                                points: vec![PointAnnotation {
-                                    position: hit.world_pos.to_array(),
-                                    label: "Probe".to_string(),
-                                }],
-                                show_labels: true,
+                        );
+                    }
+                    if ui.button("Annotate Probe Direction").clicked() {
+                        self.push_analysis_plot(
+                            doc_idx,
+                            PlotEntry {
+                                plot_id: 0,
+                                parent_plot_id: None,
+                                relationship: crate::plot::entry::PlotRelationship::Primary,
+                                name: "Probe Direction".to_string(),
+                                visible: true,
+                                domain: self.documents[doc_idx].plots[plot_idx].domain.clone(),
+                                resolution: self.documents[doc_idx].plots[plot_idx].resolution,
+                                style: poincare_lib::PlotStyle {
+                                    colour_mode: poincare_lib::ColourMode::Solid([
+                                        0.35, 0.85, 1.0, 1.0,
+                                    ]),
+                                    glyph_scale: 1.0,
+                                    shading: poincare_lib::ShadingMode::Unlit,
+                                    ..poincare_lib::PlotStyle::default()
+                                },
+                                kind: PlotKind::ArrowAnnotations {
+                                    arrows: vec![make_arrow_annotation(
+                                        hit.world_pos,
+                                        hit.normal,
+                                        if hit.snapped {
+                                            "Snapped Direction"
+                                        } else {
+                                            "Probe Direction"
+                                        },
+                                    )],
+                                    show_labels: true,
+                                },
                             },
-                        },
-                    );
-                }
-                if ui.button("Annotate Probe Direction").clicked() {
-                    self.push_analysis_plot(
-                        doc_idx,
-                        PlotEntry {
-                            plot_id: 0,
-                            parent_plot_id: None,
-                            relationship: crate::plot::entry::PlotRelationship::Primary,
-                            name: "Probe Direction".to_string(),
-                            visible: true,
-                            domain: self.documents[doc_idx].plots[plot_idx].domain.clone(),
-                            resolution: self.documents[doc_idx].plots[plot_idx].resolution,
-                            style: poincare_lib::PlotStyle {
-                                colour_mode: poincare_lib::ColourMode::Solid([
-                                    0.35, 0.85, 1.0, 1.0,
-                                ]),
-                                glyph_scale: 1.0,
-                                shading: poincare_lib::ShadingMode::Unlit,
-                                ..poincare_lib::PlotStyle::default()
-                            },
-                            kind: PlotKind::ArrowAnnotations {
-                                arrows: vec![make_arrow_annotation(
-                                    hit.world_pos,
-                                    hit.normal,
-                                    if hit.snapped {
-                                        "Snapped Direction"
-                                    } else {
-                                        "Probe Direction"
-                                    },
-                                )],
-                                show_labels: true,
-                            },
-                        },
-                    );
-                }
-            });
-        } else {
-            ui.label(
-                egui::RichText::new(
-                    "Use probe mode to create point, normal, or tangent annotations.",
-                )
-                .small()
-                .weak(),
-            );
-        }
-
-        if !self.documents[doc_idx].pinned_probes.is_empty()
-            && ui.button("Create Pinned Probe Samples").clicked()
-        {
-            let points = self.documents[doc_idx]
-                .pinned_probes
-                .iter()
-                .map(|hit| hit.world_pos.to_array())
-                .collect::<Vec<_>>();
-            self.push_analysis_plot(
-                doc_idx,
-                PlotEntry {
-                    plot_id: 0,
-                    parent_plot_id: None,
-                    relationship: crate::plot::entry::PlotRelationship::Primary,
-                    name: "Pinned Probe Samples".to_string(),
-                    visible: true,
-                    domain: self.documents[doc_idx].plots[plot_idx].domain.clone(),
-                    resolution: self.documents[doc_idx].plots[plot_idx].resolution,
-                    style: poincare_lib::PlotStyle {
-                        colour_mode: poincare_lib::ColourMode::Solid([1.0, 0.6, 0.2, 1.0]),
-                        point_size: 8.0,
-                        ..poincare_lib::PlotStyle::default()
-                    },
-                    kind: PlotKind::PointAnnotations {
-                        points: make_point_annotations(&points, "Probe"),
-                        show_labels: false,
-                    },
-                },
-            );
-        }
-
-        ui.add_space(8.0);
-        ui.separator();
-        ui.label("Data Analysis");
-        if has_analysis(AnalysisKind::PointCloudStatistics)
-            || has_analysis(AnalysisKind::DataQualityChecks)
-        {
-            if let Ok(groups) = sample_groups(&selected_spec, SampleGroupsKind::SampleData) {
-                let point_count: usize = groups.iter().map(Vec::len).sum();
+                        );
+                    }
+                });
+            } else {
                 ui.label(
+                    egui::RichText::new(
+                        "Use probe mode to create point, normal, or tangent annotations.",
+                    )
+                    .small()
+                    .weak(),
+                );
+            }
+
+            if !self.documents[doc_idx].pinned_probes.is_empty()
+                && ui.button("Create Pinned Probe Samples").clicked()
+            {
+                let points = self.documents[doc_idx]
+                    .pinned_probes
+                    .iter()
+                    .map(|hit| hit.world_pos.to_array())
+                    .collect::<Vec<_>>();
+                self.push_analysis_plot(
+                    doc_idx,
+                    PlotEntry {
+                        plot_id: 0,
+                        parent_plot_id: None,
+                        relationship: crate::plot::entry::PlotRelationship::Primary,
+                        name: "Pinned Probe Samples".to_string(),
+                        visible: true,
+                        domain: self.documents[doc_idx].plots[plot_idx].domain.clone(),
+                        resolution: self.documents[doc_idx].plots[plot_idx].resolution,
+                        style: poincare_lib::PlotStyle {
+                            colour_mode: poincare_lib::ColourMode::Solid([1.0, 0.6, 0.2, 1.0]),
+                            point_size: 8.0,
+                            ..poincare_lib::PlotStyle::default()
+                        },
+                        kind: PlotKind::PointAnnotations {
+                            points: make_point_annotations(&points, "Probe"),
+                            show_labels: false,
+                        },
+                    },
+                );
+            }
+        }
+
+        if show_all || has_data_analysis {
+            ui.add_space(8.0);
+            ui.separator();
+            ui.label("Data Analysis");
+            if has_data_analysis {
+                if let Ok(groups) = sample_groups(&selected_spec, SampleGroupsKind::SampleData) {
+                    let point_count: usize = groups.iter().map(Vec::len).sum();
+                    ui.label(
                     egui::RichText::new(format!(
                         "{} sampled point(s) across {} sequence(s) are available for statistics and data-quality checks.",
                         point_count,
@@ -811,45 +853,47 @@ impl App {
                     .small()
                     .weak(),
                 );
-            }
-            ui.horizontal(|ui| {
-                if has_analysis(AnalysisKind::PointCloudStatistics)
-                    && ui.button("Point Statistics").clicked()
-                {
-                    self.run_single_plot_analysis(
-                        doc_idx,
-                        &selected_spec,
-                        AnalysisKind::PointCloudStatistics,
-                        vec![],
-                    );
                 }
-                if has_analysis(AnalysisKind::DataQualityChecks)
-                    && ui.button("Data Quality Checks").clicked()
-                {
-                    self.run_single_plot_analysis(
-                        doc_idx,
-                        &selected_spec,
-                        AnalysisKind::DataQualityChecks,
-                        vec![],
-                    );
-                }
-            });
-        } else {
-            ui.label(
+                ui.horizontal(|ui| {
+                    if has_analysis(AnalysisKind::PointCloudStatistics)
+                        && ui.button("Point Statistics").clicked()
+                    {
+                        self.run_single_plot_analysis(
+                            doc_idx,
+                            &selected_spec,
+                            AnalysisKind::PointCloudStatistics,
+                            vec![],
+                        );
+                    }
+                    if has_analysis(AnalysisKind::DataQualityChecks)
+                        && ui.button("Data Quality Checks").clicked()
+                    {
+                        self.run_single_plot_analysis(
+                            doc_idx,
+                            &selected_spec,
+                            AnalysisKind::DataQualityChecks,
+                            vec![],
+                        );
+                    }
+                });
+            } else {
+                ui.label(
                 egui::RichText::new(
                     "Point statistics and data-quality checks are available for sampled point sets and ordered sample data.",
                 )
                 .small()
                 .weak(),
             );
+            }
         }
 
-        ui.add_space(8.0);
-        ui.separator();
-        ui.label("Curve Analysis");
-        if let Ok(groups) = sample_groups(&selected_spec, SampleGroupsKind::Curve) {
-            let point_count: usize = groups.iter().map(Vec::len).sum();
-            ui.label(
+        if show_all || has_curve_analysis {
+            ui.add_space(8.0);
+            ui.separator();
+            ui.label("Curve Analysis");
+            if let Some(groups) = curve_groups {
+                let point_count: usize = groups.iter().map(Vec::len).sum();
+                ui.label(
                 egui::RichText::new(format!(
                     "{} sampled point(s) across {} curve(s) are available for derivative, tangent, and normalized integral plots.",
                     point_count,
@@ -858,362 +902,373 @@ impl App {
                 .small()
                 .weak(),
             );
-            ui.horizontal(|ui| {
-                if ui.button("Create Derivative Curve").clicked() {
-                    self.run_single_plot_analysis(
-                        doc_idx,
-                        &selected_spec,
-                        AnalysisKind::DifferentiateCurve,
-                        vec![],
-                    );
-                }
-                if ui.button("Create Integral Curve").clicked() {
-                    self.run_single_plot_analysis(
-                        doc_idx,
-                        &selected_spec,
-                        AnalysisKind::IntegralCurve,
-                        vec![],
-                    );
-                }
-                if ui.button("Create Tangent Curve").clicked() {
-                    self.run_single_plot_analysis(
-                        doc_idx,
-                        &selected_spec,
-                        AnalysisKind::TangentField,
-                        vec![],
-                    );
-                }
-            });
-            ui.horizontal(|ui| {
-                if ui.button("Differentiate by Axis...").clicked() {
-                    self.open_axis_derivative_modal(plot_idx, &selected);
-                }
-                if ui.button("Create Arc Length Curve").clicked() {
-                    self.run_single_plot_analysis(
-                        doc_idx,
-                        &selected_spec,
-                        AnalysisKind::ArcLengthCurve,
-                        vec![],
-                    );
-                }
-                if ui.button("Create Curvature Curve").clicked() {
-                    self.run_single_plot_analysis(
-                        doc_idx,
-                        &selected_spec,
-                        AnalysisKind::CurvatureCurve,
-                        vec![],
-                    );
-                }
-                if ui.button("Create Normal Curve").clicked() {
-                    self.run_single_plot_analysis(
-                        doc_idx,
-                        &selected_spec,
-                        AnalysisKind::NormalField,
-                        vec![],
-                    );
-                }
-                if ui.button("Create Binormal Curve").clicked() {
-                    self.run_single_plot_analysis(
-                        doc_idx,
-                        &selected_spec,
-                        AnalysisKind::BinormalField,
-                        vec![],
-                    );
-                }
-            });
-            ui.add_space(6.0);
-            ui.label("Curve fitting");
-            ui.horizontal(|ui| {
-                if ui.button("Fit Curve...").clicked() {
-                    self.open_fit_curve_modal(plot_idx, &selected);
-                }
-            });
-            ui.label(
+                ui.horizontal(|ui| {
+                    if ui.button("Create Derivative Curve").clicked() {
+                        self.run_single_plot_analysis(
+                            doc_idx,
+                            &selected_spec,
+                            AnalysisKind::DifferentiateCurve,
+                            vec![],
+                        );
+                    }
+                    if ui.button("Create Integral Curve").clicked() {
+                        self.run_single_plot_analysis(
+                            doc_idx,
+                            &selected_spec,
+                            AnalysisKind::IntegralCurve,
+                            vec![],
+                        );
+                    }
+                    if ui.button("Create Tangent Curve").clicked() {
+                        self.run_single_plot_analysis(
+                            doc_idx,
+                            &selected_spec,
+                            AnalysisKind::TangentField,
+                            vec![],
+                        );
+                    }
+                });
+                ui.horizontal(|ui| {
+                    if ui.button("Differentiate by Axis...").clicked() {
+                        self.open_axis_derivative_modal(plot_idx, &selected);
+                    }
+                    if ui.button("Create Arc Length Curve").clicked() {
+                        self.run_single_plot_analysis(
+                            doc_idx,
+                            &selected_spec,
+                            AnalysisKind::ArcLengthCurve,
+                            vec![],
+                        );
+                    }
+                    if ui.button("Create Curvature Curve").clicked() {
+                        self.run_single_plot_analysis(
+                            doc_idx,
+                            &selected_spec,
+                            AnalysisKind::CurvatureCurve,
+                            vec![],
+                        );
+                    }
+                    if ui.button("Create Normal Curve").clicked() {
+                        self.run_single_plot_analysis(
+                            doc_idx,
+                            &selected_spec,
+                            AnalysisKind::NormalField,
+                            vec![],
+                        );
+                    }
+                    if ui.button("Create Binormal Curve").clicked() {
+                        self.run_single_plot_analysis(
+                            doc_idx,
+                            &selected_spec,
+                            AnalysisKind::BinormalField,
+                            vec![],
+                        );
+                    }
+                });
+                ui.add_space(6.0);
+                ui.label("Curve fitting");
+                ui.horizontal(|ui| {
+                    if ui.button("Fit Curve...").clicked() {
+                        self.open_fit_curve_modal(plot_idx, &selected);
+                    }
+                });
+                ui.label(
                 egui::RichText::new(
                     "Create fitted curves, optional control points, residual plots, and fit diagnostics.",
                 )
                 .small()
                 .weak(),
             );
-            ui.add_space(6.0);
-            ui.label("Moving frames");
-            ui.horizontal(|ui| {
-                if has_analysis(AnalysisKind::FrenetFrame)
-                    && ui.button("Frenet Frame").clicked()
-                {
-                    self.open_moving_frame_modal(plot_idx, AnalysisKind::FrenetFrame, None);
-                }
-                if has_analysis(AnalysisKind::BishopFrame)
-                    && ui.button("Bishop Frame").clicked()
-                {
-                    self.open_moving_frame_modal(plot_idx, AnalysisKind::BishopFrame, None);
-                }
-            });
-            ui.label(
+                ui.add_space(6.0);
+                ui.label("Moving frames");
+                ui.horizontal(|ui| {
+                    if has_analysis(AnalysisKind::FrenetFrame)
+                        && ui.button("Frenet Frame").clicked()
+                    {
+                        self.open_moving_frame_modal(plot_idx, AnalysisKind::FrenetFrame, None);
+                    }
+                    if has_analysis(AnalysisKind::BishopFrame)
+                        && ui.button("Bishop Frame").clicked()
+                    {
+                        self.open_moving_frame_modal(plot_idx, AnalysisKind::BishopFrame, None);
+                    }
+                });
+                ui.label(
                 egui::RichText::new(
                     "Generate reusable sampled frame tables plus tangent, normal, and binormal triad plots. Bishop frames are rotation-minimizing and more stable near inflections.",
                 )
                 .small()
                 .weak(),
             );
-            let surface_candidates = self.surface_frame_candidates(doc_idx, plot_idx);
-            if !surface_candidates.is_empty() {
-                ui.add_space(6.0);
-                ui.label("Surface-coupled frames");
-                ui.horizontal(|ui| {
-                    if ui.button("Darboux Frame").clicked() {
-                        self.open_moving_frame_modal(
-                            plot_idx,
-                            AnalysisKind::DarbouxFrame,
-                            surface_candidates.first().map(|(index, _)| *index),
-                        );
-                    }
-                    if ui.button("Surface-Aligned Frame").clicked() {
-                        self.open_moving_frame_modal(
-                            plot_idx,
-                            AnalysisKind::SurfaceAlignedFrame,
-                            surface_candidates.first().map(|(index, _)| *index),
-                        );
-                    }
-                });
-                ui.label(
+                let surface_candidates = self.surface_frame_candidates(doc_idx, plot_idx);
+                if !surface_candidates.is_empty() {
+                    ui.add_space(6.0);
+                    ui.label("Surface-coupled frames");
+                    ui.horizontal(|ui| {
+                        if ui.button("Darboux Frame").clicked() {
+                            self.open_moving_frame_modal(
+                                plot_idx,
+                                AnalysisKind::DarbouxFrame,
+                                surface_candidates.first().map(|(index, _)| *index),
+                            );
+                        }
+                        if ui.button("Surface-Aligned Frame").clicked() {
+                            self.open_moving_frame_modal(
+                                plot_idx,
+                                AnalysisKind::SurfaceAlignedFrame,
+                                surface_candidates.first().map(|(index, _)| *index),
+                            );
+                        }
+                    });
+                    ui.label(
                     egui::RichText::new(
                         "Use a selected curve together with a cached target surface to build Darboux or surface-normal-aligned frames.",
                     )
                     .small()
                     .weak(),
                 );
-            }
-            self.show_inline_moving_frame_controls(
-                ui,
-                doc_idx,
-                plot_idx,
-                &selected,
-                &surface_candidates,
-            );
-        } else {
-            ui.label(
+                }
+                self.show_inline_moving_frame_controls(
+                    ui,
+                    doc_idx,
+                    plot_idx,
+                    &selected,
+                    &surface_candidates,
+                );
+            } else {
+                ui.label(
                 egui::RichText::new(
                     "Curve calculus tools are available for curve and polyline plots. Use the axis-derivative modal for outputs like dy/dx or dz/dx.",
                 )
                 .small()
                 .weak(),
             );
+            }
         }
 
-        let selected_plot_id = self.documents[doc_idx].plots[plot_idx].plot_id;
-        let relevant_frame_fields = self.documents[doc_idx]
-            .frame_fields
-            .iter()
-            .filter(|field| field.source_plot_ids.contains(&selected_plot_id))
-            .map(|field| (field.id, field.title.clone()))
-            .collect::<Vec<_>>();
-        if !relevant_frame_fields.is_empty() {
+        if show_all || has_frame_playback {
             ui.add_space(8.0);
             ui.separator();
             ui.label("Frame Playback");
-            let selected_frame_id = self.documents[doc_idx]
-                .frame_playback
-                .selected_frame_field
-                .filter(|frame_id| relevant_frame_fields.iter().any(|(id, _)| id == frame_id))
-                .or_else(|| relevant_frame_fields.first().map(|(id, _)| *id));
-            self.documents[doc_idx].frame_playback.selected_frame_field = selected_frame_id;
-            let current_label = selected_frame_id
-                .and_then(|id| {
-                    relevant_frame_fields
-                        .iter()
-                        .find(|(field_id, _)| *field_id == id)
-                        .map(|(_, title)| title.clone())
-                })
-                .unwrap_or_else(|| "Select frame field".to_string());
-            egui::ComboBox::from_label("Stored FrameField")
-                .selected_text(current_label)
-                .show_ui(ui, |ui| {
-                    for (field_id, title) in &relevant_frame_fields {
-                        ui.selectable_value(
-                            &mut self.documents[doc_idx].frame_playback.selected_frame_field,
-                            Some(*field_id),
-                            title,
+            if has_frame_playback {
+                let selected_frame_id = self.documents[doc_idx]
+                    .frame_playback
+                    .selected_frame_field
+                    .filter(|frame_id| relevant_frame_fields.iter().any(|(id, _)| id == frame_id))
+                    .or_else(|| relevant_frame_fields.first().map(|(id, _)| *id));
+                self.documents[doc_idx].frame_playback.selected_frame_field = selected_frame_id;
+                let current_label = selected_frame_id
+                    .and_then(|id| {
+                        relevant_frame_fields
+                            .iter()
+                            .find(|(field_id, _)| *field_id == id)
+                            .map(|(_, title)| title.clone())
+                    })
+                    .unwrap_or_else(|| "Select frame field".to_string());
+                egui::ComboBox::from_label("Stored FrameField")
+                    .selected_text(current_label)
+                    .show_ui(ui, |ui| {
+                        for (field_id, title) in &relevant_frame_fields {
+                            ui.selectable_value(
+                                &mut self.documents[doc_idx].frame_playback.selected_frame_field,
+                                Some(*field_id),
+                                title,
+                            );
+                        }
+                    });
+                ui.horizontal(|ui| {
+                    let playing = self.documents[doc_idx].frame_playback.playing;
+                    if ui.button(if playing { "Pause" } else { "Play" }).clicked() {
+                        self.documents[doc_idx].frame_playback.playing = !playing;
+                    }
+                    if ui.button("Reset").clicked() {
+                        self.documents[doc_idx].frame_playback.phase = 0.0;
+                        self.documents[doc_idx].frame_playback.playing = false;
+                    }
+                    if let Some(frame_id) =
+                        self.documents[doc_idx].frame_playback.selected_frame_field
+                        && ui.button("Open Data").clicked()
+                    {
+                        self.open_stored_frame_field_panel(doc_idx, frame_id);
+                    }
+                });
+                ui.add(
+                    egui::Slider::new(&mut self.documents[doc_idx].frame_playback.phase, 0.0..=1.0)
+                        .text("Frame Phase"),
+                );
+                ui.add(
+                    egui::Slider::new(
+                        &mut self.documents[doc_idx].frame_playback.speed,
+                        0.05..=2.0,
+                    )
+                    .text("Playback Speed"),
+                );
+                if let Some(frame_id) = self.documents[doc_idx].frame_playback.selected_frame_field
+                {
+                    ui.label("Attachments");
+                    for attachment in self.documents[doc_idx]
+                        .frame_attachments
+                        .iter_mut()
+                        .filter(|attachment| attachment.frame_field_id == frame_id)
+                    {
+                        ui.horizontal(|ui| {
+                            ui.checkbox(&mut attachment.enabled, &attachment.name);
+                            match attachment.kind {
+                                crate::document::FrameAttachmentKind::Marker
+                                | crate::document::FrameAttachmentKind::Triad
+                                | crate::document::FrameAttachmentKind::ProfileRing => {
+                                    ui.add(
+                                        egui::Slider::new(&mut attachment.scale, 0.1..=4.0)
+                                            .text("Scale"),
+                                    );
+                                }
+                                crate::document::FrameAttachmentKind::Camera => {
+                                    ui.label(
+                                        egui::RichText::new("Follows camera target only")
+                                            .small()
+                                            .weak(),
+                                    );
+                                }
+                            }
+                        });
+                    }
+                }
+            } else {
+                ui.label(
+                    egui::RichText::new(
+                        "Generate a moving frame for the selected plot to enable frame playback.",
+                    )
+                    .small()
+                    .weak(),
+                );
+            }
+        }
+
+        if show_all || has_interpolation {
+            ui.add_space(8.0);
+            ui.separator();
+            ui.label("Interpolation");
+            if let Some(groups) = interpolation_groups {
+                let point_count: usize = groups.iter().map(Vec::len).sum();
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} point(s) across {} sequence(s) can be turned into curve geometry.",
+                        point_count,
+                        groups.len()
+                    ))
+                    .small()
+                    .weak(),
+                );
+                if ui.button("Interpolate...").clicked() {
+                    self.open_interpolate_modal(plot_idx, &selected);
+                }
+            } else {
+                ui.label(
+                    egui::RichText::new(
+                        "Interpolation is available for point and ordered sample plots.",
+                    )
+                    .small()
+                    .weak(),
+                );
+            }
+        }
+
+        if show_all || has_point_extraction {
+            ui.add_space(8.0);
+            ui.separator();
+            ui.label("Point Extraction");
+            if let Some(groups) = polyline_groups {
+                let point_count: usize = groups.iter().map(Vec::len).sum();
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} sampled point(s) across {} polyline(s) can be extracted as a point plot.",
+                        point_count,
+                        groups.len()
+                    ))
+                    .small()
+                    .weak(),
+                );
+                if ui.button("Extract Points").clicked() {
+                    self.run_single_plot_analysis(
+                        doc_idx,
+                        &selected_spec,
+                        AnalysisKind::ExtractPoints,
+                        vec![],
+                    );
+                }
+            } else {
+                ui.label(
+                    egui::RichText::new(
+                        "Point extraction is available for polyline and interpolated curve plots.",
+                    )
+                    .small()
+                    .weak(),
+                );
+            }
+        }
+
+        if show_all || has_surface_geometry {
+            ui.add_space(8.0);
+            ui.separator();
+            ui.label("Surface Geometry");
+            if has_surface_geometry {
+                ui.label(
+                    egui::RichText::new(
+                        "Run geometry analysis on the selected surface mesh, including normals, curvature, area, and mesh quality diagnostics.",
+                    )
+                    .small()
+                    .weak(),
+                );
+                ui.horizontal(|ui| {
+                    if has_analysis(AnalysisKind::SurfaceNormals)
+                        && ui.button("Visualize Normals").clicked()
+                    {
+                        self.open_surface_normals_modal(plot_idx);
+                    }
+                    if has_analysis(AnalysisKind::SurfaceCurvature)
+                        && ui.button("Surface Curvature").clicked()
+                    {
+                        self.run_surface_plot_analysis(
+                            doc_idx,
+                            plot_idx,
+                            AnalysisKind::SurfaceCurvature,
+                            vec![],
+                        );
+                    }
+                    if has_analysis(AnalysisKind::SurfaceArea)
+                        && ui.button("Surface Area").clicked()
+                    {
+                        self.run_surface_plot_analysis(
+                            doc_idx,
+                            plot_idx,
+                            AnalysisKind::SurfaceArea,
+                            vec![],
+                        );
+                    }
+                    if has_analysis(AnalysisKind::SurfaceMeshQuality)
+                        && ui.button("Mesh Quality").clicked()
+                    {
+                        self.run_surface_plot_analysis(
+                            doc_idx,
+                            plot_idx,
+                            AnalysisKind::SurfaceMeshQuality,
+                            vec![],
                         );
                     }
                 });
-            ui.horizontal(|ui| {
-                let playing = self.documents[doc_idx].frame_playback.playing;
-                if ui.button(if playing { "Pause" } else { "Play" }).clicked() {
-                    self.documents[doc_idx].frame_playback.playing = !playing;
-                }
-                if ui.button("Reset").clicked() {
-                    self.documents[doc_idx].frame_playback.phase = 0.0;
-                    self.documents[doc_idx].frame_playback.playing = false;
-                }
-                if let Some(frame_id) = self.documents[doc_idx].frame_playback.selected_frame_field
-                    && ui.button("Open Data").clicked()
-                {
-                    self.open_stored_frame_field_panel(doc_idx, frame_id);
-                }
-            });
-            ui.add(
-                egui::Slider::new(
-                    &mut self.documents[doc_idx].frame_playback.phase,
-                    0.0..=1.0,
-                )
-                .text("Frame Phase"),
-            );
-            ui.add(
-                egui::Slider::new(
-                    &mut self.documents[doc_idx].frame_playback.speed,
-                    0.05..=2.0,
-                )
-                .text("Playback Speed"),
-            );
-            if let Some(frame_id) = self.documents[doc_idx].frame_playback.selected_frame_field {
-                ui.label("Attachments");
-                for attachment in self.documents[doc_idx]
-                    .frame_attachments
-                    .iter_mut()
-                    .filter(|attachment| attachment.frame_field_id == frame_id)
-                {
-                    ui.horizontal(|ui| {
-                        ui.checkbox(&mut attachment.enabled, &attachment.name);
-                        match attachment.kind {
-                            crate::document::FrameAttachmentKind::Marker
-                            | crate::document::FrameAttachmentKind::Triad
-                            | crate::document::FrameAttachmentKind::ProfileRing => {
-                                ui.add(
-                                    egui::Slider::new(&mut attachment.scale, 0.1..=4.0)
-                                        .text("Scale"),
-                                );
-                            }
-                            crate::document::FrameAttachmentKind::Camera => {
-                                ui.label(
-                                    egui::RichText::new("Follows camera target only")
-                                        .small()
-                                        .weak(),
-                                );
-                            }
-                        }
-                    });
-                }
-            }
-        }
-
-        ui.add_space(8.0);
-        ui.separator();
-        ui.label("Interpolation");
-        if let Ok(groups) = sample_groups(&selected_spec, SampleGroupsKind::InterpolationSource) {
-            let point_count: usize = groups.iter().map(Vec::len).sum();
-            ui.label(
-                egui::RichText::new(format!(
-                    "{} point(s) across {} sequence(s) can be turned into curve geometry.",
-                    point_count,
-                    groups.len()
-                ))
-                .small()
-                .weak(),
-            );
-            if ui.button("Interpolate...").clicked() {
-                self.open_interpolate_modal(plot_idx, &selected);
-            }
-        } else {
-            ui.label(
-                egui::RichText::new(
-                    "Interpolation is available for point and ordered sample plots.",
-                )
-                .small()
-                .weak(),
-            );
-        }
-
-        ui.add_space(8.0);
-        ui.separator();
-        ui.label("Point Extraction");
-        if let Ok(groups) = sample_groups(&selected_spec, SampleGroupsKind::Polyline) {
-            let point_count: usize = groups.iter().map(Vec::len).sum();
-            ui.label(
-                egui::RichText::new(format!(
-                    "{} sampled point(s) across {} polyline(s) can be extracted as a point plot.",
-                    point_count,
-                    groups.len()
-                ))
-                .small()
-                .weak(),
-            );
-            if ui.button("Extract Points").clicked() {
-                self.run_single_plot_analysis(
-                    doc_idx,
-                    &selected_spec,
-                    AnalysisKind::ExtractPoints,
-                    vec![],
+            } else {
+                ui.label(
+                    egui::RichText::new(
+                        "Surface geometry analysis is available for surface-like plots with cached mesh geometry.",
+                    )
+                    .small()
+                    .weak(),
                 );
             }
-        } else {
-            ui.label(
-                egui::RichText::new(
-                    "Point extraction is available for polyline and interpolated curve plots.",
-                )
-                .small()
-                .weak(),
-            );
         }
 
-        ui.add_space(8.0);
-        ui.separator();
-        ui.label("Surface Geometry");
-        let has_surface_geometry = has_analysis(AnalysisKind::SurfaceNormals)
-            || has_analysis(AnalysisKind::SurfaceCurvature)
-            || has_analysis(AnalysisKind::SurfaceArea)
-            || has_analysis(AnalysisKind::SurfaceMeshQuality);
-        if has_surface_geometry {
-            ui.label(
-                egui::RichText::new(
-                    "Run geometry analysis on the selected surface mesh, including normals, curvature, area, and mesh quality diagnostics.",
-                )
-                .small()
-                .weak(),
-            );
-            ui.horizontal(|ui| {
-                if has_analysis(AnalysisKind::SurfaceNormals)
-                    && ui.button("Visualize Normals").clicked()
-                {
-                    self.open_surface_normals_modal(plot_idx);
-                }
-                if has_analysis(AnalysisKind::SurfaceCurvature)
-                    && ui.button("Surface Curvature").clicked()
-                {
-                    self.run_surface_plot_analysis(
-                        doc_idx,
-                        plot_idx,
-                        AnalysisKind::SurfaceCurvature,
-                        vec![],
-                    );
-                }
-                if has_analysis(AnalysisKind::SurfaceArea) && ui.button("Surface Area").clicked() {
-                    self.run_surface_plot_analysis(
-                        doc_idx,
-                        plot_idx,
-                        AnalysisKind::SurfaceArea,
-                        vec![],
-                    );
-                }
-                if has_analysis(AnalysisKind::SurfaceMeshQuality)
-                    && ui.button("Mesh Quality").clicked()
-                {
-                    self.run_surface_plot_analysis(
-                        doc_idx,
-                        plot_idx,
-                        AnalysisKind::SurfaceMeshQuality,
-                        vec![],
-                    );
-                }
-            });
-        } else {
-            ui.label(
-                egui::RichText::new(
-                    "Surface geometry analysis is available for surface-like plots with cached mesh geometry.",
-                )
-                .small()
-                .weak(),
-            );
+        if !(show_all || has_intersections) {
+            return;
         }
 
         ui.add_space(8.0);
