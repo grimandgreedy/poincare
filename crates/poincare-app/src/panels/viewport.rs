@@ -175,6 +175,7 @@ impl App {
                 frame_data.scene.polylines.push(hover_outline);
             }
         }
+        self.inject_frame_attachments(doc_idx, &mut frame_data);
 
         ui.painter()
             .add(eframe::egui_wgpu::Callback::new_paint_callback(

@@ -13,7 +13,10 @@ use viewport_lib::{
 };
 
 use crate::App;
-use crate::document::{Document, ExportFormat, SavedCameraView};
+use crate::document::{
+    Document, ExportFormat, FrameAttachment, FrameAttachmentKind, FramePlaybackState,
+    SavedCameraView, StoredFrameField,
+};
 use crate::plot::analysis::{ArrowAnnotation, PointAnnotation, SliceAxis};
 use crate::plot::entry::{PlotEntry, PlotId, PlotRelationship};
 use crate::plot::kind::{PlotKind, SeedMode};
@@ -95,6 +98,18 @@ fn default_parameter_step() -> f64 {
     0.1
 }
 
+fn default_frame_scale() -> f32 {
+    1.0
+}
+
+fn default_frame_camera_distance() -> f32 {
+    3.0
+}
+
+fn default_frame_playback_speed() -> f32 {
+    0.25
+}
+
 fn default_true() -> bool {
     true
 }
@@ -173,6 +188,12 @@ pub(crate) struct DocumentSnapshot {
     /// files written before Phase 6 loadable without error.
     #[serde(default)]
     pub sweep_config: Vec<HashMap<String, PersistedParameterSweep>>,
+    #[serde(default)]
+    pub frame_fields: Vec<PersistedFrameField>,
+    #[serde(default)]
+    pub frame_attachments: Vec<PersistedFrameAttachment>,
+    #[serde(default)]
+    pub frame_playback: PersistedFramePlaybackState,
 }
 
 // ---------------------------------------------------------------------------
@@ -427,6 +448,50 @@ enum PersistedPlotKind {
     },
 }
 
+#[derive(Serialize, Deserialize)]
+pub(crate) struct PersistedFrameField {
+    id: u64,
+    title: String,
+    #[serde(default)]
+    source_plot_ids: Vec<PlotId>,
+    #[serde(default)]
+    source_plot_names: Vec<String>,
+    kind: String,
+    samples: Vec<PersistedFrameSample>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub(crate) struct PersistedFrameSample {
+    parameter: f32,
+    position: [f32; 3],
+    tangent: [f32; 3],
+    normal: [f32; 3],
+    binormal: [f32; 3],
+}
+
+#[derive(Serialize, Deserialize, Default)]
+pub(crate) struct PersistedFrameAttachment {
+    name: String,
+    frame_field_id: u64,
+    kind: String,
+    enabled: bool,
+    #[serde(default = "default_frame_scale")]
+    scale: f32,
+    #[serde(default = "default_frame_camera_distance")]
+    camera_distance: f32,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+pub(crate) struct PersistedFramePlaybackState {
+    selected_frame_field: Option<u64>,
+    #[serde(default)]
+    phase: f32,
+    #[serde(default)]
+    playing: bool,
+    #[serde(default = "default_frame_playback_speed")]
+    speed: f32,
+}
+
 #[derive(Clone, Copy, Serialize, Deserialize)]
 enum PersistedCurveInterpolationKind {
     Linear,
@@ -608,6 +673,17 @@ impl DocumentSnapshot {
                         .collect()
                 })
                 .collect(),
+            frame_fields: doc
+                .frame_fields
+                .iter()
+                .map(PersistedFrameField::from_frame_field)
+                .collect(),
+            frame_attachments: doc
+                .frame_attachments
+                .iter()
+                .map(PersistedFrameAttachment::from_attachment)
+                .collect(),
+            frame_playback: PersistedFramePlaybackState::from_playback(&doc.frame_playback),
         }
     }
 
@@ -635,6 +711,9 @@ impl DocumentSnapshot {
             camera_track_segment_duration,
             saved_views,
             sweep_config,
+            frame_fields,
+            frame_attachments,
+            frame_playback,
         } = self;
         if let Some(graph) = graph {
             doc.plots = graph.plots.iter().map(plot_spec_to_plot_entry).collect();
@@ -677,6 +756,15 @@ impl DocumentSnapshot {
             .into_iter()
             .map(|m| m.into_iter().map(|(k, v)| (k, v.to_sweep())).collect())
             .collect();
+        doc.frame_fields = frame_fields
+            .into_iter()
+            .map(|field| field.to_frame_field())
+            .collect();
+        doc.frame_attachments = frame_attachments
+            .into_iter()
+            .map(|attachment| attachment.to_attachment())
+            .collect();
+        doc.frame_playback = frame_playback.to_playback();
         doc.scene_dirty = true;
         doc
     }
@@ -733,6 +821,17 @@ impl DocumentSnapshot {
             .iter()
             .map(|m| m.iter().map(|(k, v)| (k.clone(), v.to_sweep())).collect())
             .collect();
+        doc.frame_fields = self
+            .frame_fields
+            .iter()
+            .map(PersistedFrameField::to_frame_field)
+            .collect();
+        doc.frame_attachments = self
+            .frame_attachments
+            .iter()
+            .map(PersistedFrameAttachment::to_attachment)
+            .collect();
+        doc.frame_playback = self.frame_playback.to_playback();
         doc.scene_dirty = true;
         doc.export_status.clear();
         doc.export_progress = None;
@@ -778,6 +877,131 @@ impl PersistedAxisConfig {
         config.labels = self.labels.clone();
         config.tick_count = self.tick_count;
         config
+    }
+}
+
+impl PersistedFrameField {
+    fn from_frame_field(field: &StoredFrameField) -> Self {
+        Self {
+            id: field.id,
+            title: field.title.clone(),
+            source_plot_ids: field.source_plot_ids.clone(),
+            source_plot_names: field.source_plot_names.clone(),
+            kind: analysis_kind_to_key(field.frame_kind).to_string(),
+            samples: field
+                .samples
+                .iter()
+                .map(|sample| PersistedFrameSample {
+                    parameter: sample.parameter,
+                    position: sample.position,
+                    tangent: sample.tangent,
+                    normal: sample.normal,
+                    binormal: sample.binormal,
+                })
+                .collect(),
+        }
+    }
+
+    fn to_frame_field(&self) -> StoredFrameField {
+        StoredFrameField {
+            id: self.id,
+            title: self.title.clone(),
+            source_plot_ids: self.source_plot_ids.clone(),
+            source_plot_names: self.source_plot_names.clone(),
+            frame_kind: analysis_kind_from_key(&self.kind),
+            samples: self
+                .samples
+                .iter()
+                .map(|sample| poincare_lib::FrameSample {
+                    parameter: sample.parameter,
+                    position: sample.position,
+                    tangent: sample.tangent,
+                    normal: sample.normal,
+                    binormal: sample.binormal,
+                })
+                .collect(),
+        }
+    }
+}
+
+impl PersistedFrameAttachment {
+    fn from_attachment(attachment: &FrameAttachment) -> Self {
+        Self {
+            name: attachment.name.clone(),
+            frame_field_id: attachment.frame_field_id,
+            kind: frame_attachment_kind_to_key(attachment.kind).to_string(),
+            enabled: attachment.enabled,
+            scale: attachment.scale,
+            camera_distance: attachment.camera_distance,
+        }
+    }
+
+    fn to_attachment(&self) -> FrameAttachment {
+        FrameAttachment {
+            name: self.name.clone(),
+            frame_field_id: self.frame_field_id,
+            kind: frame_attachment_kind_from_key(&self.kind),
+            enabled: self.enabled,
+            scale: self.scale,
+            camera_distance: self.camera_distance,
+        }
+    }
+}
+
+impl PersistedFramePlaybackState {
+    fn from_playback(playback: &FramePlaybackState) -> Self {
+        Self {
+            selected_frame_field: playback.selected_frame_field,
+            phase: playback.phase,
+            playing: playback.playing,
+            speed: playback.speed,
+        }
+    }
+
+    fn to_playback(&self) -> FramePlaybackState {
+        FramePlaybackState {
+            selected_frame_field: self.selected_frame_field,
+            phase: self.phase,
+            playing: self.playing,
+            speed: self.speed,
+        }
+    }
+}
+
+fn analysis_kind_to_key(kind: poincare_lib::AnalysisKind) -> &'static str {
+    match kind {
+        poincare_lib::AnalysisKind::FrenetFrame => "frenet",
+        poincare_lib::AnalysisKind::BishopFrame => "bishop",
+        poincare_lib::AnalysisKind::DarbouxFrame => "darboux",
+        poincare_lib::AnalysisKind::SurfaceAlignedFrame => "surface_aligned",
+        _ => "frenet",
+    }
+}
+
+fn analysis_kind_from_key(key: &str) -> poincare_lib::AnalysisKind {
+    match key {
+        "bishop" => poincare_lib::AnalysisKind::BishopFrame,
+        "darboux" => poincare_lib::AnalysisKind::DarbouxFrame,
+        "surface_aligned" => poincare_lib::AnalysisKind::SurfaceAlignedFrame,
+        _ => poincare_lib::AnalysisKind::FrenetFrame,
+    }
+}
+
+fn frame_attachment_kind_to_key(kind: FrameAttachmentKind) -> &'static str {
+    match kind {
+        FrameAttachmentKind::Marker => "marker",
+        FrameAttachmentKind::Triad => "triad",
+        FrameAttachmentKind::Camera => "camera",
+        FrameAttachmentKind::ProfileRing => "profile_ring",
+    }
+}
+
+fn frame_attachment_kind_from_key(key: &str) -> FrameAttachmentKind {
+    match key {
+        "triad" => FrameAttachmentKind::Triad,
+        "camera" => FrameAttachmentKind::Camera,
+        "profile_ring" => FrameAttachmentKind::ProfileRing,
+        _ => FrameAttachmentKind::Marker,
     }
 }
 

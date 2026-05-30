@@ -656,7 +656,9 @@ fn resolve_matcap_id(
 fn material_from_style(style: &PlotStyle, matcap_id: Option<viewport_lib::MatcapId>) -> Material {
     let rgba = default_colour_rgba(style);
     let mut material = Material::from_colour([rgba[0], rgba[1], rgba[2]]);
-    material.matcap_id = matcap_id;
+    if let Some(id) = matcap_id {
+        material.shading_model = viewport_lib::ShadingModel::Matcap(id);
+    }
     material.param_vis = style.param_vis.map(Into::into);
 
     match style.shading {

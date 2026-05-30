@@ -25,6 +25,10 @@ pub enum AnalysisKind {
     TangentField,
     NormalField,
     BinormalField,
+    FrenetFrame,
+    BishopFrame,
+    DarbouxFrame,
+    SurfaceAlignedFrame,
     ExtractPoints,
     ScalarSlice,
     VectorSlice,
@@ -96,6 +100,23 @@ pub struct AnalysisTable {
     pub rows: Vec<Vec<String>>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct FrameSample {
+    pub parameter: f32,
+    pub position: [f32; 3],
+    pub tangent: [f32; 3],
+    pub normal: [f32; 3],
+    pub binormal: [f32; 3],
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FrameField {
+    pub title: String,
+    pub source_plot: String,
+    pub frame_kind: AnalysisKind,
+    pub samples: Vec<FrameSample>,
+}
+
 #[derive(Clone, Debug)]
 pub enum AnalysisOutput {
     DerivedPlots {
@@ -115,6 +136,7 @@ pub enum AnalysisOutput {
         reports: Vec<AnalysisReport>,
         tables: Vec<AnalysisTable>,
         diagnostics: Vec<Diagnostic>,
+        frame_fields: Vec<FrameField>,
         provenance: AnalysisProvenance,
     },
 }
@@ -236,6 +258,13 @@ pub fn run_analysis(
         AnalysisKind::TangentField => vec![make_curve_tangent_plot(plot)?],
         AnalysisKind::NormalField => vec![make_curve_normal_plot(plot)?],
         AnalysisKind::BinormalField => vec![make_curve_binormal_plot(plot)?],
+        AnalysisKind::FrenetFrame => return make_curve_frame_output(plot, request.kind, &params),
+        AnalysisKind::BishopFrame => return make_curve_frame_output(plot, request.kind, &params),
+        AnalysisKind::DarbouxFrame | AnalysisKind::SurfaceAlignedFrame => {
+            return Err(AnalysisError::unsupported(
+                "Surface-coupled frame analyses require both curve and surface context.",
+            ));
+        }
         AnalysisKind::ExtractPoints => vec![make_extracted_points_plot(plot)?],
         AnalysisKind::InterpolateCurve => make_interpolated_plots(
             plot,
@@ -300,6 +329,74 @@ pub fn run_surface_mesh_analysis(
             "Not a surface-mesh analysis kind.",
         )),
     }
+}
+
+pub fn run_curve_surface_frame_analysis(
+    curve_source: &PlotSpec,
+    surface_source_name: &str,
+    kind: AnalysisKind,
+    meshes: &[&MeshData],
+    parameters: &[(String, String)],
+) -> Result<AnalysisOutput, AnalysisError> {
+    let combined = CombinedSurfaceMesh::from_meshes(meshes)?;
+    let params = parameter_map(parameters);
+    let groups = curve_sample_groups(curve_source)?;
+    let frame_fields = groups
+        .iter()
+        .enumerate()
+        .filter_map(|(index, group)| {
+            build_curve_surface_frame_field(
+                group,
+                curve_source,
+                surface_source_name,
+                kind,
+                &combined,
+                index,
+                groups.len(),
+            )
+            .ok()
+        })
+        .collect::<Vec<_>>();
+    if frame_fields.is_empty() {
+        return Err(AnalysisError::invalid(
+            "Surface-coupled frame analysis requires a sampled curve and a usable sampled surface mesh.",
+        ));
+    }
+
+    let _max_samples = params
+        .get("max_samples")
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(128);
+    let _vector_scale = params
+        .get("vector_scale")
+        .and_then(|value| value.parse::<f32>().ok())
+        .unwrap_or(1.0)
+        .max(0.01);
+
+    let reports = frame_fields
+        .iter()
+        .map(|field| frame_field_report(field))
+        .collect::<Vec<_>>();
+    let tables = frame_fields
+        .iter()
+        .map(|field| frame_field_table(field))
+        .collect::<Vec<_>>();
+
+    Ok(AnalysisOutput::Composite {
+        plots: Vec::new(),
+        reports,
+        tables,
+        diagnostics: Vec::new(),
+        frame_fields,
+        provenance: AnalysisProvenance {
+            kind,
+            source_plots: vec![curve_source.name.clone(), surface_source_name.to_string()],
+            parameters: parameters.to_vec(),
+            notes: vec![
+                "Surface-coupled frame normals are sampled from the nearest cached surface vertices.".to_string(),
+            ],
+        },
+    })
 }
 
 fn capabilities_for_metadata(metadata: &PlotMetadata) -> Vec<AnalysisCapability> {
@@ -387,6 +484,30 @@ fn capabilities_for_metadata(metadata: &PlotMetadata) -> Vec<AnalysisCapability>
                 target_kind: AnalysisTargetKind::SampledData,
                 output_kind: AnalysisOutputKind::PlotSpec,
                 parameters: vec![],
+            },
+            AnalysisCapability {
+                kind: AnalysisKind::FrenetFrame,
+                target_kind: AnalysisTargetKind::SampledData,
+                output_kind: AnalysisOutputKind::Composite,
+                parameters: vec!["max_samples", "vector_scale"],
+            },
+            AnalysisCapability {
+                kind: AnalysisKind::BishopFrame,
+                target_kind: AnalysisTargetKind::SampledData,
+                output_kind: AnalysisOutputKind::Composite,
+                parameters: vec!["max_samples", "vector_scale"],
+            },
+            AnalysisCapability {
+                kind: AnalysisKind::DarbouxFrame,
+                target_kind: AnalysisTargetKind::PlotPair,
+                output_kind: AnalysisOutputKind::Composite,
+                parameters: vec!["max_samples", "vector_scale"],
+            },
+            AnalysisCapability {
+                kind: AnalysisKind::SurfaceAlignedFrame,
+                target_kind: AnalysisTargetKind::PlotPair,
+                output_kind: AnalysisOutputKind::Composite,
+                parameters: vec!["max_samples", "vector_scale"],
             },
         ]);
     }
@@ -821,6 +942,66 @@ fn make_curve_binormal_plot(source: &PlotSpec) -> Result<PlotSpec, AnalysisError
     )
 }
 
+fn make_curve_frame_output(
+    source: &PlotSpec,
+    frame_kind: AnalysisKind,
+    params: &HashMap<String, String>,
+) -> Result<AnalysisOutput, AnalysisError> {
+    let groups = curve_sample_groups(source)?;
+    let frame_fields = groups
+        .iter()
+        .enumerate()
+        .filter_map(|(index, group)| {
+            build_curve_frame_field(group, source, frame_kind, index, groups.len()).ok()
+        })
+        .collect::<Vec<_>>();
+    if frame_fields.is_empty() {
+        return Err(AnalysisError::invalid(
+            "Moving-frame analysis requires a sampled curve with at least two distinct points.",
+        ));
+    }
+
+    let max_samples = params
+        .get("max_samples")
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(128);
+    let vector_scale = params
+        .get("vector_scale")
+        .and_then(|value| value.parse::<f32>().ok())
+        .unwrap_or(1.0)
+        .max(0.01);
+
+    let reports = frame_fields
+        .iter()
+        .map(|field| frame_field_report(field))
+        .collect::<Vec<_>>();
+    let tables = frame_fields
+        .iter()
+        .map(|field| frame_field_table(field))
+        .collect::<Vec<_>>();
+
+    Ok(AnalysisOutput::Composite {
+        plots: Vec::new(),
+        reports,
+        tables,
+        diagnostics: Vec::new(),
+        frame_fields,
+        provenance: AnalysisProvenance {
+            kind: frame_kind,
+            source_plots: vec![source.name.clone()],
+            parameters: vec![
+                ("max_samples".to_string(), max_samples.to_string()),
+                ("vector_scale".to_string(), format!("{vector_scale:.4}")),
+            ],
+            notes: vec![
+                "Frame parameters are cumulative sampled arc length values.".to_string(),
+                "Bishop frames use rotation-minimizing transport across sampled tangents."
+                    .to_string(),
+            ],
+        },
+    })
+}
+
 fn make_axis_derivative_plot(
     source: &PlotSpec,
     numerator_axis: usize,
@@ -1167,6 +1348,370 @@ fn curve_sample_groups(plot: &PlotSpec) -> Result<Vec<Vec<[f32; 3]>>, AnalysisEr
     }
 }
 
+fn build_curve_frame_field(
+    group: &[[f32; 3]],
+    source: &PlotSpec,
+    frame_kind: AnalysisKind,
+    group_index: usize,
+    group_count: usize,
+) -> Result<FrameField, AnalysisError> {
+    let points = group
+        .iter()
+        .map(|point| Vec3::from_array(*point))
+        .collect::<Vec<_>>();
+    if points.len() < 2 {
+        return Err(AnalysisError::invalid(
+            "Moving-frame analysis requires at least two sampled points.",
+        ));
+    }
+
+    let tangents = sampled_tangents(&points);
+    if tangents.iter().all(|tangent| tangent.length_squared() <= 1.0e-8) {
+        return Err(AnalysisError::invalid(
+            "Moving-frame analysis requires a curve with non-zero tangent variation.",
+        ));
+    }
+    let (normals, binormals) = match frame_kind {
+        AnalysisKind::FrenetFrame => frenet_frames(&points, &tangents),
+        AnalysisKind::BishopFrame => bishop_frames(&tangents),
+        _ => {
+            return Err(AnalysisError::unsupported(
+                "Unsupported moving-frame analysis kind.",
+            ));
+        }
+    };
+    let parameters = cumulative_arc_lengths(group);
+    let title = if group_count > 1 {
+        format!("{} {} {}", frame_kind_label(frame_kind), source.name, group_index + 1)
+    } else {
+        format!("{} {}", frame_kind_label(frame_kind), source.name)
+    };
+
+    Ok(FrameField {
+        title,
+        source_plot: source.name.clone(),
+        frame_kind,
+        samples: points
+            .iter()
+            .enumerate()
+            .map(|(index, point)| FrameSample {
+                parameter: parameters.get(index).copied().unwrap_or_default(),
+                position: point.to_array(),
+                tangent: tangents[index].to_array(),
+                normal: normals[index].to_array(),
+                binormal: binormals[index].to_array(),
+            })
+            .collect(),
+    })
+}
+
+fn build_curve_surface_frame_field(
+    group: &[[f32; 3]],
+    source: &PlotSpec,
+    surface_name: &str,
+    frame_kind: AnalysisKind,
+    mesh: &CombinedSurfaceMesh,
+    group_index: usize,
+    group_count: usize,
+) -> Result<FrameField, AnalysisError> {
+    let points = group
+        .iter()
+        .map(|point| Vec3::from_array(*point))
+        .collect::<Vec<_>>();
+    if points.len() < 2 {
+        return Err(AnalysisError::invalid(
+            "Surface-coupled frame analysis requires at least two sampled points.",
+        ));
+    }
+    let tangents = sampled_tangents(&points);
+    let surface_normals = points
+        .iter()
+        .map(|point| nearest_surface_normal(mesh, *point))
+        .collect::<Vec<_>>();
+    let (normals, binormals) = match frame_kind {
+        AnalysisKind::SurfaceAlignedFrame => surface_aligned_frames(&tangents, &surface_normals),
+        AnalysisKind::DarbouxFrame => darboux_frames(&tangents, &surface_normals),
+        _ => {
+            return Err(AnalysisError::unsupported(
+                "Unsupported surface-coupled frame analysis kind.",
+            ));
+        }
+    };
+    let parameters = cumulative_arc_lengths(group);
+    let title = if group_count > 1 {
+        format!(
+            "{} {} on {} {}",
+            frame_kind_label(frame_kind),
+            source.name,
+            surface_name,
+            group_index + 1
+        )
+    } else {
+        format!(
+            "{} {} on {}",
+            frame_kind_label(frame_kind),
+            source.name,
+            surface_name
+        )
+    };
+
+    Ok(FrameField {
+        title,
+        source_plot: source.name.clone(),
+        frame_kind,
+        samples: points
+            .iter()
+            .enumerate()
+            .map(|(index, point)| FrameSample {
+                parameter: parameters.get(index).copied().unwrap_or_default(),
+                position: point.to_array(),
+                tangent: tangents[index].to_array(),
+                normal: normals[index].to_array(),
+                binormal: binormals[index].to_array(),
+            })
+            .collect(),
+    })
+}
+
+fn frame_field_report(field: &FrameField) -> AnalysisReport {
+    let total_length = field.samples.last().map(|sample| sample.parameter).unwrap_or(0.0);
+    AnalysisReport {
+        title: field.title.clone(),
+        values: vec![
+            ("Frame Kind".to_string(), frame_kind_label(field.frame_kind).to_string()),
+            ("Sample Count".to_string(), field.samples.len().to_string()),
+            ("Arc Length".to_string(), format_float(total_length)),
+        ],
+    }
+}
+
+fn frame_field_table(field: &FrameField) -> AnalysisTable {
+    AnalysisTable {
+        title: format!("{} Samples", field.title),
+        columns: vec![
+            "row".to_string(),
+            "s".to_string(),
+            "x".to_string(),
+            "y".to_string(),
+            "z".to_string(),
+            "tx".to_string(),
+            "ty".to_string(),
+            "tz".to_string(),
+            "nx".to_string(),
+            "ny".to_string(),
+            "nz".to_string(),
+            "bx".to_string(),
+            "by".to_string(),
+            "bz".to_string(),
+        ],
+        rows: field
+            .samples
+            .iter()
+            .enumerate()
+            .map(|(index, sample)| {
+                vec![
+                    (index + 1).to_string(),
+                    format_float(sample.parameter),
+                    format_float(sample.position[0]),
+                    format_float(sample.position[1]),
+                    format_float(sample.position[2]),
+                    format_float(sample.tangent[0]),
+                    format_float(sample.tangent[1]),
+                    format_float(sample.tangent[2]),
+                    format_float(sample.normal[0]),
+                    format_float(sample.normal[1]),
+                    format_float(sample.normal[2]),
+                    format_float(sample.binormal[0]),
+                    format_float(sample.binormal[1]),
+                    format_float(sample.binormal[2]),
+                ]
+            })
+            .collect(),
+    }
+}
+
+fn frame_kind_label(kind: AnalysisKind) -> &'static str {
+    match kind {
+        AnalysisKind::FrenetFrame => "Frenet Frame",
+        AnalysisKind::BishopFrame => "Bishop Frame",
+        AnalysisKind::DarbouxFrame => "Darboux Frame",
+        AnalysisKind::SurfaceAlignedFrame => "Surface-Aligned Frame",
+        _ => "Frame",
+    }
+}
+
+fn sampled_tangents(points: &[Vec3]) -> Vec<Vec3> {
+    (0..points.len())
+        .map(|index| {
+            let prev = if index == 0 {
+                points[index]
+            } else {
+                points[index - 1]
+            };
+            let next = if index + 1 >= points.len() {
+                points[index]
+            } else {
+                points[index + 1]
+            };
+            let tangent = if index == 0 {
+                next - points[index]
+            } else if index + 1 >= points.len() {
+                points[index] - prev
+            } else {
+                next - prev
+            };
+            tangent.normalize_or_zero()
+        })
+        .collect()
+}
+
+fn frenet_frames(points: &[Vec3], tangents: &[Vec3]) -> (Vec<Vec3>, Vec<Vec3>) {
+    let mut normals = Vec::with_capacity(points.len());
+    let mut binormals = Vec::with_capacity(points.len());
+    let mut previous_normal: Option<Vec3> = None;
+
+    for index in 0..points.len() {
+        let tangent = tangents[index];
+        let prev_tangent = tangents.get(index.saturating_sub(1)).copied().unwrap_or(tangent);
+        let next_tangent = tangents.get((index + 1).min(tangents.len() - 1)).copied().unwrap_or(tangent);
+        let tangent_delta = if index == 0 {
+            next_tangent - tangent
+        } else if index + 1 >= tangents.len() {
+            tangent - prev_tangent
+        } else {
+            next_tangent - prev_tangent
+        };
+        let mut normal = orthogonalized(tangent_delta, tangent);
+        if normal.length_squared() <= 1.0e-8 {
+            normal = previous_normal
+                .map(|prev| orthogonalized(prev, tangent))
+                .filter(|candidate| candidate.length_squared() > 1.0e-8)
+                .unwrap_or_else(|| arbitrary_perpendicular(tangent));
+        }
+        normal = normal.normalize_or_zero();
+        let mut binormal = tangent.cross(normal);
+        if binormal.length_squared() <= 1.0e-8 {
+            normal = arbitrary_perpendicular(tangent);
+            binormal = tangent.cross(normal);
+        }
+        binormal = binormal.normalize_or_zero();
+        normal = binormal.cross(tangent).normalize_or_zero();
+        previous_normal = Some(normal);
+        normals.push(normal);
+        binormals.push(binormal);
+    }
+
+    (normals, binormals)
+}
+
+fn bishop_frames(tangents: &[Vec3]) -> (Vec<Vec3>, Vec<Vec3>) {
+    let first_tangent = tangents
+        .iter()
+        .copied()
+        .find(|tangent| tangent.length_squared() > 1.0e-8)
+        .unwrap_or(Vec3::X);
+    let mut normals = Vec::with_capacity(tangents.len());
+    let mut binormals = Vec::with_capacity(tangents.len());
+    let mut current_normal = arbitrary_perpendicular(first_tangent);
+
+    for (index, tangent) in tangents.iter().copied().enumerate() {
+        if index > 0 {
+            let previous_tangent = tangents[index - 1];
+            current_normal = rotate_minimizing(previous_tangent, tangent, current_normal);
+            current_normal = orthogonalized(current_normal, tangent).normalize_or_zero();
+            if current_normal.length_squared() <= 1.0e-8 {
+                current_normal = arbitrary_perpendicular(tangent);
+            }
+        } else {
+            current_normal = orthogonalized(current_normal, tangent).normalize_or_zero();
+        }
+        let binormal = tangent.cross(current_normal).normalize_or_zero();
+        current_normal = binormal.cross(tangent).normalize_or_zero();
+        normals.push(current_normal);
+        binormals.push(binormal);
+    }
+
+    (normals, binormals)
+}
+
+fn surface_aligned_frames(tangents: &[Vec3], surface_normals: &[Vec3]) -> (Vec<Vec3>, Vec<Vec3>) {
+    let mut normals = Vec::with_capacity(tangents.len());
+    let mut binormals = Vec::with_capacity(tangents.len());
+    for (tangent, surface_normal) in tangents.iter().copied().zip(surface_normals.iter().copied()) {
+        let mut normal = orthogonalized(surface_normal, tangent).normalize_or_zero();
+        if normal.length_squared() <= 1.0e-8 {
+            normal = arbitrary_perpendicular(tangent);
+        }
+        let binormal = tangent.cross(normal).normalize_or_zero();
+        normals.push(normal);
+        binormals.push(binormal);
+    }
+    (normals, binormals)
+}
+
+fn darboux_frames(tangents: &[Vec3], surface_normals: &[Vec3]) -> (Vec<Vec3>, Vec<Vec3>) {
+    let mut normals = Vec::with_capacity(tangents.len());
+    let mut binormals = Vec::with_capacity(tangents.len());
+    for (tangent, surface_normal) in tangents.iter().copied().zip(surface_normals.iter().copied()) {
+        let mut surface_normal = orthogonalized(surface_normal, tangent).normalize_or_zero();
+        if surface_normal.length_squared() <= 1.0e-8 {
+            surface_normal = arbitrary_perpendicular(tangent);
+        }
+        let mut geodesic = surface_normal.cross(tangent).normalize_or_zero();
+        if geodesic.length_squared() <= 1.0e-8 {
+            geodesic = arbitrary_perpendicular(tangent);
+        }
+        normals.push(geodesic);
+        binormals.push(surface_normal);
+    }
+    (normals, binormals)
+}
+
+fn nearest_surface_normal(mesh: &CombinedSurfaceMesh, point: Vec3) -> Vec3 {
+    let mut best_distance = f32::INFINITY;
+    let mut best_normal = Vec3::Z;
+    for triangle in mesh.indices.chunks_exact(3) {
+        let a = mesh.positions[triangle[0] as usize];
+        let b = mesh.positions[triangle[1] as usize];
+        let c = mesh.positions[triangle[2] as usize];
+        let normal = (b - a).cross(c - a).normalize_or_zero();
+        if normal.length_squared() <= 1.0e-8 {
+            continue;
+        }
+        let centroid = (a + b + c) / 3.0;
+        let distance = centroid.distance_squared(point);
+        if distance < best_distance {
+            best_distance = distance;
+            best_normal = normal;
+        }
+    }
+    best_normal
+}
+
+fn rotate_minimizing(previous_tangent: Vec3, tangent: Vec3, normal: Vec3) -> Vec3 {
+    if previous_tangent.length_squared() <= 1.0e-8 || tangent.length_squared() <= 1.0e-8 {
+        return normal;
+    }
+    let dot = previous_tangent.dot(tangent).clamp(-1.0, 1.0);
+    if dot > 0.9999 {
+        return normal;
+    }
+    if dot < -0.9999 {
+        let axis = arbitrary_perpendicular(previous_tangent);
+        return glam::Quat::from_axis_angle(axis.normalize_or_zero(), std::f32::consts::PI) * normal;
+    }
+    glam::Quat::from_rotation_arc(previous_tangent, tangent) * normal
+}
+
+fn orthogonalized(vector: Vec3, tangent: Vec3) -> Vec3 {
+    vector - tangent * vector.dot(tangent)
+}
+
+fn arbitrary_perpendicular(tangent: Vec3) -> Vec3 {
+    let reference = if tangent.z.abs() < 0.9 { Vec3::Z } else { Vec3::Y };
+    tangent.cross(reference).normalize_or_zero()
+}
+
 fn make_point_cloud_statistics_output(plot: &PlotSpec) -> Result<AnalysisOutput, AnalysisError> {
     let groups = sample_data_groups(plot)?;
     let samples = flatten_sample_groups(&groups);
@@ -1305,6 +1850,7 @@ fn make_point_cloud_statistics_output(plot: &PlotSpec) -> Result<AnalysisOutput,
         reports,
         tables,
         diagnostics: Vec::new(),
+        frame_fields: Vec::new(),
         provenance: AnalysisProvenance {
             kind: AnalysisKind::PointCloudStatistics,
             source_plots: vec![plot.name.clone()],
@@ -1612,6 +2158,7 @@ fn make_data_quality_output(plot: &PlotSpec) -> Result<AnalysisOutput, AnalysisE
         reports,
         tables,
         diagnostics,
+        frame_fields: Vec::new(),
         provenance: AnalysisProvenance {
             kind: AnalysisKind::DataQualityChecks,
             source_plots: vec![plot.name.clone()],
@@ -1954,6 +2501,7 @@ fn make_surface_curvature_output(
         reports,
         tables,
         diagnostics: Vec::new(),
+        frame_fields: Vec::new(),
         provenance: AnalysisProvenance {
             kind: AnalysisKind::SurfaceCurvature,
             source_plots: vec![source.name.clone()],
@@ -2145,6 +2693,7 @@ fn make_surface_mesh_quality_output(
         reports,
         tables,
         diagnostics,
+        frame_fields: Vec::new(),
         provenance: AnalysisProvenance {
             kind: AnalysisKind::SurfaceMeshQuality,
             source_plots: vec![source.name.clone()],
@@ -3195,6 +3744,7 @@ fn make_curve_fit_output(
         }],
         tables: Vec::new(),
         diagnostics: Vec::new(),
+        frame_fields: Vec::new(),
         provenance: AnalysisProvenance {
             kind: AnalysisKind::FitCurve,
             source_plots: vec![source.name.clone()],
@@ -4566,5 +5116,105 @@ mod tests {
         assert!(sample_table.rows.iter().all(|row| {
             row[4].parse::<f32>().unwrap_or(1.0).abs() < 1.0e-3
         }));
+    }
+
+    #[test]
+    fn frenet_frame_output_emits_tables_and_axis_plots() {
+        let plot = PlotSpec {
+            name: "Curve".to_string(),
+            visible: true,
+            domain: Domain::default(),
+            resolution: Resolution { u: 32, v: 1 },
+            style: PlotStyle::default(),
+            definition: PlotDefinition::HelixCurve,
+        };
+
+        let request = AnalysisRequest {
+            kind: AnalysisKind::FrenetFrame,
+            target: AnalysisTarget::Plot {
+                index: 0,
+                name: Some(plot.name.clone()),
+            },
+            parameters: vec![
+                ("max_samples".to_string(), "24".to_string()),
+                ("vector_scale".to_string(), "0.5".to_string()),
+            ],
+        };
+        let output = run_analysis(&plot, &request).expect("frenet frame output");
+        let AnalysisOutput::Composite {
+            plots,
+            tables,
+            frame_fields,
+            ..
+        } = output
+        else {
+            panic!("expected composite output");
+        };
+
+        assert!(plots.is_empty());
+        assert_eq!(frame_fields.len(), 1);
+        assert_eq!(frame_fields[0].frame_kind, AnalysisKind::FrenetFrame);
+        assert!(tables.iter().any(|table| table.title.contains("Samples")));
+    }
+
+    #[test]
+    fn bishop_frames_stay_orthonormal_on_planar_curve() {
+        let points = (0..8)
+            .map(|index| {
+                let t = index as f32 * 0.3;
+                [t.cos(), t.sin(), 0.0]
+            })
+            .collect::<Vec<_>>();
+
+        let field = build_curve_frame_field(
+            &points,
+            &point_annotations_plot(&points),
+            AnalysisKind::BishopFrame,
+            0,
+            1,
+        )
+        .expect("bishop frame field");
+
+        for sample in field.samples {
+            let t = Vec3::from_array(sample.tangent);
+            let n = Vec3::from_array(sample.normal);
+            let b = Vec3::from_array(sample.binormal);
+            assert!(approx_eq(t.length(), 1.0));
+            assert!(approx_eq(n.length(), 1.0));
+            assert!(approx_eq(b.length(), 1.0));
+            assert!(t.dot(n).abs() < 1.0e-3);
+            assert!(t.dot(b).abs() < 1.0e-3);
+            assert!(n.dot(b).abs() < 1.0e-3);
+        }
+    }
+
+    #[test]
+    fn surface_aligned_frame_uses_surface_context() {
+        let curve = PlotSpec {
+            name: "Curve".to_string(),
+            visible: true,
+            domain: Domain::default(),
+            resolution: Resolution::default(),
+            style: PlotStyle::default(),
+            definition: PlotDefinition::DerivedPolylineGroups {
+                groups: vec![vec![[0.0, 0.0, 0.0], [0.5, 0.0, 0.0], [1.0, 0.0, 0.0]]],
+            },
+        };
+        let surface = square_surface_mesh();
+        let output = run_curve_surface_frame_analysis(
+            &curve,
+            "Surface",
+            AnalysisKind::SurfaceAlignedFrame,
+            &[&surface],
+            &[("max_samples".to_string(), "8".to_string())],
+        )
+        .expect("surface aligned frame");
+        let AnalysisOutput::Composite { frame_fields, .. } = output else {
+            panic!("expected composite output");
+        };
+        let field = frame_fields.first().expect("frame field");
+        assert_eq!(field.frame_kind, AnalysisKind::SurfaceAlignedFrame);
+        let first = field.samples.first().expect("sample");
+        assert!(first.normal[2].abs() > 0.9);
     }
 }

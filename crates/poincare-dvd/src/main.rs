@@ -21,6 +21,8 @@ fn main() -> eframe::Result<()> {
                 .as_ref()
                 .expect("eframe wgpu backend required");
 
+            // Create the viewport-lib renderer and register it in eframe's callback
+            // resource store so ViewportCallback can retrieve it each frame.
             let renderer = ViewportRenderer::new(&wgpu_state.device, wgpu_state.target_format);
             {
                 let mut guard = wgpu_state.renderer.write();
@@ -33,16 +35,21 @@ fn main() -> eframe::Result<()> {
 }
 
 struct DvdApp {
+    // poincare-lib owns the scene: it holds the plot objects and their cached GPU mesh IDs.
     scene: GraphScene,
     camera: Camera,
+    // Position and velocity of the bouncing viewport window.
     viewport_pos: egui::Vec2,
     viewport_velocity: egui::Vec2,
     initialized_viewport: bool,
+    // Accumulated time used to drive the slow camera orbit animation.
     orbit_phase: f32,
 }
 
 impl DvdApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Result<Self, String> {
+        // build_scene() evaluates the plot expressions and tessellates them into
+        // CPU-side triangle meshes stored inside GraphScene.
         let mut scene = build_demo_spec()
             .build_scene()
             .map_err(|err| format!("Failed to build demo scene: {err}"))?;
@@ -58,6 +65,9 @@ impl DvdApp {
                 .callback_resources
                 .get_mut::<ViewportRenderer>()
                 .ok_or_else(|| "viewport renderer missing".to_string())?;
+            // Upload the CPU-side meshes into viewport-lib's GPU resource store.
+            // GraphScene caches the returned MeshIds internally; build_frame() uses
+            // them each frame to tell the renderer what to draw.
             scene
                 .upload_meshes(
                     &wgpu_state.device,
@@ -77,6 +87,7 @@ impl DvdApp {
         })
     }
 
+    // Bounce the viewport rect around inside the window like a DVD screensaver.
     fn tick_viewport(
         &mut self,
         bounds: egui::Rect,
@@ -112,6 +123,8 @@ impl DvdApp {
         egui::Rect::from_min_size(bounds.min + self.viewport_pos, viewport_size)
     }
 
+    // Slowly orbit the camera by writing a new orientation quaternion each frame.
+    // viewport-lib's Camera is a simple value type — there is no built-in animation.
     fn tick_camera(&mut self, dt: f32) {
         self.orbit_phase += dt * 0.35;
         self.camera.orientation = glam::Quat::from_rotation_z(self.orbit_phase * 0.65)
@@ -123,6 +136,7 @@ impl eframe::App for DvdApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let dt = ctx.input(|input| input.stable_dt).max(1.0 / 240.0);
         self.tick_camera(dt);
+        // Keep repainting continuously so the animation runs.
         ctx.request_repaint();
 
         egui::CentralPanel::default()
@@ -132,6 +146,7 @@ impl eframe::App for DvdApp {
                 let viewport_size = egui::vec2(bounds.width() / 4.0, bounds.height() / 4.0);
                 let viewport_rect = self.tick_viewport(bounds, dt, viewport_size);
 
+                // Draw a subtle glow and border around the bouncing viewport.
                 ui.painter().rect_filled(
                     viewport_rect.expand(6.0),
                     10.0,
@@ -144,12 +159,19 @@ impl eframe::App for DvdApp {
                     egui::StrokeKind::Outside,
                 );
 
+                // build_frame() is cheap — it assembles a FrameData value from the
+                // cached MeshIds without touching the GPU. We then patch in the
+                // runtime dimensions that the scene doesn't know about.
                 let mut frame_data = self.scene.build_frame(&self.camera);
                 frame_data.camera.viewport_size = [viewport_rect.width(), viewport_rect.height()];
                 frame_data.camera.pixels_per_point = ctx.pixels_per_point();
                 frame_data.viewport.background_colour = Some([0.03, 0.03, 0.05, 1.0]);
                 frame_data.viewport.show_grid = true;
 
+                // Register a wgpu paint callback for the viewport rect. eframe will
+                // call ViewportCallback::prepare (which submits GPU command buffers)
+                // and then ViewportCallback::paint (which records the render pass)
+                // at the right point in the frame.
                 ui.painter()
                     .add(eframe::egui_wgpu::Callback::new_paint_callback(
                         viewport_rect,
@@ -168,6 +190,8 @@ impl eframe::App for DvdApp {
     }
 }
 
+// Carries FrameData from the egui update() call into the wgpu render callbacks.
+// eframe calls prepare() before the render pass begins and paint() inside it.
 struct ViewportCallback {
     frame: viewport_lib::FrameData,
 }
@@ -181,8 +205,10 @@ impl eframe::egui_wgpu::CallbackTrait for ViewportCallback {
         _egui_encoder: &mut eframe::wgpu::CommandEncoder,
         callback_resources: &mut eframe::egui_wgpu::CallbackResources,
     ) -> Vec<eframe::wgpu::CommandBuffer> {
+        // prepare() returns the CommandBuffers that viewport-lib generated.
+        // These must be returned (not discarded) so eframe submits them to the GPU.
         if let Some(renderer) = callback_resources.get_mut::<ViewportRenderer>() {
-            renderer.pass().prepare(device, queue, &self.frame);
+            return renderer.pass().prepare(device, queue, &self.frame);
         }
         Vec::new()
     }
@@ -199,6 +225,8 @@ impl eframe::egui_wgpu::CallbackTrait for ViewportCallback {
     }
 }
 
+// Declare the two plots that will be rendered in the demo scene.
+// GraphSpec is a plain data description; no GPU work happens here.
 fn build_demo_spec() -> GraphSpec {
     GraphSpec {
         axis_config: AxisConfig {
