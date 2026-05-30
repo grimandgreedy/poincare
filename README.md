@@ -1,4 +1,4 @@
-## Poincare
+## Poincaré
 An interactive 3D mathematical graphing application, and a reusable 3D plotting library. [`viewport-lib`](https://github.com/grimandgreedy/viewport-lib) provides Poincare's interactive 3D viewport and rendering.
 
 
