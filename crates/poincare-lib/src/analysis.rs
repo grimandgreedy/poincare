@@ -11,6 +11,7 @@ use crate::{
     eval_with_vars, parse_curve_expr, parse_expr_with_vars, sample_curve_points,
 };
 
+/// The type of analysis to perform on a plot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AnalysisKind {
     PointCloudStatistics,
@@ -43,43 +44,59 @@ pub enum AnalysisKind {
     SurfaceIntersection,
 }
 
+/// The form of data returned by an analysis.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AnalysisOutputKind {
+    /// Produces new derived plots (e.g. a normal field or fitted curve).
     PlotSpec,
+    /// Produces a flat key/value numeric summary.
     NumericReport,
+    /// Produces a labelled data table.
     Table,
+    /// Produces a mix of plots, reports, and tables.
     Composite,
 }
 
+/// What kind of data an analysis operates on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AnalysisTargetKind {
+    /// Works from the symbolic plot definition (e.g. expression parsing).
     Definition,
+    /// Works from sampled point data (e.g. CSV imports, point clouds).
     SampledData,
+    /// Works from tessellated mesh geometry.
     Geometry,
+    /// Requires two plots as input (e.g. intersection analysis).
     PlotPair,
 }
 
+/// Describes one analysis that is available for a given plot, as returned by [`available_analyses`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct AnalysisCapability {
     pub kind: AnalysisKind,
     pub target_kind: AnalysisTargetKind,
     pub output_kind: AnalysisOutputKind,
+    /// Named parameters this analysis accepts (passed via [`AnalysisRequest::parameters`]).
     pub parameters: Vec<&'static str>,
 }
 
+/// Specifies which plot(s) an analysis should run on.
 #[derive(Clone, Debug, PartialEq)]
 pub enum AnalysisTarget {
     Plot { index: usize, name: Option<String> },
     PlotPair { first: usize, second: usize },
 }
 
+/// Input to [`run_analysis`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct AnalysisRequest {
     pub kind: AnalysisKind,
     pub target: AnalysisTarget,
+    /// Key/value string parameters; valid keys depend on the analysis kind.
     pub parameters: Vec<(String, String)>,
 }
 
+/// Metadata attached to every [`AnalysisOutput`] describing what produced it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AnalysisProvenance {
     pub kind: AnalysisKind,
@@ -88,12 +105,14 @@ pub struct AnalysisProvenance {
     pub notes: Vec<String>,
 }
 
+/// A flat key/value numeric summary returned by some analyses.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AnalysisReport {
     pub title: String,
     pub values: Vec<(String, String)>,
 }
 
+/// A labelled data table returned by some analyses.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AnalysisTable {
     pub title: String,
@@ -101,8 +120,10 @@ pub struct AnalysisTable {
     pub rows: Vec<Vec<String>>,
 }
 
+/// One sample from a moving frame (Frenet, Bishop, or Darboux) along a curve.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FrameSample {
+    /// Curve parameter value at this sample.
     pub parameter: f32,
     pub position: [f32; 3],
     pub tangent: [f32; 3],
@@ -110,6 +131,7 @@ pub struct FrameSample {
     pub binormal: [f32; 3],
 }
 
+/// A sampled moving frame field along a curve, used to drive animated frame overlays.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FrameField {
     pub title: String,
@@ -118,6 +140,7 @@ pub struct FrameField {
     pub samples: Vec<FrameSample>,
 }
 
+/// Result returned by [`run_analysis`].
 #[derive(Clone, Debug)]
 pub enum AnalysisOutput {
     DerivedPlots {
@@ -142,11 +165,16 @@ pub enum AnalysisOutput {
     },
 }
 
+/// Controls what kind of point groups [`sample_groups`] extracts from a plot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SampleGroupsKind {
+    /// Evaluate the plot as a parametric curve.
     Curve,
+    /// Return the raw polyline segments from the plot.
     Polyline,
+    /// Return the source control points for interpolation.
     InterpolationSource,
+    /// Return imported sample data as-is.
     SampleData,
 }
 
@@ -179,6 +207,7 @@ impl std::fmt::Display for AnalysisError {
 
 impl std::error::Error for AnalysisError {}
 
+/// Returns the analyses available for a given plot based on its definition type and metadata.
 pub fn available_analyses(plot: &PlotSpec) -> Vec<AnalysisCapability> {
     let metadata = plot.metadata();
     let mut capabilities = capabilities_for_metadata(&metadata);
@@ -201,6 +230,7 @@ pub fn available_analyses(plot: &PlotSpec) -> Vec<AnalysisCapability> {
     capabilities
 }
 
+/// Extract sampled point groups from a plot for use in curve analysis.
 pub fn sample_groups(
     plot: &PlotSpec,
     kind: SampleGroupsKind,
@@ -213,6 +243,9 @@ pub fn sample_groups(
     }
 }
 
+/// Run an analysis on a plot and return the result.
+///
+/// Call [`available_analyses`] first to check which analyses are valid for the plot.
 pub fn run_analysis(
     plot: &PlotSpec,
     request: &AnalysisRequest,

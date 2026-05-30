@@ -110,6 +110,7 @@ impl GraphScene {
         }
     }
 
+    /// Create a scene with a specific initial domain instead of the default [-10, 10] range.
     pub fn with_domain(domain: Domain) -> Self {
         Self {
             domain,
@@ -170,6 +171,7 @@ impl GraphScene {
         self.build_frame_with_selection(camera, None, None)
     }
 
+    /// Like [`GraphScene::build_frame`], but highlights the plot matching `selected_pick_id`.
     pub fn build_frame_with_selection(
         &self,
         camera: &Camera,
