@@ -1015,7 +1015,7 @@ fn builtin_colormap_color(preset: BuiltinColourmap) -> egui::Color32 {
     }
 }
 
-fn plot_display_rows(plots: &[PlotEntry]) -> Vec<(usize, usize)> {
+pub(crate) fn plot_display_rows(plots: &[PlotEntry]) -> Vec<(usize, usize)> {
     let mut rows = Vec::new();
     let valid_ids = plots
         .iter()
