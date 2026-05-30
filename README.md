@@ -27,8 +27,8 @@ Analysis tools include surface normals, curvature, moving frames, arc-length, to
 
 ## poincare-lib
 
-[`poincare-lib`](https://crates.io/crates/poincare-lib) is the plotting engine extracted from the application. It is independent of the app UI and can be embedded in any wgpu project to add interactive 3D graphing with a few lines of code.
+[`poincare-lib`](https://crates.io/crates/poincare-lib) is the plotting engine, the core of the application. It is independent of the app UI and can be embedded in any viewport-lib + wgpu project to add interactive 3D graphing.
 
 It uses [`viewport-lib`](https://github.com/grimandgreedy/viewport-lib) for the interactive viewport, camera, and GPU rendering layer. Both crates need to be in your dependency tree.
 
-See [`poincare-dvd`](crates/poincare-dvd) for a minimal standalone demo (a bouncing viewport window rendering two live 3D plots) showing what embedding poincare-lib looks like without the full application.
+See [`poincare-dvd`](crates/poincare-dvd) for a minimal standalone demo.
