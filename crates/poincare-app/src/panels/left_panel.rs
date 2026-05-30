@@ -42,6 +42,7 @@ impl PlotMarkerKind {
             | PlotKind::ExprCylindrical { .. }
             | PlotKind::ExprPolar { .. }
             | PlotKind::ExprParametricSurface { .. }
+            | PlotKind::DerivedSurfaceMesh { .. }
             | PlotKind::ScalarSlice { .. } => Self::Surface,
             PlotKind::Isosurface { .. } | PlotKind::ExprIsosurface { .. } => Self::Isosurface,
             PlotKind::VolumeRender { .. }

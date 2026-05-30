@@ -9,10 +9,10 @@ use crate::graph_spec::{GraphSpec, PlotDefinition, PlotSpec};
 use crate::{
     AnnotatedArrowsPlot, AnnotatedPointsPlot, ColourMode, ContourPlot3D, Curve3D, DensityPlot3D,
     Domain, FiniteDifferenceConfig, GraphScene, LevelSet3D, PiecewisePlot, PlaneVectorFieldPlot,
-    PlotStyle, Resolution, ScalarSlicePlot, Scatter3D, StreamPlot3D, Surface3D, TableDataSet,
-    TableVectorFieldPlot, VectorField3D, eval_curve_point, eval_surface, eval_with_vars,
-    finite_curl, finite_divergence, finite_gradient, generate_seeds, parse_expr_with_vars,
-    parse_surface_expr,
+    PlotGeometry, PlotObject, PlotStyle, Resolution, ScalarSlicePlot, Scatter3D, StreamPlot3D,
+    Surface3D, TableDataSet, TableVectorFieldPlot, VectorField3D, eval_curve_point, eval_surface,
+    eval_with_vars, finite_curl, finite_divergence, finite_gradient, generate_seeds,
+    parse_expr_with_vars, parse_surface_expr,
 };
 
 #[derive(Debug, Clone)]
@@ -603,6 +603,25 @@ fn compile_plot_spec(
                 );
             }
         }
+        PlotDefinition::DerivedSurfaceMesh {
+            positions,
+            indices,
+            values,
+            value_name,
+        } => {
+            if !positions.is_empty() && indices.len() >= 3 {
+                scene.add_with_pick_id(
+                    pick_id,
+                    StaticSurfaceMesh::new(
+                        positions.clone(),
+                        indices.clone(),
+                        values.clone(),
+                        value_name.clone(),
+                        plot.style.clone(),
+                    ),
+                );
+            }
+        }
         PlotDefinition::DerivedPolylineGroups { groups } => {
             if !groups.is_empty() {
                 let converted: Vec<Vec<glam::Vec3>> = groups
@@ -844,6 +863,80 @@ fn seed_resolution_from_plot(resolution: Resolution) -> [u32; 3] {
         resolution.v.clamp(2, 12),
         ((resolution.u + resolution.v) / 4).clamp(2, 8),
     ]
+}
+
+struct StaticSurfaceMesh {
+    positions: Vec<[f32; 3]>,
+    indices: Vec<u32>,
+    values: Vec<f32>,
+    value_name: String,
+    style: PlotStyle,
+}
+
+impl StaticSurfaceMesh {
+    fn new(
+        positions: Vec<[f32; 3]>,
+        indices: Vec<u32>,
+        values: Vec<f32>,
+        value_name: String,
+        style: PlotStyle,
+    ) -> Self {
+        Self {
+            positions,
+            indices,
+            values,
+            value_name,
+            style,
+        }
+    }
+}
+
+impl PlotObject for StaticSurfaceMesh {
+    fn coordinate_system(&self) -> crate::CoordinateSystem {
+        crate::CoordinateSystem::Cartesian
+    }
+
+    fn natural_bounds(&self) -> Option<crate::DataBounds> {
+        None
+    }
+
+    fn generate(&self, _domain: &Domain, _resolution: Resolution) -> PlotGeometry {
+        let mut mesh = viewport_lib::MeshData::default();
+        mesh.positions = self.positions.clone();
+        mesh.indices = self.indices.clone();
+        let values = if self.values.len() == self.positions.len() {
+            self.values.clone()
+        } else {
+            vec![0.0; self.positions.len()]
+        };
+        mesh.attributes.insert(
+            "value".to_string(),
+            viewport_lib::AttributeData::Vertex(values.clone()),
+        );
+        if self.value_name != "value" {
+            mesh.attributes.insert(
+                self.value_name.clone(),
+                viewport_lib::AttributeData::Vertex(values),
+            );
+        }
+        mesh.attributes.insert(
+            "x".to_string(),
+            viewport_lib::AttributeData::Vertex(mesh.positions.iter().map(|p| p[0]).collect()),
+        );
+        mesh.attributes.insert(
+            "y".to_string(),
+            viewport_lib::AttributeData::Vertex(mesh.positions.iter().map(|p| p[1]).collect()),
+        );
+        mesh.attributes.insert(
+            "z".to_string(),
+            viewport_lib::AttributeData::Vertex(mesh.positions.iter().map(|p| p[2]).collect()),
+        );
+        PlotGeometry::Surface(mesh)
+    }
+
+    fn style(&self) -> &PlotStyle {
+        &self.style
+    }
 }
 
 fn build_curve_piecewise(groups: &[Vec<glam::Vec3>], style: PlotStyle) -> PiecewisePlot {

@@ -39,6 +39,7 @@ enum SelectedPlotAnalysisAction {
     SurfaceCurvature,
     SurfaceArea,
     SurfaceMeshQuality,
+    CurveSurfaceMeasurement,
     ScalarSliceZ,
     GradientField,
     VectorSliceZ,
@@ -362,24 +363,12 @@ impl App {
                 AnalysisKind::DataQualityChecks,
                 vec![],
             ),
-            SelectedPlotAnalysisAction::SurfaceNormals => {
-                self.open_surface_normals_modal(plot_idx)
-            }
+            SelectedPlotAnalysisAction::SurfaceNormals => self.open_surface_normals_modal(plot_idx),
             SelectedPlotAnalysisAction::SurfaceCurvature => {
-                self.run_surface_plot_analysis(
-                    doc_idx,
-                    plot_idx,
-                    AnalysisKind::SurfaceCurvature,
-                    vec![],
-                )
+                self.open_surface_curvature_modal(plot_idx)
             }
             SelectedPlotAnalysisAction::SurfaceArea => {
-                self.run_surface_plot_analysis(
-                    doc_idx,
-                    plot_idx,
-                    AnalysisKind::SurfaceArea,
-                    vec![],
-                )
+                self.run_surface_plot_analysis(doc_idx, plot_idx, AnalysisKind::SurfaceArea, vec![])
             }
             SelectedPlotAnalysisAction::SurfaceMeshQuality => self.run_surface_plot_analysis(
                 doc_idx,
@@ -387,6 +376,13 @@ impl App {
                 AnalysisKind::SurfaceMeshQuality,
                 vec![],
             ),
+            SelectedPlotAnalysisAction::CurveSurfaceMeasurement => {
+                let target = self
+                    .surface_frame_candidates(doc_idx, plot_idx)
+                    .first()
+                    .map(|(index, _)| *index);
+                self.open_curve_surface_measurement_modal(plot_idx, target)
+            }
             SelectedPlotAnalysisAction::ScalarSliceZ => self.run_single_plot_analysis(
                 doc_idx,
                 &plot_spec,
@@ -528,19 +524,9 @@ impl App {
             has_analysis(AnalysisKind::SurfaceNormals),
         );
         push(
-            "Surface Curvature",
-            SelectedPlotAnalysisAction::SurfaceCurvature,
-            has_analysis(AnalysisKind::SurfaceCurvature),
-        );
-        push(
             "Surface Area",
             SelectedPlotAnalysisAction::SurfaceArea,
             has_analysis(AnalysisKind::SurfaceArea),
-        );
-        push(
-            "Surface Mesh Quality",
-            SelectedPlotAnalysisAction::SurfaceMeshQuality,
-            has_analysis(AnalysisKind::SurfaceMeshQuality),
         );
         push(
             "Add Z Slice",
@@ -601,6 +587,12 @@ impl App {
             "Surface-Aligned Frame...",
             SelectedPlotAnalysisAction::SurfaceAlignedFrame,
             !self.surface_frame_candidates(doc_idx, plot_idx).is_empty(),
+        );
+        push(
+            "Measure Curve Against Surface...",
+            SelectedPlotAnalysisAction::CurveSurfaceMeasurement,
+            has_analysis(AnalysisKind::CurveSurfaceMeasurement)
+                && !self.surface_frame_candidates(doc_idx, plot_idx).is_empty(),
         );
         push(
             "Differentiate by Axis…",

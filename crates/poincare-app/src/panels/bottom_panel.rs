@@ -2,8 +2,8 @@ use eframe::egui;
 use poincare_lib::{
     AnalysisKind, AnalysisOutput, AnalysisRequest, AnalysisTarget, CurveInterpolation,
     CurveInterpolationKind, SampleGroupsKind, available_analyses, run_analysis,
-    run_curve_surface_frame_analysis, run_surface_mesh_analysis, sample_curve_points,
-    sample_groups,
+    run_curve_surface_frame_analysis, run_curve_surface_measurement_analysis,
+    run_surface_mesh_analysis, sample_curve_points, sample_groups,
 };
 use serde_json::json;
 use viewport_lib::{Easing, Projection, ViewPreset};
@@ -11,6 +11,7 @@ use viewport_lib::{Easing, Projection, ViewPreset};
 use crate::App;
 use crate::CameraCommand;
 use crate::InspectorTab;
+use crate::SurfaceCurvatureQuantityUi;
 use crate::dock::DockTab;
 use crate::document::{
     ExportFormat, ExportMode, default_export_dir, ensure_export_dir_exists, export_mode_for_format,
@@ -641,10 +642,8 @@ impl App {
         let has_interpolation = interpolation_groups.is_some();
         let polyline_groups = sample_groups(&selected_spec, SampleGroupsKind::Polyline).ok();
         let has_point_extraction = polyline_groups.is_some();
-        let has_surface_geometry = has_analysis(AnalysisKind::SurfaceNormals)
-            || has_analysis(AnalysisKind::SurfaceCurvature)
-            || has_analysis(AnalysisKind::SurfaceArea)
-            || has_analysis(AnalysisKind::SurfaceMeshQuality);
+        let has_surface_geometry =
+            has_analysis(AnalysisKind::SurfaceNormals) || has_analysis(AnalysisKind::SurfaceArea);
         let surface_intersection_candidates =
             self.surface_intersection_candidates(doc_idx, plot_idx);
         let has_curve_intersections = !self.documents[doc_idx].intersection_cache.is_empty();
@@ -1028,6 +1027,25 @@ impl App {
                     .weak(),
                 );
                 }
+                if !surface_candidates.is_empty() {
+                    ui.add_space(6.0);
+                    ui.label("Curve-on-surface measurement");
+                    ui.horizontal(|ui| {
+                        if ui.button("Measure Against Surface...").clicked() {
+                            self.open_curve_surface_measurement_modal(
+                                plot_idx,
+                                surface_candidates.first().map(|(index, _)| *index),
+                            );
+                        }
+                    });
+                    ui.label(
+                    egui::RichText::new(
+                        "Project the selected curve onto a target surface and report projected length and deviation.",
+                    )
+                    .small()
+                    .weak(),
+                );
+                }
                 self.show_inline_moving_frame_controls(
                     ui,
                     doc_idx,
@@ -1214,7 +1232,7 @@ impl App {
             if has_surface_geometry {
                 ui.label(
                     egui::RichText::new(
-                        "Run geometry analysis on the selected surface mesh, including normals, curvature, area, and mesh quality diagnostics.",
+                        "Run geometry analysis on the selected surface mesh, including normals and area.",
                     )
                     .small()
                     .weak(),
@@ -1225,16 +1243,6 @@ impl App {
                     {
                         self.open_surface_normals_modal(plot_idx);
                     }
-                    if has_analysis(AnalysisKind::SurfaceCurvature)
-                        && ui.button("Surface Curvature").clicked()
-                    {
-                        self.run_surface_plot_analysis(
-                            doc_idx,
-                            plot_idx,
-                            AnalysisKind::SurfaceCurvature,
-                            vec![],
-                        );
-                    }
                     if has_analysis(AnalysisKind::SurfaceArea)
                         && ui.button("Surface Area").clicked()
                     {
@@ -1242,16 +1250,6 @@ impl App {
                             doc_idx,
                             plot_idx,
                             AnalysisKind::SurfaceArea,
-                            vec![],
-                        );
-                    }
-                    if has_analysis(AnalysisKind::SurfaceMeshQuality)
-                        && ui.button("Mesh Quality").clicked()
-                    {
-                        self.run_surface_plot_analysis(
-                            doc_idx,
-                            plot_idx,
-                            AnalysisKind::SurfaceMeshQuality,
                             vec![],
                         );
                     }
@@ -1474,6 +1472,7 @@ impl App {
                         | AnalysisKind::SurfaceCurvature
                         | AnalysisKind::SurfaceMeshQuality
                         | AnalysisKind::SurfaceArea
+                        | AnalysisKind::CurveSurfaceMeasurement
                 ) && (!reports.is_empty()
                     || !tables.is_empty()
                     || !diagnostics.is_empty()
@@ -1511,6 +1510,7 @@ impl App {
                         | AnalysisKind::SurfaceCurvature
                         | AnalysisKind::SurfaceMeshQuality
                         | AnalysisKind::SurfaceArea
+                        | AnalysisKind::CurveSurfaceMeasurement
                 ) {
                     self.open_analysis_results_panel(
                         report.title.clone(),
@@ -1536,6 +1536,7 @@ impl App {
                         | AnalysisKind::SurfaceCurvature
                         | AnalysisKind::SurfaceMeshQuality
                         | AnalysisKind::SurfaceArea
+                        | AnalysisKind::CurveSurfaceMeasurement
                 ) {
                     self.open_analysis_results_panel(
                         format!("Analysis Table: {}", provenance.source_plots.join(", ")),
@@ -1664,6 +1665,44 @@ impl App {
             &curve_spec,
             &surface_plot.name,
             kind,
+            &surfaces,
+            &parameters,
+        ) {
+            Ok(output) => {
+                self.documents[doc_idx].export_status.clear();
+                self.push_analysis_output(doc_idx, output);
+            }
+            Err(error) => {
+                self.documents[doc_idx].export_status = error.diagnostic.to_string();
+            }
+        }
+    }
+
+    fn run_curve_surface_measurement_analysis(
+        &mut self,
+        doc_idx: usize,
+        curve_plot_idx: usize,
+        surface_plot_idx: usize,
+        parameters: Vec<(String, String)>,
+    ) {
+        let curve_spec = self.documents[doc_idx].plots[curve_plot_idx].to_plot_spec();
+        let surface_plot = self.documents[doc_idx].plots[surface_plot_idx].clone();
+        let surface_pick_id = (surface_plot_idx + 1) as u64;
+        let probe_data = self.documents[doc_idx].scene.probe_data();
+        let surfaces = probe_data
+            .surfaces
+            .iter()
+            .filter(|surface| surface.pick_id == surface_pick_id)
+            .map(|surface| surface.mesh)
+            .collect::<Vec<_>>();
+        if surfaces.is_empty() {
+            self.documents[doc_idx].export_status =
+                "Curve-surface measurement failed: target surface has no cached mesh.".to_string();
+            return;
+        }
+        match run_curve_surface_measurement_analysis(
+            &curve_spec,
+            &surface_plot.name,
             &surfaces,
             &parameters,
         ) {
@@ -2262,6 +2301,196 @@ impl App {
         self.surface_normals_modal = open.then_some(state);
     }
 
+    pub(crate) fn show_surface_curvature_modal(&mut self, ctx: &egui::Context) {
+        let Some(mut state) = self.surface_curvature_modal.clone() else {
+            return;
+        };
+
+        let Some(plot) = self.documents[self.active_document_idx]
+            .plots
+            .get(state.source_plot_idx)
+            .cloned()
+        else {
+            self.surface_curvature_modal = None;
+            return;
+        };
+
+        let mut open = true;
+        let mut create_plot = false;
+        let mut cancel_clicked = false;
+        egui::Window::new("Surface Curvature")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Create a coloured curvature surface for {}.",
+                        plot.name
+                    ))
+                    .small()
+                    .weak(),
+                );
+                ui.add_space(8.0);
+                egui::ComboBox::from_label("Quantity")
+                    .selected_text(surface_curvature_quantity_label(state.quantity))
+                    .show_ui(ui, |ui| {
+                        for quantity in [
+                            SurfaceCurvatureQuantityUi::Mean,
+                            SurfaceCurvatureQuantityUi::Gaussian,
+                            SurfaceCurvatureQuantityUi::PrincipalMax,
+                            SurfaceCurvatureQuantityUi::PrincipalMin,
+                        ] {
+                            ui.selectable_value(
+                                &mut state.quantity,
+                                quantity,
+                                surface_curvature_quantity_label(quantity),
+                            );
+                        }
+                    });
+                ui.checkbox(&mut state.show_extrema, "Add ridge/valley markers");
+                if !state.error.is_empty() {
+                    ui.colored_label(egui::Color32::from_rgb(255, 110, 110), &state.error);
+                }
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Create Curvature Surface").clicked() {
+                        create_plot = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        cancel_clicked = true;
+                    }
+                });
+            });
+
+        if cancel_clicked {
+            open = false;
+        }
+
+        if create_plot {
+            self.run_surface_plot_analysis(
+                self.active_document_idx,
+                state.source_plot_idx,
+                AnalysisKind::SurfaceCurvature,
+                vec![
+                    (
+                        "quantity".to_string(),
+                        surface_curvature_quantity_key(state.quantity).to_string(),
+                    ),
+                    ("show_extrema".to_string(), state.show_extrema.to_string()),
+                ],
+            );
+            self.surface_curvature_modal = None;
+            return;
+        }
+
+        self.surface_curvature_modal = open.then_some(state);
+    }
+
+    pub(crate) fn show_curve_surface_measurement_modal(&mut self, ctx: &egui::Context) {
+        let Some(mut state) = self.curve_surface_measurement_modal.clone() else {
+            return;
+        };
+        let doc_idx = self.active_document_idx;
+        let surface_candidates = self.surface_frame_candidates(doc_idx, state.source_plot_idx);
+        if state
+            .target_surface_idx
+            .is_none_or(|target| !surface_candidates.iter().any(|(index, _)| *index == target))
+        {
+            state.target_surface_idx = surface_candidates.first().map(|(index, _)| *index);
+        }
+        let Some(plot) = self.documents[doc_idx]
+            .plots
+            .get(state.source_plot_idx)
+            .cloned()
+        else {
+            self.curve_surface_measurement_modal = None;
+            return;
+        };
+
+        let mut open = true;
+        let mut create_output = false;
+        let mut cancel_clicked = false;
+        egui::Window::new("Curve-on-Surface Measurement")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Project {} onto a target surface and measure deviation.",
+                        plot.name
+                    ))
+                    .small()
+                    .weak(),
+                );
+                ui.add_space(8.0);
+                egui::ComboBox::from_label("Target Surface")
+                    .selected_text(
+                        state
+                            .target_surface_idx
+                            .and_then(|target| {
+                                surface_candidates
+                                    .iter()
+                                    .find(|(index, _)| *index == target)
+                                    .map(|(_, label)| label.clone())
+                            })
+                            .unwrap_or_else(|| "Select target".to_string()),
+                    )
+                    .show_ui(ui, |ui| {
+                        for (index, label) in &surface_candidates {
+                            ui.selectable_value(&mut state.target_surface_idx, Some(*index), label);
+                        }
+                    });
+                ui.add(egui::Slider::new(&mut state.max_samples, 16..=4096).text("Sample Count"));
+                ui.add(
+                    egui::Slider::new(&mut state.vector_scale, 0.1..=4.0)
+                        .text("Deviation Vector Scale"),
+                );
+                if !state.error.is_empty() {
+                    ui.colored_label(egui::Color32::from_rgb(255, 110, 110), &state.error);
+                }
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Measure").clicked() {
+                        create_output = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        cancel_clicked = true;
+                    }
+                });
+            });
+
+        if cancel_clicked {
+            open = false;
+        }
+        if create_output {
+            if let Some(target_surface_idx) = state.target_surface_idx {
+                self.run_curve_surface_measurement_analysis(
+                    doc_idx,
+                    state.source_plot_idx,
+                    target_surface_idx,
+                    vec![
+                        ("max_samples".to_string(), state.max_samples.to_string()),
+                        (
+                            "vector_scale".to_string(),
+                            format!("{:.4}", state.vector_scale),
+                        ),
+                    ],
+                );
+                self.curve_surface_measurement_modal = None;
+                return;
+            }
+            state.error = "Target surface is required.".to_string();
+            self.curve_surface_measurement_modal = Some(state);
+            return;
+        }
+
+        self.curve_surface_measurement_modal = open.then_some(state);
+    }
+
     fn show_inline_moving_frame_controls(
         &mut self,
         ui: &mut egui::Ui,
@@ -2430,6 +2659,29 @@ impl App {
     pub(crate) fn open_surface_normals_modal(&mut self, plot_idx: usize) {
         self.surface_normals_modal = Some(crate::SurfaceNormalsModalState {
             source_plot_idx: plot_idx,
+            max_samples: 512,
+            vector_scale: 1.0,
+            error: String::new(),
+        });
+    }
+
+    pub(crate) fn open_surface_curvature_modal(&mut self, plot_idx: usize) {
+        self.surface_curvature_modal = Some(crate::SurfaceCurvatureModalState {
+            source_plot_idx: plot_idx,
+            quantity: SurfaceCurvatureQuantityUi::Mean,
+            show_extrema: true,
+            error: String::new(),
+        });
+    }
+
+    pub(crate) fn open_curve_surface_measurement_modal(
+        &mut self,
+        plot_idx: usize,
+        target_surface_idx: Option<usize>,
+    ) {
+        self.curve_surface_measurement_modal = Some(crate::CurveSurfaceMeasurementModalState {
+            source_plot_idx: plot_idx,
+            target_surface_idx,
             max_samples: 512,
             vector_scale: 1.0,
             error: String::new(),
@@ -2628,6 +2880,24 @@ fn requires_surface_target(kind: AnalysisKind) -> bool {
     )
 }
 
+fn surface_curvature_quantity_label(quantity: SurfaceCurvatureQuantityUi) -> &'static str {
+    match quantity {
+        SurfaceCurvatureQuantityUi::Mean => "Mean Curvature",
+        SurfaceCurvatureQuantityUi::Gaussian => "Gaussian Curvature",
+        SurfaceCurvatureQuantityUi::PrincipalMax => "Principal Max",
+        SurfaceCurvatureQuantityUi::PrincipalMin => "Principal Min",
+    }
+}
+
+fn surface_curvature_quantity_key(quantity: SurfaceCurvatureQuantityUi) -> &'static str {
+    match quantity {
+        SurfaceCurvatureQuantityUi::Mean => "mean_curvature",
+        SurfaceCurvatureQuantityUi::Gaussian => "gaussian_curvature",
+        SurfaceCurvatureQuantityUi::PrincipalMax => "k_max",
+        SurfaceCurvatureQuantityUi::PrincipalMin => "k_min",
+    }
+}
+
 fn axis_derivative_label(axis: usize) -> &'static str {
     match axis {
         0 => "Differentiate X",
@@ -2746,6 +3016,17 @@ fn plot_properties_summary(plot: &PlotEntry) -> String {
         PlotKind::ArrowAnnotations { arrows, .. } => {
             format!("Arrow annotations, {} arrows", arrows.len())
         }
+        PlotKind::DerivedSurfaceMesh {
+            positions,
+            value_name,
+            ..
+        } => {
+            format!(
+                "Derived surface, {} vertices coloured by {}",
+                positions.len(),
+                value_name
+            )
+        }
         PlotKind::DerivedPolylineGroups { groups } => {
             let point_count: usize = groups.iter().map(Vec::len).sum();
             format!(
@@ -2858,6 +3139,7 @@ fn plot_kind_name(kind: &PlotKind) -> &'static str {
         PlotKind::CurlField { .. } => "CurlField",
         PlotKind::PointAnnotations { .. } => "PointAnnotations",
         PlotKind::ArrowAnnotations { .. } => "ArrowAnnotations",
+        PlotKind::DerivedSurfaceMesh { .. } => "DerivedSurfaceMesh",
         PlotKind::DerivedPolylineGroups { .. } => "DerivedPolylineGroups",
         PlotKind::InterpolatedCurve { .. } => "InterpolatedCurve",
         PlotKind::ExprVectorField { .. } => "ExprVectorField",

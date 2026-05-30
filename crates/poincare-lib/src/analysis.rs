@@ -39,6 +39,7 @@ pub enum AnalysisKind {
     SurfaceCurvature,
     SurfaceArea,
     SurfaceMeshQuality,
+    CurveSurfaceMeasurement,
     SurfaceIntersection,
 }
 
@@ -270,9 +271,11 @@ pub fn run_analysis(
         AnalysisKind::BinormalField => vec![make_curve_binormal_plot(plot)?],
         AnalysisKind::FrenetFrame => return make_curve_frame_output(plot, request.kind, &params),
         AnalysisKind::BishopFrame => return make_curve_frame_output(plot, request.kind, &params),
-        AnalysisKind::DarbouxFrame | AnalysisKind::SurfaceAlignedFrame => {
+        AnalysisKind::DarbouxFrame
+        | AnalysisKind::SurfaceAlignedFrame
+        | AnalysisKind::CurveSurfaceMeasurement => {
             return Err(AnalysisError::unsupported(
-                "Surface-coupled frame analyses require both curve and surface context.",
+                "Curve-surface analyses require both curve and surface context.",
             ));
         }
         AnalysisKind::ExtractPoints => vec![make_extracted_points_plot(plot)?],
@@ -332,7 +335,7 @@ pub fn run_surface_mesh_analysis(
                 .and_then(|value| value.parse::<f32>().ok())
                 .unwrap_or(1.0),
         ),
-        AnalysisKind::SurfaceCurvature => make_surface_curvature_output(source, &combined),
+        AnalysisKind::SurfaceCurvature => make_surface_curvature_output(source, &combined, &params),
         AnalysisKind::SurfaceArea => make_surface_area_output(source, &combined),
         AnalysisKind::SurfaceMeshQuality => make_surface_mesh_quality_output(source, &combined),
         _ => Err(AnalysisError::unsupported(
@@ -407,6 +410,33 @@ pub fn run_curve_surface_frame_analysis(
             ],
         },
     })
+}
+
+pub fn run_curve_surface_measurement_analysis(
+    curve_source: &PlotSpec,
+    surface_source_name: &str,
+    meshes: &[&MeshData],
+    parameters: &[(String, String)],
+) -> Result<AnalysisOutput, AnalysisError> {
+    let combined = CombinedSurfaceMesh::from_meshes(meshes)?;
+    let params = parameter_map(parameters);
+    let max_samples = params
+        .get("max_samples")
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(512)
+        .max(2);
+    let vector_scale = params
+        .get("vector_scale")
+        .and_then(|value| value.parse::<f32>().ok())
+        .unwrap_or(1.0)
+        .max(0.05);
+    make_curve_surface_measurement_output(
+        curve_source,
+        surface_source_name,
+        &combined,
+        max_samples,
+        vector_scale,
+    )
 }
 
 fn capabilities_for_metadata(metadata: &PlotMetadata) -> Vec<AnalysisCapability> {
@@ -515,6 +545,12 @@ fn capabilities_for_metadata(metadata: &PlotMetadata) -> Vec<AnalysisCapability>
             },
             AnalysisCapability {
                 kind: AnalysisKind::SurfaceAlignedFrame,
+                target_kind: AnalysisTargetKind::PlotPair,
+                output_kind: AnalysisOutputKind::Composite,
+                parameters: vec!["max_samples", "vector_scale"],
+            },
+            AnalysisCapability {
+                kind: AnalysisKind::CurveSurfaceMeasurement,
                 target_kind: AnalysisTargetKind::PlotPair,
                 output_kind: AnalysisOutputKind::Composite,
                 parameters: vec!["max_samples", "vector_scale"],
@@ -1376,7 +1412,10 @@ fn build_curve_frame_field(
     }
 
     let tangents = sampled_tangents(&points);
-    if tangents.iter().all(|tangent| tangent.length_squared() <= 1.0e-8) {
+    if tangents
+        .iter()
+        .all(|tangent| tangent.length_squared() <= 1.0e-8)
+    {
         return Err(AnalysisError::invalid(
             "Moving-frame analysis requires a curve with non-zero tangent variation.",
         ));
@@ -1392,7 +1431,12 @@ fn build_curve_frame_field(
     };
     let parameters = cumulative_arc_lengths(group);
     let title = if group_count > 1 {
-        format!("{} {} {}", frame_kind_label(frame_kind), source.name, group_index + 1)
+        format!(
+            "{} {} {}",
+            frame_kind_label(frame_kind),
+            source.name,
+            group_index + 1
+        )
     } else {
         format!("{} {}", frame_kind_label(frame_kind), source.name)
     };
@@ -1484,11 +1528,18 @@ fn build_curve_surface_frame_field(
 }
 
 fn frame_field_report(field: &FrameField) -> AnalysisReport {
-    let total_length = field.samples.last().map(|sample| sample.parameter).unwrap_or(0.0);
+    let total_length = field
+        .samples
+        .last()
+        .map(|sample| sample.parameter)
+        .unwrap_or(0.0);
     AnalysisReport {
         title: field.title.clone(),
         values: vec![
-            ("Frame Kind".to_string(), frame_kind_label(field.frame_kind).to_string()),
+            (
+                "Frame Kind".to_string(),
+                frame_kind_label(field.frame_kind).to_string(),
+            ),
             ("Sample Count".to_string(), field.samples.len().to_string()),
             ("Arc Length".to_string(), format_float(total_length)),
         ],
@@ -1582,8 +1633,14 @@ fn frenet_frames(points: &[Vec3], tangents: &[Vec3]) -> (Vec<Vec3>, Vec<Vec3>) {
 
     for index in 0..points.len() {
         let tangent = tangents[index];
-        let prev_tangent = tangents.get(index.saturating_sub(1)).copied().unwrap_or(tangent);
-        let next_tangent = tangents.get((index + 1).min(tangents.len() - 1)).copied().unwrap_or(tangent);
+        let prev_tangent = tangents
+            .get(index.saturating_sub(1))
+            .copied()
+            .unwrap_or(tangent);
+        let next_tangent = tangents
+            .get((index + 1).min(tangents.len() - 1))
+            .copied()
+            .unwrap_or(tangent);
         let tangent_delta = if index == 0 {
             next_tangent - tangent
         } else if index + 1 >= tangents.len() {
@@ -1647,7 +1704,11 @@ fn bishop_frames(tangents: &[Vec3]) -> (Vec<Vec3>, Vec<Vec3>) {
 fn surface_aligned_frames(tangents: &[Vec3], surface_normals: &[Vec3]) -> (Vec<Vec3>, Vec<Vec3>) {
     let mut normals = Vec::with_capacity(tangents.len());
     let mut binormals = Vec::with_capacity(tangents.len());
-    for (tangent, surface_normal) in tangents.iter().copied().zip(surface_normals.iter().copied()) {
+    for (tangent, surface_normal) in tangents
+        .iter()
+        .copied()
+        .zip(surface_normals.iter().copied())
+    {
         let mut normal = orthogonalized(surface_normal, tangent).normalize_or_zero();
         if normal.length_squared() <= 1.0e-8 {
             normal = arbitrary_perpendicular(tangent);
@@ -1662,7 +1723,11 @@ fn surface_aligned_frames(tangents: &[Vec3], surface_normals: &[Vec3]) -> (Vec<V
 fn darboux_frames(tangents: &[Vec3], surface_normals: &[Vec3]) -> (Vec<Vec3>, Vec<Vec3>) {
     let mut normals = Vec::with_capacity(tangents.len());
     let mut binormals = Vec::with_capacity(tangents.len());
-    for (tangent, surface_normal) in tangents.iter().copied().zip(surface_normals.iter().copied()) {
+    for (tangent, surface_normal) in tangents
+        .iter()
+        .copied()
+        .zip(surface_normals.iter().copied())
+    {
         let mut surface_normal = orthogonalized(surface_normal, tangent).normalize_or_zero();
         if surface_normal.length_squared() <= 1.0e-8 {
             surface_normal = arbitrary_perpendicular(tangent);
@@ -1708,7 +1773,8 @@ fn rotate_minimizing(previous_tangent: Vec3, tangent: Vec3, normal: Vec3) -> Vec
     }
     if dot < -0.9999 {
         let axis = arbitrary_perpendicular(previous_tangent);
-        return glam::Quat::from_axis_angle(axis.normalize_or_zero(), std::f32::consts::PI) * normal;
+        return glam::Quat::from_axis_angle(axis.normalize_or_zero(), std::f32::consts::PI)
+            * normal;
     }
     glam::Quat::from_rotation_arc(previous_tangent, tangent) * normal
 }
@@ -1718,7 +1784,11 @@ fn orthogonalized(vector: Vec3, tangent: Vec3) -> Vec3 {
 }
 
 fn arbitrary_perpendicular(tangent: Vec3) -> Vec3 {
-    let reference = if tangent.z.abs() < 0.9 { Vec3::Z } else { Vec3::Y };
+    let reference = if tangent.z.abs() < 0.9 {
+        Vec3::Z
+    } else {
+        Vec3::Y
+    };
     tangent.cross(reference).normalize_or_zero()
 }
 
@@ -2322,7 +2392,10 @@ fn make_surface_area_output(
             title: format!("Surface Area {}", source.name),
             values: vec![
                 ("Vertex Count".to_string(), mesh.positions.len().to_string()),
-                ("Triangle Count".to_string(), (mesh.indices.len() / 3).to_string()),
+                (
+                    "Triangle Count".to_string(),
+                    (mesh.indices.len() / 3).to_string(),
+                ),
                 ("Surface Area".to_string(), format_float(total_area)),
                 ("Triangle Area Min".to_string(), format_float(min_area)),
                 ("Triangle Area Mean".to_string(), format_float(mean_area)),
@@ -2341,24 +2414,28 @@ fn make_surface_area_output(
 fn make_surface_curvature_output(
     source: &PlotSpec,
     mesh: &CombinedSurfaceMesh,
+    params: &HashMap<String, String>,
 ) -> Result<AnalysisOutput, AnalysisError> {
     let summary = estimate_surface_curvatures(mesh);
+    let quantity = params
+        .get("quantity")
+        .map(String::as_str)
+        .unwrap_or("mean_curvature");
+    let (quantity_label, values) = match quantity {
+        "gaussian_curvature" => ("Gaussian Curvature", summary.gaussian_curvature.clone()),
+        "k_max" => ("Principal Max Curvature", summary.principal_max.clone()),
+        "k_min" => ("Principal Min Curvature", summary.principal_min.clone()),
+        _ => ("Mean Curvature", summary.mean_curvature.clone()),
+    };
+    let show_extrema = params
+        .get("show_extrema")
+        .is_none_or(|value| matches!(value.as_str(), "1" | "true" | "yes"));
     let ridge_extrema = local_principal_maxima(mesh, &summary, 8);
     let valley_extrema = local_principal_minima(mesh, &summary, 8);
-    let gaussian_peak = top_vertex_extrema(
-        mesh,
-        &summary.gaussian_curvature,
-        2,
-        "Gaussian Peak",
-        true,
-    );
-    let gaussian_pit = top_vertex_extrema(
-        mesh,
-        &summary.gaussian_curvature,
-        2,
-        "Gaussian Pit",
-        false,
-    );
+    let gaussian_peak =
+        top_vertex_extrema(mesh, &summary.gaussian_curvature, 2, "Gaussian Peak", true);
+    let gaussian_pit =
+        top_vertex_extrema(mesh, &summary.gaussian_curvature, 2, "Gaussian Pit", false);
 
     let mut marker_points = Vec::new();
     marker_points.extend(ridge_extrema.iter().cloned());
@@ -2383,10 +2460,35 @@ fn make_surface_curvature_output(
         .map(|(k1, k2)| k1.abs().max(k2.abs()))
         .collect::<Vec<_>>();
 
-    let plots = if marker_points.is_empty() {
-        Vec::new()
-    } else {
-        vec![PlotSpec {
+    let (range_min, _, range_max) = min_mean_max(&values);
+    let mut plots = vec![PlotSpec {
+        name: format!("{quantity_label} {}", source.name),
+        visible: true,
+        domain: source.domain.clone(),
+        resolution: source.resolution,
+        style: PlotStyle {
+            colour_mode: ColourMode::Colormap {
+                colormap: ColormapSource::Builtin(BuiltinColourmap::Coolwarm),
+                scalar_range: Some((range_min, range_max)),
+            },
+            opacity: 0.92,
+            two_sided: true,
+            ..PlotStyle::default()
+        },
+        definition: crate::PlotDefinition::DerivedSurfaceMesh {
+            positions: mesh
+                .positions
+                .iter()
+                .map(|position| position.to_array())
+                .collect(),
+            indices: mesh.indices.clone(),
+            values: values.clone(),
+            value_name: quantity.to_string(),
+        },
+    }];
+
+    if show_extrema && !marker_points.is_empty() {
+        plots.push(PlotSpec {
             name: format!("Curvature Markers {}", source.name),
             visible: true,
             domain: source.domain.clone(),
@@ -2406,17 +2508,25 @@ fn make_surface_curvature_output(
                     .collect(),
                 show_labels: false,
             },
-        }]
-    };
+        });
+    }
 
     let reports = vec![AnalysisReport {
         title: format!("Surface Curvature {}", source.name),
         values: vec![
             ("Vertex Count".to_string(), mesh.positions.len().to_string()),
-            ("Triangle Count".to_string(), (mesh.indices.len() / 3).to_string()),
+            (
+                "Triangle Count".to_string(),
+                (mesh.indices.len() / 3).to_string(),
+            ),
             (
                 "Boundary Vertices".to_string(),
-                summary.boundary_vertices.iter().filter(|value| **value).count().to_string(),
+                summary
+                    .boundary_vertices
+                    .iter()
+                    .filter(|value| **value)
+                    .count()
+                    .to_string(),
             ),
             (
                 "Mean |H|".to_string(),
@@ -2515,13 +2625,266 @@ fn make_surface_curvature_output(
         provenance: AnalysisProvenance {
             kind: AnalysisKind::SurfaceCurvature,
             source_plots: vec![source.name.clone()],
-            parameters: Vec::new(),
+            parameters: vec![
+                ("quantity".to_string(), quantity.to_string()),
+                ("show_extrema".to_string(), show_extrema.to_string()),
+            ],
             notes: vec![
                 "Curvature estimates use discrete triangle-mesh angle-defect and cotangent-weight formulas."
                     .to_string(),
             ],
         },
     })
+}
+
+struct CurveSurfaceSample {
+    group_index: usize,
+    sample_index: usize,
+    position: Vec3,
+    projected: Vec3,
+    distance: f32,
+}
+
+fn make_curve_surface_measurement_output(
+    curve_source: &PlotSpec,
+    surface_source_name: &str,
+    mesh: &CombinedSurfaceMesh,
+    max_samples: usize,
+    vector_scale: f32,
+) -> Result<AnalysisOutput, AnalysisError> {
+    let groups = curve_sample_groups(curve_source)?;
+    let sampled_groups = groups
+        .iter()
+        .map(|group| sample_curve_group_for_measurement(group, max_samples))
+        .filter(|group| group.len() >= 2)
+        .collect::<Vec<_>>();
+    if sampled_groups.is_empty() {
+        return Err(AnalysisError::invalid(
+            "Curve-surface measurement requires at least two sampled curve points.",
+        ));
+    }
+
+    let mut rows = Vec::new();
+    let mut projected_groups = Vec::new();
+    let mut deviation_arrows = Vec::new();
+    let mut original_length = 0.0_f32;
+    let mut projected_length = 0.0_f32;
+
+    let (bbox_min, bbox_max) = bounds_for_points(&mesh.positions);
+    let diagonal = bbox_max.distance(bbox_min).max(1.0);
+    let arrow_stride = (sampled_groups.iter().map(Vec::len).sum::<usize>() / 64).max(1);
+
+    for (group_index, group) in sampled_groups.iter().enumerate() {
+        let mut projected_group = Vec::with_capacity(group.len());
+        let mut previous_curve = None;
+        let mut previous_projected = None;
+        for (sample_index, point) in group.iter().copied().enumerate() {
+            let projected = closest_point_on_surface(mesh, point);
+            let distance = point.distance(projected);
+            if let Some(previous) = previous_curve {
+                original_length += point.distance(previous);
+            }
+            if let Some(previous) = previous_projected {
+                projected_length += projected.distance(previous);
+            }
+            previous_curve = Some(point);
+            previous_projected = Some(projected);
+            projected_group.push(projected.to_array());
+            rows.push(CurveSurfaceSample {
+                group_index,
+                sample_index,
+                position: point,
+                projected,
+                distance,
+            });
+            if sample_index % arrow_stride == 0 && distance > diagonal * 1.0e-5 {
+                deviation_arrows.push(ArrowAnnotation {
+                    origin: projected.to_array(),
+                    vector: ((point - projected) * vector_scale).to_array(),
+                    label: String::new(),
+                });
+            }
+        }
+        projected_groups.push(projected_group);
+    }
+
+    let distances = rows.iter().map(|row| row.distance).collect::<Vec<_>>();
+    let (min_distance, mean_distance, max_distance) = min_mean_max(&distances);
+    let rms_distance =
+        (distances.iter().map(|value| value * value).sum::<f32>() / distances.len() as f32).sqrt();
+
+    let mut plots = vec![PlotSpec {
+        name: format!("Projected {} on {}", curve_source.name, surface_source_name),
+        visible: true,
+        domain: curve_source.domain.clone(),
+        resolution: curve_source.resolution,
+        style: PlotStyle {
+            colour_mode: ColourMode::Solid([0.2, 0.9, 0.95, 1.0]),
+            line_width: 3.0,
+            ..PlotStyle::default()
+        },
+        definition: crate::PlotDefinition::DerivedPolylineGroups {
+            groups: projected_groups,
+        },
+    }];
+    if !deviation_arrows.is_empty() {
+        plots.push(PlotSpec {
+            name: format!("Deviation {} to {}", curve_source.name, surface_source_name),
+            visible: true,
+            domain: curve_source.domain.clone(),
+            resolution: curve_source.resolution,
+            style: PlotStyle {
+                colour_mode: ColourMode::Solid([1.0, 0.35, 0.25, 1.0]),
+                glyph_scale: 1.0,
+                shading: crate::ShadingMode::Unlit,
+                ..PlotStyle::default()
+            },
+            definition: crate::PlotDefinition::ArrowAnnotations {
+                arrows: deviation_arrows,
+                show_labels: false,
+            },
+        });
+    }
+
+    Ok(AnalysisOutput::Composite {
+        plots,
+        reports: vec![AnalysisReport {
+            title: format!("Curve-Surface Measurement {}", curve_source.name),
+            values: vec![
+                ("Target Surface".to_string(), surface_source_name.to_string()),
+                ("Sample Count".to_string(), rows.len().to_string()),
+                ("Curve Length".to_string(), format_float(original_length)),
+                ("Projected Length".to_string(), format_float(projected_length)),
+                (
+                    "Length Difference".to_string(),
+                    format_float(projected_length - original_length),
+                ),
+                ("Deviation Min".to_string(), format_float(min_distance)),
+                ("Deviation Mean".to_string(), format_float(mean_distance)),
+                ("Deviation RMS".to_string(), format_float(rms_distance)),
+                ("Deviation Max".to_string(), format_float(max_distance)),
+            ],
+        }],
+        tables: vec![AnalysisTable {
+            title: "Curve Surface Samples".to_string(),
+            columns: vec![
+                "group".to_string(),
+                "sample".to_string(),
+                "x".to_string(),
+                "y".to_string(),
+                "z".to_string(),
+                "projected_x".to_string(),
+                "projected_y".to_string(),
+                "projected_z".to_string(),
+                "deviation".to_string(),
+            ],
+            rows: rows
+                .iter()
+                .map(|row| {
+                    vec![
+                        (row.group_index + 1).to_string(),
+                        (row.sample_index + 1).to_string(),
+                        format_float(row.position.x),
+                        format_float(row.position.y),
+                        format_float(row.position.z),
+                        format_float(row.projected.x),
+                        format_float(row.projected.y),
+                        format_float(row.projected.z),
+                        format_float(row.distance),
+                    ]
+                })
+                .collect(),
+        }],
+        diagnostics: Vec::new(),
+        frame_fields: Vec::new(),
+        provenance: AnalysisProvenance {
+            kind: AnalysisKind::CurveSurfaceMeasurement,
+            source_plots: vec![curve_source.name.clone(), surface_source_name.to_string()],
+            parameters: vec![
+                ("max_samples".to_string(), max_samples.to_string()),
+                ("vector_scale".to_string(), format_float(vector_scale)),
+            ],
+            notes: vec![
+                "Curve points are projected to the nearest point on cached target-surface triangles."
+                    .to_string(),
+            ],
+        },
+    })
+}
+
+fn sample_curve_group_for_measurement(group: &[[f32; 3]], max_samples: usize) -> Vec<Vec3> {
+    if group.len() <= max_samples {
+        return group.iter().copied().map(Vec3::from_array).collect();
+    }
+    sampled_vertex_indices(group.len(), max_samples)
+        .into_iter()
+        .map(|index| Vec3::from_array(group[index]))
+        .collect()
+}
+
+fn closest_point_on_surface(mesh: &CombinedSurfaceMesh, point: Vec3) -> Vec3 {
+    let mut closest = mesh.positions.first().copied().unwrap_or(Vec3::ZERO);
+    let mut best_distance_sq = point.distance_squared(closest);
+    for tri in mesh.indices.chunks_exact(3) {
+        let a = mesh.positions[tri[0] as usize];
+        let b = mesh.positions[tri[1] as usize];
+        let c = mesh.positions[tri[2] as usize];
+        let candidate = closest_point_on_triangle(point, a, b, c);
+        let distance_sq = point.distance_squared(candidate);
+        if distance_sq < best_distance_sq {
+            best_distance_sq = distance_sq;
+            closest = candidate;
+        }
+    }
+    closest
+}
+
+fn closest_point_on_triangle(point: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Vec3 {
+    let ab = b - a;
+    let ac = c - a;
+    let ap = point - a;
+    let d1 = ab.dot(ap);
+    let d2 = ac.dot(ap);
+    if d1 <= 0.0 && d2 <= 0.0 {
+        return a;
+    }
+
+    let bp = point - b;
+    let d3 = ab.dot(bp);
+    let d4 = ac.dot(bp);
+    if d3 >= 0.0 && d4 <= d3 {
+        return b;
+    }
+
+    let vc = d1 * d4 - d3 * d2;
+    if vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
+        let v = d1 / (d1 - d3);
+        return a + ab * v;
+    }
+
+    let cp = point - c;
+    let d5 = ab.dot(cp);
+    let d6 = ac.dot(cp);
+    if d6 >= 0.0 && d5 <= d6 {
+        return c;
+    }
+
+    let vb = d5 * d2 - d1 * d6;
+    if vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
+        let w = d2 / (d2 - d6);
+        return a + ac * w;
+    }
+
+    let va = d3 * d6 - d5 * d4;
+    if va <= 0.0 && (d4 - d3) >= 0.0 && (d5 - d6) >= 0.0 {
+        let w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        return b + (c - b) * w;
+    }
+
+    let denom = 1.0 / (va + vb + vc);
+    let v = vb * denom;
+    let w = vc * denom;
+    a + ab * v + ac * w
 }
 
 fn make_surface_mesh_quality_output(
@@ -2536,7 +2899,10 @@ fn make_surface_mesh_quality_output(
         .collect::<Vec<_>>();
     let area_values = faces.iter().map(|row| row.area).collect::<Vec<_>>();
     let aspect_values = faces.iter().map(|row| row.aspect_ratio).collect::<Vec<_>>();
-    let min_angles = faces.iter().map(|row| row.min_angle_deg).collect::<Vec<_>>();
+    let min_angles = faces
+        .iter()
+        .map(|row| row.min_angle_deg)
+        .collect::<Vec<_>>();
     let angle_distortion_values = faces
         .iter()
         .filter_map(|row| row.angle_distortion)
@@ -2550,7 +2916,10 @@ fn make_surface_mesh_quality_output(
     if !poor_faces.is_empty() {
         diagnostics.push(Diagnostic::warning(
             DiagnosticKind::Validation,
-            format!("Detected {} mesh-quality warning face(s).", poor_faces.len()),
+            format!(
+                "Detected {} mesh-quality warning face(s).",
+                poor_faces.len()
+            ),
         ));
         diagnostics.extend(poor_faces.iter().take(12).map(|row| {
             Diagnostic::warning(
@@ -2583,9 +2952,7 @@ fn make_surface_mesh_quality_output(
             ),
             (
                 "Aspect Ratio Mean".to_string(),
-                format_float(
-                    aspect_values.iter().sum::<f32>() / aspect_values.len().max(1) as f32
-                ),
+                format_float(aspect_values.iter().sum::<f32>() / aspect_values.len().max(1) as f32),
             ),
             (
                 "Aspect Ratio Max".to_string(),
@@ -2749,9 +3116,27 @@ fn estimate_surface_curvatures(mesh: &CombinedSurfaceMesh) -> SurfaceCurvatureSu
         angle_sum[i1] += angle1;
         angle_sum[i2] += angle2;
 
-        accumulate_edge_weight(&mut edge_weights, &mut edge_counts, i1, i2, cotangent(angle0));
-        accumulate_edge_weight(&mut edge_weights, &mut edge_counts, i0, i2, cotangent(angle1));
-        accumulate_edge_weight(&mut edge_weights, &mut edge_counts, i0, i1, cotangent(angle2));
+        accumulate_edge_weight(
+            &mut edge_weights,
+            &mut edge_counts,
+            i1,
+            i2,
+            cotangent(angle0),
+        );
+        accumulate_edge_weight(
+            &mut edge_weights,
+            &mut edge_counts,
+            i0,
+            i2,
+            cotangent(angle1),
+        );
+        accumulate_edge_weight(
+            &mut edge_weights,
+            &mut edge_counts,
+            i0,
+            i1,
+            cotangent(angle2),
+        );
     }
 
     let vertex_normals = vertex_normals_accum
@@ -2848,14 +3233,20 @@ fn local_principal_maxima(
     summary: &SurfaceCurvatureSummary,
     limit: usize,
 ) -> Vec<SurfaceExtremum> {
-    local_extrema(mesh, &summary.principal_max, &summary.neighbors, limit, true)
-        .into_iter()
-        .filter(|extremum| extremum.value > 0.0)
-        .map(|mut extremum| {
-            extremum.label = "Ridge".to_string();
-            extremum
-        })
-        .collect()
+    local_extrema(
+        mesh,
+        &summary.principal_max,
+        &summary.neighbors,
+        limit,
+        true,
+    )
+    .into_iter()
+    .filter(|extremum| extremum.value > 0.0)
+    .map(|mut extremum| {
+        extremum.label = "Ridge".to_string();
+        extremum
+    })
+    .collect()
 }
 
 fn local_principal_minima(
@@ -2863,14 +3254,20 @@ fn local_principal_minima(
     summary: &SurfaceCurvatureSummary,
     limit: usize,
 ) -> Vec<SurfaceExtremum> {
-    local_extrema(mesh, &summary.principal_min, &summary.neighbors, limit, false)
-        .into_iter()
-        .filter(|extremum| extremum.value < 0.0)
-        .map(|mut extremum| {
-            extremum.label = "Valley".to_string();
-            extremum
-        })
-        .collect()
+    local_extrema(
+        mesh,
+        &summary.principal_min,
+        &summary.neighbors,
+        limit,
+        false,
+    )
+    .into_iter()
+    .filter(|extremum| extremum.value < 0.0)
+    .map(|mut extremum| {
+        extremum.label = "Valley".to_string();
+        extremum
+    })
+    .collect()
 }
 
 fn local_extrema(
@@ -5105,16 +5502,15 @@ mod tests {
         let AnalysisOutput::Report { report, .. } = area else {
             panic!("expected report output");
         };
-        assert!(report.values.iter().any(|(label, value)| {
-            label == "Surface Area" && value == "1.00000"
-        }));
+        assert!(
+            report
+                .values
+                .iter()
+                .any(|(label, value)| { label == "Surface Area" && value == "1.00000" })
+        );
 
-        let curvature = run_surface_mesh_analysis(
-            &plot,
-            AnalysisKind::SurfaceCurvature,
-            &[&mesh],
-            &[],
-        )
+        let curvature =
+            run_surface_mesh_analysis(&plot, AnalysisKind::SurfaceCurvature, &[&mesh], &[])
                 .expect("surface curvature");
         let AnalysisOutput::Composite { tables, .. } = curvature else {
             panic!("expected composite output");
@@ -5123,9 +5519,12 @@ mod tests {
             .iter()
             .find(|table| table.title == "Vertex Curvature Samples")
             .expect("curvature sample table");
-        assert!(sample_table.rows.iter().all(|row| {
-            row[4].parse::<f32>().unwrap_or(1.0).abs() < 1.0e-3
-        }));
+        assert!(
+            sample_table
+                .rows
+                .iter()
+                .all(|row| { row[4].parse::<f32>().unwrap_or(1.0).abs() < 1.0e-3 })
+        );
     }
 
     #[test]

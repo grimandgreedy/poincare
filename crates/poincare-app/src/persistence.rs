@@ -416,6 +416,12 @@ enum PersistedPlotKind {
         #[serde(default = "default_true")]
         show_labels: bool,
     },
+    DerivedSurfaceMesh {
+        positions: Vec<[f32; 3]>,
+        indices: Vec<u32>,
+        values: Vec<f32>,
+        value_name: String,
+    },
     DerivedPolylineGroups {
         groups: Vec<Vec<[f32; 3]>>,
     },
@@ -1429,6 +1435,17 @@ impl PersistedPlotKind {
                 arrows: arrows.clone(),
                 show_labels: *show_labels,
             },
+            PlotKind::DerivedSurfaceMesh {
+                positions,
+                indices,
+                values,
+                value_name,
+            } => Self::DerivedSurfaceMesh {
+                positions: positions.clone(),
+                indices: indices.clone(),
+                values: values.clone(),
+                value_name: value_name.clone(),
+            },
             PlotKind::DerivedPolylineGroups { groups } => Self::DerivedPolylineGroups {
                 groups: groups.clone(),
             },
@@ -1633,6 +1650,17 @@ impl PersistedPlotKind {
             } => PlotKind::ArrowAnnotations {
                 arrows: arrows.clone(),
                 show_labels: *show_labels,
+            },
+            Self::DerivedSurfaceMesh {
+                positions,
+                indices,
+                values,
+                value_name,
+            } => PlotKind::DerivedSurfaceMesh {
+                positions: positions.clone(),
+                indices: indices.clone(),
+                values: values.clone(),
+                value_name: value_name.clone(),
             },
             Self::DerivedPolylineGroups { groups } => PlotKind::DerivedPolylineGroups {
                 groups: groups.clone(),

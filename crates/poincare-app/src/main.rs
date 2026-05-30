@@ -243,6 +243,8 @@ struct App {
     axis_derivative_modal: Option<AxisDerivativeModalState>,
     fit_curve_modal: Option<FitCurveModalState>,
     surface_normals_modal: Option<SurfaceNormalsModalState>,
+    surface_curvature_modal: Option<SurfaceCurvatureModalState>,
+    curve_surface_measurement_modal: Option<CurveSurfaceMeasurementModalState>,
     moving_frame_modal: Option<MovingFrameModalState>,
     data_editor_modal: Option<DataEditorModalState>,
     data_panel: Option<DataPanelState>,
@@ -291,6 +293,31 @@ struct FitCurveModalState {
 #[derive(Clone)]
 struct SurfaceNormalsModalState {
     source_plot_idx: usize,
+    max_samples: u32,
+    vector_scale: f32,
+    error: String,
+}
+
+#[derive(Clone)]
+struct SurfaceCurvatureModalState {
+    source_plot_idx: usize,
+    quantity: SurfaceCurvatureQuantityUi,
+    show_extrema: bool,
+    error: String,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SurfaceCurvatureQuantityUi {
+    Mean,
+    Gaussian,
+    PrincipalMax,
+    PrincipalMin,
+}
+
+#[derive(Clone)]
+struct CurveSurfaceMeasurementModalState {
+    source_plot_idx: usize,
+    target_surface_idx: Option<usize>,
     max_samples: u32,
     vector_scale: f32,
     error: String,
@@ -462,6 +489,8 @@ impl App {
             axis_derivative_modal: None,
             fit_curve_modal: None,
             surface_normals_modal: None,
+            surface_curvature_modal: None,
+            curve_surface_measurement_modal: None,
             moving_frame_modal: None,
             data_editor_modal: None,
             data_panel: None,
@@ -686,7 +715,8 @@ impl App {
         else {
             return;
         };
-        doc.camera.set_center(glam::Vec3::from_array(sample.position));
+        doc.camera
+            .set_center(glam::Vec3::from_array(sample.position));
         let _ = attachment;
     }
 
@@ -723,13 +753,26 @@ impl App {
                 }
                 FrameAttachmentKind::Triad => {
                     for (vector, colour) in [
-                        ((tangent * attachment.scale).to_array(), [1.0, 0.2, 0.2, 1.0]),
-                        ((normal * attachment.scale).to_array(), [0.2, 0.95, 0.25, 1.0]),
-                        ((binormal * attachment.scale).to_array(), [0.25, 0.45, 1.0, 1.0]),
+                        (
+                            (tangent * attachment.scale).to_array(),
+                            [1.0, 0.2, 0.2, 1.0],
+                        ),
+                        (
+                            (normal * attachment.scale).to_array(),
+                            [0.2, 0.95, 0.25, 1.0],
+                        ),
+                        (
+                            (binormal * attachment.scale).to_array(),
+                            [0.25, 0.45, 1.0, 1.0],
+                        ),
                     ] {
                         let mut glyphs = viewport_lib::GlyphItem::default();
                         glyphs.positions = vec![position];
-                        glyphs.vectors = vec![glam::Vec3::from_array(vector).normalize_or_zero().to_array()];
+                        glyphs.vectors = vec![
+                            glam::Vec3::from_array(vector)
+                                .normalize_or_zero()
+                                .to_array(),
+                        ];
                         glyphs.scalars = vec![0.0];
                         glyphs.use_default_colour = true;
                         glyphs.default_colour = colour;
@@ -745,7 +788,8 @@ impl App {
                     let segments = 24usize;
                     for index in 0..=segments {
                         let theta = index as f32 / segments as f32 * std::f32::consts::TAU;
-                        let offset = normal * (theta.cos() * radius) + binormal * (theta.sin() * radius);
+                        let offset =
+                            normal * (theta.cos() * radius) + binormal * (theta.sin() * radius);
                         polyline
                             .positions
                             .push((glam::Vec3::from_array(position) + offset).to_array());
@@ -2771,7 +2815,10 @@ impl eframe::App for App {
         }
         self.apply_frame_playback(dt as f32);
         self.apply_frame_camera_attachment();
-        if self.documents[self.active_document_idx].frame_playback.playing {
+        if self.documents[self.active_document_idx]
+            .frame_playback
+            .playing
+        {
             ctx.request_repaint();
         }
         {
@@ -2819,6 +2866,8 @@ impl eframe::App for App {
         self.show_axis_derivative_modal(ctx);
         self.show_fit_curve_modal(ctx);
         self.show_surface_normals_modal(ctx);
+        self.show_surface_curvature_modal(ctx);
+        self.show_curve_surface_measurement_modal(ctx);
         self.show_data_editor_modal(ctx);
         self.show_command_palette(ctx);
         self.show_shortcuts_modal(ctx);

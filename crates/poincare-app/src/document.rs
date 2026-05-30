@@ -570,11 +570,22 @@ impl Document {
             Some(sel) if sel >= self.plots.len() => Some(self.plots.len() - 1),
             other => other,
         };
-        let valid_ids = self.plots.iter().map(|plot| plot.plot_id).collect::<std::collections::HashSet<_>>();
+        let valid_ids = self
+            .plots
+            .iter()
+            .map(|plot| plot.plot_id)
+            .collect::<std::collections::HashSet<_>>();
         self.frame_fields.retain(|field| {
-            field.source_plot_ids.iter().all(|plot_id| valid_ids.contains(plot_id))
+            field
+                .source_plot_ids
+                .iter()
+                .all(|plot_id| valid_ids.contains(plot_id))
         });
-        let valid_frame_ids = self.frame_fields.iter().map(|field| field.id).collect::<std::collections::HashSet<_>>();
+        let valid_frame_ids = self
+            .frame_fields
+            .iter()
+            .map(|field| field.id)
+            .collect::<std::collections::HashSet<_>>();
         self.frame_attachments
             .retain(|attachment| valid_frame_ids.contains(&attachment.frame_field_id));
         if self
@@ -582,7 +593,8 @@ impl Document {
             .selected_frame_field
             .is_some_and(|id| !valid_frame_ids.contains(&id))
         {
-            self.frame_playback.selected_frame_field = self.frame_fields.first().map(|field| field.id);
+            self.frame_playback.selected_frame_field =
+                self.frame_fields.first().map(|field| field.id);
             self.frame_playback.playing = false;
             self.frame_playback.phase = 0.0;
         }
@@ -601,13 +613,9 @@ impl Document {
         let id = self.frame_playback.selected_frame_field?;
         self.frame_fields.iter().find(|field| field.id == id)
     }
-
 }
 
-pub(crate) fn sample_frame_field(
-    field: &StoredFrameField,
-    phase: f32,
-) -> Option<&FrameSample> {
+pub(crate) fn sample_frame_field(field: &StoredFrameField, phase: f32) -> Option<&FrameSample> {
     if field.samples.is_empty() {
         return None;
     }
