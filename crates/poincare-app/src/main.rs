@@ -1,4 +1,4 @@
-//! Poincaré — standalone 3D graphing application.
+//! Poincaré: standalone 3D graphing application.
 
 mod dock;
 mod document;
@@ -1372,7 +1372,7 @@ impl App {
             return;
         }
 
-        // File shortcuts — consume before checking wants_keyboard_input so they
+        // File shortcuts: consume before checking wants_keyboard_input so they
         // work even when a text field has focus.
         if ctx.input_mut(|i| {
             i.consume_key(
@@ -1964,7 +1964,7 @@ impl App {
                 continue;
             }
             // sweep_config[plot_idx] and plots[plot_idx].kind are in different Vecs
-            // (different fields of Document) → the borrows cannot alias.
+            // (different fields of Document) so the borrows cannot alias.
             let sweep_map = &mut sweep_config[plot_idx];
             if let Some(parameters) = plots[plot_idx].kind.parameters_mut() {
                 for (name, value) in parameters.iter_mut() {
@@ -2673,7 +2673,7 @@ impl eframe::App for App {
     }
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        // Intercept OS close request — prompt if any document has unsaved changes.
+        // Intercept OS close request; prompt if any document has unsaved changes.
         if ctx.input(|i| i.viewport().close_requested()) {
             let any_dirty = self.documents.iter().any(|d| d.dirty);
             if self.force_quit {
@@ -2684,7 +2684,7 @@ impl eframe::App for App {
             }
         }
 
-        // Handle pending file actions (rfd dialogs are blocking — call them
+        // Handle pending file actions (rfd dialogs are blocking, so call them
         // before UI rendering so the frame pauses cleanly during the dialog).
         if self.pending_open {
             self.pending_open = false;

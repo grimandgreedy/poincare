@@ -124,7 +124,7 @@ impl DvdApp {
     }
 
     // Slowly orbit the camera by writing a new orientation quaternion each frame.
-    // viewport-lib's Camera is a simple value type — there is no built-in animation.
+    // viewport-lib's Camera is a plain value type with no built-in animation.
     fn tick_camera(&mut self, dt: f32) {
         self.orbit_phase += dt * 0.35;
         self.camera.orientation = glam::Quat::from_rotation_z(self.orbit_phase * 0.65)
@@ -159,9 +159,9 @@ impl eframe::App for DvdApp {
                     egui::StrokeKind::Outside,
                 );
 
-                // build_frame() is cheap — it assembles a FrameData value from the
-                // cached MeshIds without touching the GPU. We then patch in the
-                // runtime dimensions that the scene doesn't know about.
+                // build_frame() assembles a FrameData value from the cached MeshIds
+                // without touching the GPU. We then patch in the runtime dimensions
+                // that the scene doesn't know about.
                 let mut frame_data = self.scene.build_frame(&self.camera);
                 frame_data.camera.viewport_size = [viewport_rect.width(), viewport_rect.height()];
                 frame_data.camera.pixels_per_point = ctx.pixels_per_point();

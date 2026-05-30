@@ -617,7 +617,7 @@ pub(crate) fn build_plot_entry_from_inputs(
                 .map(|s| s.trim().parse::<f64>())
                 .collect();
             let isovalues = isovalues
-                .map_err(|_| "Invalid isovalue — use comma-separated numbers".to_string())?;
+                .map_err(|_| "Invalid isovalue. Use comma-separated numbers.".to_string())?;
             let iso_colours = isovalues
                 .iter()
                 .enumerate()

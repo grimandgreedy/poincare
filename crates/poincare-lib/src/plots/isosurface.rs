@@ -1,4 +1,4 @@
-//! ContourPlot3D — marching-cubes isosurface extraction plot type.
+//! ContourPlot3D: marching-cubes isosurface extraction plot type.
 
 use viewport_lib::{VolumeData, extract_isosurface};
 
@@ -38,9 +38,9 @@ const DEFAULT_ISO_COLORS: [[f32; 4]; 6] = [
 impl ContourPlot3D {
     /// Create a contour plot from a scalar field closure, a set of iso-values, and grid resolution.
     ///
-    /// * `f` — scalar field `f(x, y, z) -> f64`.
-    /// * `isovalues` — one isosurface is extracted per value in this slice.
-    /// * `resolution` — grid dimensions `[nx, ny, nz]` for field evaluation.
+    /// * `f`: scalar field `f(x, y, z) -> f64`.
+    /// * `isovalues`: one isosurface is extracted per value in this slice.
+    /// * `resolution`: grid dimensions `[nx, ny, nz]` for field evaluation.
     pub fn from_fn(
         f: impl Fn(f64, f64, f64) -> f64 + Send + Sync + 'static,
         isovalues: &[f64],

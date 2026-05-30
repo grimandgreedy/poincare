@@ -1,4 +1,4 @@
-//! VectorField3D — arrow glyph vector field plot type.
+//! VectorField3D: arrow glyph vector field plot type.
 
 use glam::Vec3;
 
@@ -66,7 +66,7 @@ impl PlotObject for VectorField3D {
     }
 
     fn natural_bounds(&self) -> Option<DataBounds> {
-        // Analytical vector field — no natural bounds; caller supplies domain.
+        // Analytical vector field with no natural bounds; caller supplies domain.
         None
     }
 

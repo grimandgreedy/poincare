@@ -9,7 +9,7 @@ pub(crate) struct ProbeHit {
     /// For surfaces: the face normal (pointing toward the camera).
     /// For polylines: the segment tangent direction.
     pub(crate) normal: glam::Vec3,
-    /// Cursor is within snap radius of an intersection — hint only, not yet locked.
+    /// Cursor is within snap radius of an intersection (hint only, not yet locked).
     pub(crate) near_snap: bool,
     /// User clicked to lock the probe to an intersection point.
     pub(crate) snapped: bool,

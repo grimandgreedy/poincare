@@ -4,7 +4,7 @@ pub(crate) struct ParameterSweep {
     pub min: f64,
     pub max: f64,
     pub step: f64,
-    /// Range traversals per second (min→max counts as one traversal).
+    /// Range traversals per second (min to max counts as one traversal).
     pub speed: f64,
     pub playing: bool,
     /// Current position in \[0.0, 1.0\]: 0.0 = min, 1.0 = max.

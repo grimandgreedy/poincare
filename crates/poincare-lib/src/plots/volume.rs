@@ -1,4 +1,4 @@
-//! DensityPlot3D — 3D scalar field volume renderer.
+//! DensityPlot3D: 3D scalar field volume renderer.
 
 use crate::coordinate::CoordinateSystem;
 use crate::domain::{DataBounds, Domain};
@@ -20,8 +20,8 @@ enum VolumeSource {
 /// A 3D volume density plot that evaluates a scalar field on a regular grid.
 ///
 /// Two construction modes are supported:
-/// - [`from_fn`](DensityPlot3D::from_fn) — evaluates a closure on a regular grid.
-/// - [`from_voxels`](DensityPlot3D::from_voxels) — uses pre-computed voxel data directly.
+/// - [`from_fn`](DensityPlot3D::from_fn): evaluates a closure on a regular grid.
+/// - [`from_voxels`](DensityPlot3D::from_voxels): uses pre-computed voxel data directly.
 ///
 /// The resulting geometry is uploaded as a GPU 3D texture and rendered with
 /// direct volume rendering (DVR). Opacity is controlled via

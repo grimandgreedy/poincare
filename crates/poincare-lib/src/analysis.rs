@@ -149,6 +149,8 @@ pub enum SampleGroupsKind {
     SampleData,
 }
 
+/// Error returned by analysis functions when an operation is unsupported for the
+/// given plot type, or when input data fails validation.
 #[derive(Clone, Debug)]
 pub struct AnalysisError {
     pub diagnostic: Diagnostic,
@@ -167,6 +169,14 @@ impl AnalysisError {
         }
     }
 }
+
+impl std::fmt::Display for AnalysisError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.diagnostic)
+    }
+}
+
+impl std::error::Error for AnalysisError {}
 
 pub fn available_analyses(plot: &PlotSpec) -> Vec<AnalysisCapability> {
     let metadata = plot.metadata();

@@ -169,7 +169,7 @@ pub enum SurfaceLicVectorField {
     /// Produces helical / winding streaks across both parametric directions.
     Diagonal,
     /// Saddle flow: normalized difference of TangentU and TangentV.
-    /// Creates saddle-point topology — flow converges along U and diverges along V.
+    /// Creates saddle-point topology where flow converges along U and diverges along V.
     Saddle,
 }
 

@@ -58,7 +58,7 @@ enum CurveKind {
 
 /// A 3D parametric curve or arbitrary point sequence.
 ///
-/// Produces [`PlotGeometry::Polyline`] — rendered as a [`PolylineItem`] in the viewport.
+/// Produces [`PlotGeometry::Polyline`], rendered as a [`viewport_lib::PolylineItem`] in the viewport.
 pub struct Curve3D {
     kind: CurveKind,
     style: PlotStyle,

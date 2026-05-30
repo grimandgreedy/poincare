@@ -1,4 +1,4 @@
-//! StreamPlot3D — RK4 streamline/streamtube plot type.
+//! StreamPlot3D: RK4 streamline/streamtube plot type.
 
 use glam::Vec3;
 
@@ -32,10 +32,10 @@ pub struct StreamPlot3D {
 impl StreamPlot3D {
     /// Create a streamline plot from a velocity field closure and a set of seed points.
     ///
-    /// * `field` — closure `f(p: Vec3) -> Vec3` returning the velocity at position `p`.
-    /// * `seeds` — starting positions for streamline integration.
-    /// * `step_size` — RK4 step size in world units per step (e.g. `0.05`).
-    /// * `max_steps` — maximum integration steps per seed before stopping.
+    /// * `field`: closure `f(p: Vec3) -> Vec3` returning the velocity at position `p`.
+    /// * `seeds`: starting positions for streamline integration.
+    /// * `step_size`: RK4 step size in world units per step (e.g. `0.05`).
+    /// * `max_steps`: maximum integration steps per seed before stopping.
     pub fn from_field(
         field: impl Fn(Vec3) -> Vec3 + Send + Sync + 'static,
         seeds: &[Vec3],
@@ -145,7 +145,7 @@ impl PlotObject for StreamPlot3D {
             if strip_count >= 2 {
                 strip_lengths.push(strip_count);
             } else if strip_count == 1 {
-                // Remove the single dangling point — it can't form a line.
+                // Remove the single dangling point; it can't form a line.
                 all_positions.pop();
                 scalars.pop();
             }

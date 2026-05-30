@@ -151,7 +151,7 @@ pub fn build() -> Vec<PlotEntry> {
             relationship: crate::plot::entry::PlotRelationship::Primary,
             name: "Dini's Surface".to_string(),
             visible: true,
-            // u ∈ [0, 4π], v ∈ [0.1, 2] — avoid singularity at v = 0
+            // u ∈ [0, 4π], v ∈ [0.1, 2]; avoid singularity at v = 0
             domain: Domain {
                 x: 0.0..=(4.0 * PI),
                 y: 0.1..=2.0,

@@ -1,4 +1,4 @@
-//! Scatter3D — a point-cloud plot type.
+//! Scatter3D: a point-cloud plot type.
 
 use glam::Vec3;
 

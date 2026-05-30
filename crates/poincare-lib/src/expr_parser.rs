@@ -799,17 +799,17 @@ pub fn parse_csv_grid(csv: &str) -> Result<(Vec<f64>, Vec<f64>, Vec<f64>), Strin
 /// The coordinate system / plot type inferred from a free-form equation string.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DetectedPlotType {
-    /// `y = f(x)`, `z = f(x)`, etc. — single independent variable → curve
+    /// `y = f(x)`, `z = f(x)`, etc.: single independent variable, treated as a curve.
     CartesianLine { dep: String, ind: String },
-    /// `z = f(x, y)` — standard Cartesian surface
+    /// `z = f(x, y)`: standard Cartesian surface.
     CartesianSurface,
-    /// `y = f(x, z)` or `x = f(y, z)` — dep/ind stored as strings
+    /// `y = f(x, z)` or `x = f(y, z)`: dep/ind stored as strings.
     PermutedCartesian { dep: String, ind: (String, String) },
-    /// `r = f(theta, phi)` — spherical surface
+    /// `r = f(theta, phi)`: spherical surface.
     SphericalSurface,
-    /// `r = f(theta, z)` — cylindrical surface
+    /// `r = f(theta, z)`: cylindrical surface.
     CylindricalSurface,
-    /// `r = f(theta)` — polar curve/surface
+    /// `r = f(theta)`: polar curve/surface.
     PolarSurface,
     /// Could not determine a unique type (no `=`, unknown variables, etc.)
     Unknown,
@@ -845,8 +845,8 @@ impl AutoDetectResult {
 /// Parse a free-form equation string and infer the plot type.
 ///
 /// Accepted LHS forms:
-/// - `z = rhs`              — infer ind vars from RHS
-/// - `z(x, y) = rhs`       — explicit ind vars override RHS inference
+/// - `z = rhs`: ind vars inferred from RHS
+/// - `z(x, y) = rhs`: explicit ind vars override RHS inference
 ///
 /// Returns an [`AutoDetectResult`] with `detected == Unknown` (and an `error`) if
 /// the input is missing `=`, the LHS is unparseable, or the variable set doesn't
@@ -855,7 +855,7 @@ pub fn auto_detect_plot_type(src: &str) -> AutoDetectResult {
     // --- split at first '=' ---
     let eq_pos = match src.find('=') {
         Some(p) => p,
-        None => return AutoDetectResult::unknown("Missing '=' — enter an equation like z = x+y"),
+        None => return AutoDetectResult::unknown("Missing '=': enter an equation like z = x+y"),
     };
     let lhs_raw = src[..eq_pos].trim();
     let rhs = src[eq_pos + 1..].trim().to_string();
@@ -905,7 +905,7 @@ pub fn auto_detect_plot_type(src: &str) -> AutoDetectResult {
         vars
     };
 
-    // --- match dep_var + ind_var set → DetectedPlotType ---
+    // match dep_var + ind_var set to DetectedPlotType
     let ind_set: std::collections::HashSet<&str> = ind_vars.iter().map(|s| s.as_str()).collect();
 
     let detected = match dep_var.as_str() {
@@ -913,9 +913,9 @@ pub fn auto_detect_plot_type(src: &str) -> AutoDetectResult {
             let has_x = ind_set.contains("x");
             let has_y = ind_set.contains("y");
             match (has_x, has_y) {
-                // Both x and y present → surface
+                // Both x and y present: surface
                 (true, true) => DetectedPlotType::CartesianSurface,
-                // Only one var → lowest-dimension line
+                // Only one var: lowest-dimension line
                 (true, false) => DetectedPlotType::CartesianLine {
                     dep: "z".to_string(),
                     ind: "x".to_string(),
@@ -924,7 +924,7 @@ pub fn auto_detect_plot_type(src: &str) -> AutoDetectResult {
                     dep: "z".to_string(),
                     ind: "y".to_string(),
                 },
-                // No Cartesian vars (constant) → surface (z = c plane)
+                // No Cartesian vars (constant): surface (z = c plane)
                 (false, false) => DetectedPlotType::CartesianSurface,
             }
         }
@@ -932,12 +932,12 @@ pub fn auto_detect_plot_type(src: &str) -> AutoDetectResult {
             let has_x = ind_set.contains("x");
             let has_z = ind_set.contains("z");
             match (has_x, has_z) {
-                // Both x and z → permuted Cartesian surface
+                // Both x and z: permuted Cartesian surface
                 (true, true) => DetectedPlotType::PermutedCartesian {
                     dep: "y".to_string(),
                     ind: ("x".to_string(), "z".to_string()),
                 },
-                // Only one var → lowest-dimension line
+                // Only one var: lowest-dimension line
                 (true, false) => DetectedPlotType::CartesianLine {
                     dep: "y".to_string(),
                     ind: "x".to_string(),
@@ -946,7 +946,7 @@ pub fn auto_detect_plot_type(src: &str) -> AutoDetectResult {
                     dep: "y".to_string(),
                     ind: "z".to_string(),
                 },
-                // No vars (constant) → y(x) line by default
+                // No vars (constant): y(x) line by default
                 (false, false) => DetectedPlotType::CartesianLine {
                     dep: "y".to_string(),
                     ind: "x".to_string(),
@@ -957,12 +957,12 @@ pub fn auto_detect_plot_type(src: &str) -> AutoDetectResult {
             let has_y = ind_set.contains("y");
             let has_z = ind_set.contains("z");
             match (has_y, has_z) {
-                // Both y and z → permuted Cartesian surface
+                // Both y and z: permuted Cartesian surface
                 (true, true) => DetectedPlotType::PermutedCartesian {
                     dep: "x".to_string(),
                     ind: ("y".to_string(), "z".to_string()),
                 },
-                // Only one var → lowest-dimension line
+                // Only one var: lowest-dimension line
                 (true, false) => DetectedPlotType::CartesianLine {
                     dep: "x".to_string(),
                     ind: "y".to_string(),
@@ -971,7 +971,7 @@ pub fn auto_detect_plot_type(src: &str) -> AutoDetectResult {
                     dep: "x".to_string(),
                     ind: "z".to_string(),
                 },
-                // No vars (constant) → x(y) line by default
+                // No vars (constant): x(y) line by default
                 (false, false) => DetectedPlotType::CartesianLine {
                     dep: "x".to_string(),
                     ind: "y".to_string(),
@@ -1011,7 +1011,7 @@ pub fn auto_detect_plot_type(src: &str) -> AutoDetectResult {
 }
 
 /// Quick scan: extract all alphabetic identifiers from a raw expression string.
-/// Does not parse — just tokenizes identifiers for variable inference.
+/// Does not parse; just tokenizes identifiers for variable inference.
 fn extract_idents_from_rhs(rhs: &str) -> Vec<String> {
     let mut idents = Vec::new();
     let mut seen = std::collections::HashSet::new();
