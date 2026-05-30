@@ -16,11 +16,11 @@ name = "poincare"
 path = "src/main.rs"
 
 [dependencies]
-poincare-lib = { version = "0.6.0", path = "../poincare-lib" }
+poincare-lib = { version = "0.6.0" }
 viewport-lib = { workspace = true }
 eframe = { version = "=0.33.3", default-features = false, features = ["wgpu", "default_fonts", "persistence", "x11"] }
 egui = { version = "=0.33.3" }
-grimdock = { version = "0.2.0", path = "../../../grimdock" }
+grimdock = { version = "0.2.0" }
 glam = { workspace = true }
 image = { version = "0.25", default-features = false, features = ["png"] }
 serde = { version = "1", features = ["derive"] }
