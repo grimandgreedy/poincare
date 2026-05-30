@@ -2,7 +2,7 @@ use eframe::egui;
 use poincare_lib::{
     AnalysisKind, AnalysisOutput, AnalysisRequest, AnalysisTarget, CurveInterpolation,
     CurveInterpolationKind, SampleGroupsKind, available_analyses, run_analysis,
-    run_surface_mesh_analysis, sample_curve_points, sample_groups,
+    run_curve_surface_frame_analysis, run_surface_mesh_analysis, sample_curve_points, sample_groups,
 };
 use serde_json::json;
 use viewport_lib::{Easing, Projection, ViewPreset};
@@ -935,6 +935,62 @@ impl App {
                 .small()
                 .weak(),
             );
+            ui.add_space(6.0);
+            ui.label("Moving frames");
+            ui.horizontal(|ui| {
+                if has_analysis(AnalysisKind::FrenetFrame)
+                    && ui.button("Frenet Frame").clicked()
+                {
+                    self.open_moving_frame_modal(plot_idx, AnalysisKind::FrenetFrame, None);
+                }
+                if has_analysis(AnalysisKind::BishopFrame)
+                    && ui.button("Bishop Frame").clicked()
+                {
+                    self.open_moving_frame_modal(plot_idx, AnalysisKind::BishopFrame, None);
+                }
+            });
+            ui.label(
+                egui::RichText::new(
+                    "Generate reusable sampled frame tables plus tangent, normal, and binormal triad plots. Bishop frames are rotation-minimizing and more stable near inflections.",
+                )
+                .small()
+                .weak(),
+            );
+            let surface_candidates = self.surface_frame_candidates(doc_idx, plot_idx);
+            if !surface_candidates.is_empty() {
+                ui.add_space(6.0);
+                ui.label("Surface-coupled frames");
+                ui.horizontal(|ui| {
+                    if ui.button("Darboux Frame").clicked() {
+                        self.open_moving_frame_modal(
+                            plot_idx,
+                            AnalysisKind::DarbouxFrame,
+                            surface_candidates.first().map(|(index, _)| *index),
+                        );
+                    }
+                    if ui.button("Surface-Aligned Frame").clicked() {
+                        self.open_moving_frame_modal(
+                            plot_idx,
+                            AnalysisKind::SurfaceAlignedFrame,
+                            surface_candidates.first().map(|(index, _)| *index),
+                        );
+                    }
+                });
+                ui.label(
+                    egui::RichText::new(
+                        "Use a selected curve together with a cached target surface to build Darboux or surface-normal-aligned frames.",
+                    )
+                    .small()
+                    .weak(),
+                );
+            }
+            self.show_inline_moving_frame_controls(
+                ui,
+                doc_idx,
+                plot_idx,
+                &selected,
+                &surface_candidates,
+            );
         } else {
             ui.label(
                 egui::RichText::new(
@@ -943,6 +999,102 @@ impl App {
                 .small()
                 .weak(),
             );
+        }
+
+        let selected_plot_id = self.documents[doc_idx].plots[plot_idx].plot_id;
+        let relevant_frame_fields = self.documents[doc_idx]
+            .frame_fields
+            .iter()
+            .filter(|field| field.source_plot_ids.contains(&selected_plot_id))
+            .map(|field| (field.id, field.title.clone()))
+            .collect::<Vec<_>>();
+        if !relevant_frame_fields.is_empty() {
+            ui.add_space(8.0);
+            ui.separator();
+            ui.label("Frame Playback");
+            let selected_frame_id = self.documents[doc_idx]
+                .frame_playback
+                .selected_frame_field
+                .filter(|frame_id| relevant_frame_fields.iter().any(|(id, _)| id == frame_id))
+                .or_else(|| relevant_frame_fields.first().map(|(id, _)| *id));
+            self.documents[doc_idx].frame_playback.selected_frame_field = selected_frame_id;
+            let current_label = selected_frame_id
+                .and_then(|id| {
+                    relevant_frame_fields
+                        .iter()
+                        .find(|(field_id, _)| *field_id == id)
+                        .map(|(_, title)| title.clone())
+                })
+                .unwrap_or_else(|| "Select frame field".to_string());
+            egui::ComboBox::from_label("Stored FrameField")
+                .selected_text(current_label)
+                .show_ui(ui, |ui| {
+                    for (field_id, title) in &relevant_frame_fields {
+                        ui.selectable_value(
+                            &mut self.documents[doc_idx].frame_playback.selected_frame_field,
+                            Some(*field_id),
+                            title,
+                        );
+                    }
+                });
+            ui.horizontal(|ui| {
+                let playing = self.documents[doc_idx].frame_playback.playing;
+                if ui.button(if playing { "Pause" } else { "Play" }).clicked() {
+                    self.documents[doc_idx].frame_playback.playing = !playing;
+                }
+                if ui.button("Reset").clicked() {
+                    self.documents[doc_idx].frame_playback.phase = 0.0;
+                    self.documents[doc_idx].frame_playback.playing = false;
+                }
+                if let Some(frame_id) = self.documents[doc_idx].frame_playback.selected_frame_field
+                    && ui.button("Open Data").clicked()
+                {
+                    self.open_stored_frame_field_panel(doc_idx, frame_id);
+                }
+            });
+            ui.add(
+                egui::Slider::new(
+                    &mut self.documents[doc_idx].frame_playback.phase,
+                    0.0..=1.0,
+                )
+                .text("Frame Phase"),
+            );
+            ui.add(
+                egui::Slider::new(
+                    &mut self.documents[doc_idx].frame_playback.speed,
+                    0.05..=2.0,
+                )
+                .text("Playback Speed"),
+            );
+            if let Some(frame_id) = self.documents[doc_idx].frame_playback.selected_frame_field {
+                ui.label("Attachments");
+                for attachment in self.documents[doc_idx]
+                    .frame_attachments
+                    .iter_mut()
+                    .filter(|attachment| attachment.frame_field_id == frame_id)
+                {
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut attachment.enabled, &attachment.name);
+                        match attachment.kind {
+                            crate::document::FrameAttachmentKind::Marker
+                            | crate::document::FrameAttachmentKind::Triad
+                            | crate::document::FrameAttachmentKind::ProfileRing => {
+                                ui.add(
+                                    egui::Slider::new(&mut attachment.scale, 0.1..=4.0)
+                                        .text("Scale"),
+                                );
+                            }
+                            crate::document::FrameAttachmentKind::Camera => {
+                                ui.label(
+                                    egui::RichText::new("Follows camera target only")
+                                        .small()
+                                        .weak(),
+                                );
+                            }
+                        }
+                    });
+                }
+            }
         }
 
         ui.add_space(8.0);
@@ -1219,8 +1371,28 @@ impl App {
                 reports,
                 tables,
                 diagnostics,
+                frame_fields,
                 provenance,
             } => {
+                if !frame_fields.is_empty() {
+                    let source_plot_ids = provenance
+                        .source_plots
+                        .iter()
+                        .filter_map(|name| {
+                            self.documents[doc_idx]
+                                .plots
+                                .iter()
+                                .find(|plot| plot.name == *name)
+                                .map(|plot| plot.plot_id)
+                        })
+                        .collect::<Vec<_>>();
+                    self.store_frame_fields(
+                        doc_idx,
+                        source_plot_ids,
+                        provenance.source_plots.clone(),
+                        frame_fields.clone(),
+                    );
+                }
                 for plot in plots {
                     let entry = PlotEntry::from_plot_spec(plot);
                     let entry = if let Some(parent_plot_id) = source_plot_id {
@@ -1242,10 +1414,15 @@ impl App {
                     provenance.kind,
                     AnalysisKind::PointCloudStatistics
                         | AnalysisKind::DataQualityChecks
+                        | AnalysisKind::FrenetFrame
+                        | AnalysisKind::BishopFrame
                         | AnalysisKind::SurfaceCurvature
                         | AnalysisKind::SurfaceMeshQuality
                         | AnalysisKind::SurfaceArea
-                ) && (!reports.is_empty() || !tables.is_empty() || !diagnostics.is_empty())
+                ) && (!reports.is_empty()
+                    || !tables.is_empty()
+                    || !diagnostics.is_empty()
+                    || !frame_fields.is_empty())
                 {
                     if let Some(source_plot_idx) = source_plot_idx {
                         self.set_selected_plot(doc_idx, Some(source_plot_idx));
@@ -1257,6 +1434,7 @@ impl App {
                         reports,
                         tables,
                         diagnostics,
+                        frame_fields,
                         provenance,
                     );
                 }
@@ -1273,6 +1451,8 @@ impl App {
                     provenance.kind,
                     AnalysisKind::PointCloudStatistics
                         | AnalysisKind::DataQualityChecks
+                        | AnalysisKind::FrenetFrame
+                        | AnalysisKind::BishopFrame
                         | AnalysisKind::SurfaceCurvature
                         | AnalysisKind::SurfaceMeshQuality
                         | AnalysisKind::SurfaceArea
@@ -1282,6 +1462,7 @@ impl App {
                         doc_idx,
                         source_plot_idx.unwrap_or_default(),
                         vec![report],
+                        Vec::new(),
                         Vec::new(),
                         Vec::new(),
                         provenance,
@@ -1295,6 +1476,8 @@ impl App {
                     provenance.kind,
                     AnalysisKind::PointCloudStatistics
                         | AnalysisKind::DataQualityChecks
+                        | AnalysisKind::FrenetFrame
+                        | AnalysisKind::BishopFrame
                         | AnalysisKind::SurfaceCurvature
                         | AnalysisKind::SurfaceMeshQuality
                         | AnalysisKind::SurfaceArea
@@ -1305,6 +1488,7 @@ impl App {
                         source_plot_idx.unwrap_or_default(),
                         Vec::new(),
                         vec![table],
+                        Vec::new(),
                         Vec::new(),
                         provenance,
                     );
@@ -1387,6 +1571,55 @@ impl App {
             })
             .map(|(index, plot)| (index, plot.name.clone()))
             .collect()
+    }
+
+    pub(crate) fn surface_frame_candidates(
+        &self,
+        doc_idx: usize,
+        source_idx: usize,
+    ) -> Vec<(usize, String)> {
+        self.surface_intersection_candidates(doc_idx, source_idx)
+    }
+
+    fn run_curve_surface_frame_analysis(
+        &mut self,
+        doc_idx: usize,
+        curve_plot_idx: usize,
+        surface_plot_idx: usize,
+        kind: AnalysisKind,
+        parameters: Vec<(String, String)>,
+    ) {
+        let curve_spec = self.documents[doc_idx].plots[curve_plot_idx].to_plot_spec();
+        let surface_plot = self.documents[doc_idx].plots[surface_plot_idx].clone();
+        let surface_pick_id = (surface_plot_idx + 1) as u64;
+        let probe_data = self.documents[doc_idx].scene.probe_data();
+        let surfaces = probe_data
+            .surfaces
+            .iter()
+            .filter(|surface| surface.pick_id == surface_pick_id)
+            .map(|surface| surface.mesh)
+            .collect::<Vec<_>>();
+        if surfaces.is_empty() {
+            self.documents[doc_idx].export_status =
+                "Surface-coupled frame analysis failed: target surface has no cached mesh."
+                    .to_string();
+            return;
+        }
+        match run_curve_surface_frame_analysis(
+            &curve_spec,
+            &surface_plot.name,
+            kind,
+            &surfaces,
+            &parameters,
+        ) {
+            Ok(output) => {
+                self.documents[doc_idx].export_status.clear();
+                self.push_analysis_output(doc_idx, output);
+            }
+            Err(error) => {
+                self.documents[doc_idx].export_status = error.diagnostic.to_string();
+            }
+        }
     }
 
     fn create_surface_intersection_plots(
@@ -1974,6 +2207,124 @@ impl App {
         self.surface_normals_modal = open.then_some(state);
     }
 
+    fn show_inline_moving_frame_controls(
+        &mut self,
+        ui: &mut egui::Ui,
+        doc_idx: usize,
+        plot_idx: usize,
+        plot: &PlotEntry,
+        surface_candidates: &[(usize, String)],
+    ) {
+        let Some(mut state) = self.moving_frame_modal.clone() else {
+            return;
+        };
+        if state.source_plot_idx != plot_idx {
+            return;
+        }
+        if requires_surface_target(state.analysis_kind)
+            && state
+                .target_surface_idx
+                .is_none_or(|target| !surface_candidates.iter().any(|(index, _)| *index == target))
+        {
+            state.target_surface_idx = surface_candidates.first().map(|(index, _)| *index);
+        }
+
+        let mut create_output = false;
+        let mut cancel = false;
+        ui.add_space(6.0);
+        ui.group(|ui| {
+            ui.label(egui::RichText::new(frame_analysis_label(state.analysis_kind)).strong());
+            ui.label(
+                egui::RichText::new(format!(
+                    "Build a reusable sampled frame field for {}.",
+                    plot.name
+                ))
+                .small()
+                .weak(),
+            );
+            ui.add_space(6.0);
+            ui.add(egui::Slider::new(&mut state.max_samples, 8..=1024).text("Displayed Samples"));
+            ui.add(egui::Slider::new(&mut state.vector_scale, 0.1..=4.0).text("Vector Scale"));
+            if requires_surface_target(state.analysis_kind) {
+                egui::ComboBox::from_label("Target Surface")
+                    .selected_text(
+                        state
+                            .target_surface_idx
+                            .and_then(|target| {
+                                surface_candidates
+                                    .iter()
+                                    .find(|(index, _)| *index == target)
+                                    .map(|(_, label)| label.clone())
+                            })
+                            .unwrap_or_else(|| "Select target".to_string()),
+                    )
+                    .show_ui(ui, |ui| {
+                        for (index, label) in surface_candidates {
+                            ui.selectable_value(&mut state.target_surface_idx, Some(*index), label);
+                        }
+                    });
+            }
+            ui.label(
+                egui::RichText::new(
+                    "This stores frame samples for playback and attachments. It does not add tangent, normal, or binormal plots.",
+                )
+                .small()
+                .weak(),
+            );
+            if !state.error.is_empty() {
+                ui.colored_label(egui::Color32::from_rgb(255, 110, 110), &state.error);
+            }
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui.button("Create FrameField").clicked() {
+                    create_output = true;
+                }
+                if ui.button("Cancel").clicked() {
+                    cancel = true;
+                }
+            });
+        });
+
+        if cancel {
+            self.moving_frame_modal = None;
+            return;
+        }
+        if create_output {
+            let parameters = vec![
+                ("max_samples".to_string(), state.max_samples.to_string()),
+                (
+                    "vector_scale".to_string(),
+                    format!("{:.4}", state.vector_scale),
+                ),
+            ];
+            if requires_surface_target(state.analysis_kind) {
+                if let Some(target_surface_idx) = state.target_surface_idx {
+                    self.run_curve_surface_frame_analysis(
+                        doc_idx,
+                        state.source_plot_idx,
+                        target_surface_idx,
+                        state.analysis_kind,
+                        parameters,
+                    );
+                    self.moving_frame_modal = None;
+                    return;
+                }
+                state.error = "Target surface is required.".to_string();
+                self.moving_frame_modal = Some(state);
+                return;
+            }
+            self.run_single_plot_analysis(
+                doc_idx,
+                &plot.to_plot_spec(),
+                state.analysis_kind,
+                parameters,
+            );
+            self.moving_frame_modal = None;
+            return;
+        }
+        self.moving_frame_modal = Some(state);
+    }
+
     pub(crate) fn open_interpolate_modal(&mut self, plot_idx: usize, plot: &PlotEntry) {
         self.interpolate_modal = Some(crate::InterpolateModalState {
             source_plot_idx: plot_idx,
@@ -2025,6 +2376,24 @@ impl App {
         self.surface_normals_modal = Some(crate::SurfaceNormalsModalState {
             source_plot_idx: plot_idx,
             max_samples: 512,
+            vector_scale: 1.0,
+            error: String::new(),
+        });
+    }
+
+    pub(crate) fn open_moving_frame_modal(
+        &mut self,
+        plot_idx: usize,
+        kind: AnalysisKind,
+        target_surface_idx: Option<usize>,
+    ) {
+        self.inspector_tab = crate::InspectorTab::Analysis;
+        self.pending_focus_tab = Some(crate::dock::DockTab::PlotProperties);
+        self.moving_frame_modal = Some(crate::MovingFrameModalState {
+            source_plot_idx: plot_idx,
+            analysis_kind: kind,
+            target_surface_idx,
+            max_samples: 128,
             vector_scale: 1.0,
             error: String::new(),
         });
@@ -2187,6 +2556,21 @@ fn curve_fit_method_key(method: crate::FitCurveMethodUi) -> &'static str {
         crate::FitCurveMethodUi::Spline => "spline",
         crate::FitCurveMethodUi::Fourier => "fourier",
     }
+}
+
+fn frame_analysis_label(kind: AnalysisKind) -> &'static str {
+    match kind {
+        AnalysisKind::FrenetFrame => "Frenet Frame",
+        AnalysisKind::BishopFrame => "Bishop Frame",
+        _ => "Moving Frame",
+    }
+}
+
+fn requires_surface_target(kind: AnalysisKind) -> bool {
+    matches!(
+        kind,
+        AnalysisKind::DarbouxFrame | AnalysisKind::SurfaceAlignedFrame
+    )
 }
 
 fn axis_derivative_label(axis: usize) -> &'static str {

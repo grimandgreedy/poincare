@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use poincare_lib::{AxisConfig, GraphScene};
+use poincare_lib::{AnalysisKind, AxisConfig, FrameSample, GraphScene};
 use viewport_lib::{Aabb, Camera, GroundPlaneMode};
 
 use crate::picking::ProbeHit;
@@ -20,6 +20,55 @@ const UNDO_LIMIT: usize = 100;
 pub(crate) struct SavedCameraView {
     pub name: String,
     pub camera: Camera,
+}
+
+pub(crate) type FrameFieldId = u64;
+
+#[derive(Clone)]
+pub(crate) struct StoredFrameField {
+    pub id: FrameFieldId,
+    pub title: String,
+    pub source_plot_ids: Vec<PlotId>,
+    pub source_plot_names: Vec<String>,
+    pub frame_kind: AnalysisKind,
+    pub samples: Vec<FrameSample>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FrameAttachmentKind {
+    Marker,
+    Triad,
+    Camera,
+    ProfileRing,
+}
+
+#[derive(Clone)]
+pub(crate) struct FrameAttachment {
+    pub name: String,
+    pub frame_field_id: FrameFieldId,
+    pub kind: FrameAttachmentKind,
+    pub enabled: bool,
+    pub scale: f32,
+    pub camera_distance: f32,
+}
+
+#[derive(Clone)]
+pub(crate) struct FramePlaybackState {
+    pub selected_frame_field: Option<FrameFieldId>,
+    pub phase: f32,
+    pub playing: bool,
+    pub speed: f32,
+}
+
+impl Default for FramePlaybackState {
+    fn default() -> Self {
+        Self {
+            selected_frame_field: None,
+            phase: 0.0,
+            playing: false,
+            speed: 0.25,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -54,6 +103,9 @@ pub(crate) struct DocumentUndoState {
     viewport_background: [f32; 4],
     saved_views: Vec<SavedCameraView>,
     camera_track_segment_duration: f32,
+    frame_fields: Vec<StoredFrameField>,
+    frame_attachments: Vec<FrameAttachment>,
+    frame_playback: FramePlaybackState,
     sweep_config: Vec<HashMap<String, ParameterSweep>>,
     export_format: ExportFormat,
     export_fps: u32,
@@ -99,6 +151,9 @@ pub(crate) struct Document {
     pub camera_track_segment_duration: f32,
     pub camera_track_t: f64,
     pub camera_track_playing: bool,
+    pub frame_fields: Vec<StoredFrameField>,
+    pub frame_attachments: Vec<FrameAttachment>,
+    pub frame_playback: FramePlaybackState,
 
     /// Per-plot parameter sweep config.  Parallel to `plots`; grown lazily.
     pub sweep_config: Vec<HashMap<String, ParameterSweep>>,
@@ -148,6 +203,9 @@ impl Document {
             camera_track_segment_duration: 2.5,
             camera_track_t: 0.0,
             camera_track_playing: false,
+            frame_fields: Vec::new(),
+            frame_attachments: Vec::new(),
+            frame_playback: FramePlaybackState::default(),
             sweep_config: Vec::new(),
             export_format: ExportFormat::Png,
             export_fps: 24,
@@ -372,6 +430,9 @@ impl Document {
             viewport_background: self.viewport_background,
             saved_views: self.saved_views.clone(),
             camera_track_segment_duration: self.camera_track_segment_duration,
+            frame_fields: self.frame_fields.clone(),
+            frame_attachments: self.frame_attachments.clone(),
+            frame_playback: self.frame_playback.clone(),
             sweep_config: self.sweep_config.clone(),
             export_format: self.export_format,
             export_fps: self.export_fps,
@@ -399,6 +460,9 @@ impl Document {
         self.camera_track_segment_duration = state.camera_track_segment_duration;
         self.camera_track_t = 0.0;
         self.camera_track_playing = false;
+        self.frame_fields = state.frame_fields;
+        self.frame_attachments = state.frame_attachments;
+        self.frame_playback = state.frame_playback;
         self.sweep_config = state.sweep_config;
         self.export_format = state.export_format;
         self.export_fps = state.export_fps;
@@ -506,7 +570,50 @@ impl Document {
             Some(sel) if sel >= self.plots.len() => Some(self.plots.len() - 1),
             other => other,
         };
+        let valid_ids = self.plots.iter().map(|plot| plot.plot_id).collect::<std::collections::HashSet<_>>();
+        self.frame_fields.retain(|field| {
+            field.source_plot_ids.iter().all(|plot_id| valid_ids.contains(plot_id))
+        });
+        let valid_frame_ids = self.frame_fields.iter().map(|field| field.id).collect::<std::collections::HashSet<_>>();
+        self.frame_attachments
+            .retain(|attachment| valid_frame_ids.contains(&attachment.frame_field_id));
+        if self
+            .frame_playback
+            .selected_frame_field
+            .is_some_and(|id| !valid_frame_ids.contains(&id))
+        {
+            self.frame_playback.selected_frame_field = self.frame_fields.first().map(|field| field.id);
+            self.frame_playback.playing = false;
+            self.frame_playback.phase = 0.0;
+        }
     }
+
+    pub(crate) fn next_frame_field_id(&self) -> FrameFieldId {
+        self.frame_fields
+            .iter()
+            .map(|field| field.id)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1)
+    }
+
+    pub(crate) fn active_frame_field(&self) -> Option<&StoredFrameField> {
+        let id = self.frame_playback.selected_frame_field?;
+        self.frame_fields.iter().find(|field| field.id == id)
+    }
+
+}
+
+pub(crate) fn sample_frame_field(
+    field: &StoredFrameField,
+    phase: f32,
+) -> Option<&FrameSample> {
+    if field.samples.is_empty() {
+        return None;
+    }
+    let phase = phase.clamp(0.0, 1.0);
+    let index = ((field.samples.len() - 1) as f32 * phase).round() as usize;
+    field.samples.get(index.min(field.samples.len() - 1))
 }
 
 pub(crate) fn export_mode_for_format(format: ExportFormat) -> ExportMode {

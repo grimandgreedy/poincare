@@ -24,12 +24,15 @@ All notable changes to this crate will be documented in this file.
 - Made point-statistics and data-quality tools available for more sample-backed plot kinds, including imported scatter data and built-in scatter clouds.
 - Allowed point-statistics analysis for single-point datasets while keeping data-quality checks gated to datasets with at least two samples.
 - Added Phase 4 surface-analysis actions in the `Analysis` tab and command palette for normals, curvature, area, and mesh-quality workflows backed by cached surface meshes.
+- Changed bulk analysis-generated markers to default to unlabeled points instead of auto-generated `label 1`, `label 2`-style annotation text, while keeping meaningful labels such as centroids and PCA axes.
+- Switched analysis normals and glyph-oriented vector defaults to `RdBu` so direction-heavy glyph plots are easier to distinguish at a glance.
 
 ### Fixes
 - Fixed analysis-result table widget id collisions in the `Data` panel.
 - Fixed the `Data` tab open/close flow so analysis actions open the tab reliably and switching to unrelated plots closes it and returns focus to `Plot Properties`.
 - Fixed left-panel plot row sizing regressions introduced by the font change, including over-wide rows and incorrect child-row width handling.
 - Switched `grimdock` to the local path dependency and added per-tab max-width overrides so dock tab headers can stay compact by default while giving `Plot Properties` a wider cap.
+- Fixed glyph-scale controls for analysis arrows, normals, and other glyph-backed plots by routing size through the renderer's glyph-scale path instead of baking it into the instance vectors.
 
 ## [0.6.0]
 

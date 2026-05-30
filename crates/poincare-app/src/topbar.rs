@@ -47,6 +47,10 @@ enum SelectedPlotAnalysisAction {
     DifferentiateCurve,
     IntegralCurve,
     TangentField,
+    FrenetFrame,
+    BishopFrame,
+    DarbouxFrame,
+    SurfaceAlignedFrame,
     AxisDerivativeCurve,
     ArcLengthCurve,
     CurvatureCurve,
@@ -428,6 +432,26 @@ impl App {
                 AnalysisKind::TangentField,
                 vec![],
             ),
+            SelectedPlotAnalysisAction::FrenetFrame => {
+                self.open_moving_frame_modal(plot_idx, AnalysisKind::FrenetFrame, None)
+            }
+            SelectedPlotAnalysisAction::BishopFrame => {
+                self.open_moving_frame_modal(plot_idx, AnalysisKind::BishopFrame, None)
+            }
+            SelectedPlotAnalysisAction::DarbouxFrame => {
+                let target = self
+                    .surface_frame_candidates(doc_idx, plot_idx)
+                    .first()
+                    .map(|(index, _)| *index);
+                self.open_moving_frame_modal(plot_idx, AnalysisKind::DarbouxFrame, target)
+            }
+            SelectedPlotAnalysisAction::SurfaceAlignedFrame => {
+                let target = self
+                    .surface_frame_candidates(doc_idx, plot_idx)
+                    .first()
+                    .map(|(index, _)| *index);
+                self.open_moving_frame_modal(plot_idx, AnalysisKind::SurfaceAlignedFrame, target)
+            }
             SelectedPlotAnalysisAction::AxisDerivativeCurve => {
                 self.open_axis_derivative_modal(plot_idx, &plot)
             }
@@ -557,6 +581,26 @@ impl App {
             "Create Tangent Curve",
             SelectedPlotAnalysisAction::TangentField,
             has_analysis(AnalysisKind::TangentField),
+        );
+        push(
+            "Frenet Frame...",
+            SelectedPlotAnalysisAction::FrenetFrame,
+            has_analysis(AnalysisKind::FrenetFrame),
+        );
+        push(
+            "Bishop Frame...",
+            SelectedPlotAnalysisAction::BishopFrame,
+            has_analysis(AnalysisKind::BishopFrame),
+        );
+        push(
+            "Darboux Frame...",
+            SelectedPlotAnalysisAction::DarbouxFrame,
+            !self.surface_frame_candidates(doc_idx, plot_idx).is_empty(),
+        );
+        push(
+            "Surface-Aligned Frame...",
+            SelectedPlotAnalysisAction::SurfaceAlignedFrame,
+            !self.surface_frame_candidates(doc_idx, plot_idx).is_empty(),
         );
         push(
             "Differentiate by Axis…",
@@ -896,12 +940,15 @@ impl App {
                     "Command",
                     &[
                         ("Cmd/Ctrl+K", "Open command palette"),
+                        ("?", "Open keyboard shortcuts"),
                         ("Cmd/Ctrl+Z", "Undo"),
                         ("Cmd/Ctrl+Shift+Z", "Redo"),
                         ("E", "Edit selected plot"),
                         ("V", "Toggle selected plot visibility"),
                         ("J", "Select next plot"),
                         ("K", "Select previous plot"),
+                        ("G", "Select first plot"),
+                        ("Shift+G", "Select last plot"),
                     ],
                 );
                 ui.separator();
@@ -927,6 +974,9 @@ impl App {
                     ],
                 );
             });
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+            open = false;
+        }
         self.shortcuts_open = open;
     }
 

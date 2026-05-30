@@ -30,8 +30,9 @@ use viewport_lib::{
 
 use dock::{DockTab, build_panel_tree};
 use document::{
-    DEFAULT_VIEWPORT_BACKGROUND, Document, ExportFormat, SavedCameraView, default_camera,
-    default_export_dir, default_export_filename, export_mode_for_format,
+    DEFAULT_VIEWPORT_BACKGROUND, Document, ExportFormat, FrameAttachment, FrameAttachmentKind,
+    SavedCameraView, StoredFrameField, default_camera, default_export_dir, default_export_filename,
+    export_mode_for_format, sample_frame_field,
 };
 use plot::entry::PlotEntry;
 use plot::kind::{PlotKind, PlotKindExt};
@@ -241,6 +242,7 @@ struct App {
     axis_derivative_modal: Option<AxisDerivativeModalState>,
     fit_curve_modal: Option<FitCurveModalState>,
     surface_normals_modal: Option<SurfaceNormalsModalState>,
+    moving_frame_modal: Option<MovingFrameModalState>,
     data_editor_modal: Option<DataEditorModalState>,
     data_panel: Option<DataPanelState>,
     export_job: Option<ExportJob>,
@@ -294,6 +296,16 @@ struct SurfaceNormalsModalState {
 }
 
 #[derive(Clone)]
+struct MovingFrameModalState {
+    source_plot_idx: usize,
+    analysis_kind: poincare_lib::AnalysisKind,
+    target_surface_idx: Option<usize>,
+    max_samples: u32,
+    vector_scale: f32,
+    error: String,
+}
+
+#[derive(Clone)]
 struct DataEditorModalState {
     doc_idx: usize,
     plot_idx: usize,
@@ -313,6 +325,7 @@ pub(crate) struct AnalysisPanelState {
     tables: Vec<poincare_lib::AnalysisTable>,
     table_states: Vec<DataTableState>,
     diagnostics: Vec<poincare_lib::Diagnostic>,
+    frame_fields: Vec<poincare_lib::FrameField>,
     provenance: poincare_lib::AnalysisProvenance,
 }
 
@@ -447,6 +460,7 @@ impl App {
             axis_derivative_modal: None,
             fit_curve_modal: None,
             surface_normals_modal: None,
+            moving_frame_modal: None,
             data_editor_modal: None,
             data_panel: None,
             export_job: None,
@@ -547,12 +561,202 @@ impl App {
             self.pending_focus_tab = Some(DockTab::PlotProperties);
         }
         self.documents[doc_idx].selected_plot = selected_plot;
+        let selected_plot_id = selected_plot
+            .and_then(|index| self.documents[doc_idx].plots.get(index))
+            .map(|plot| plot.plot_id);
+        if let Some(plot_id) = selected_plot_id {
+            let matching_frame = self.documents[doc_idx]
+                .frame_fields
+                .iter()
+                .find(|field| field.source_plot_ids.contains(&plot_id))
+                .map(|field| field.id);
+            self.documents[doc_idx].frame_playback.selected_frame_field = matching_frame;
+            self.documents[doc_idx].frame_playback.phase = 0.0;
+            self.documents[doc_idx].frame_playback.playing = false;
+        } else {
+            self.documents[doc_idx].frame_playback.selected_frame_field = None;
+            self.documents[doc_idx].frame_playback.playing = false;
+        }
     }
 
     pub(crate) fn append_plot_entry(&mut self, doc_idx: usize, entry: PlotEntry) -> usize {
         let entry = self.documents[doc_idx].prepare_plot_entry(entry);
         self.documents[doc_idx].plots.push(entry);
         self.documents[doc_idx].plots.len() - 1
+    }
+
+    pub(crate) fn store_frame_fields(
+        &mut self,
+        doc_idx: usize,
+        source_plot_ids: Vec<u64>,
+        source_plot_names: Vec<String>,
+        frame_fields: Vec<poincare_lib::FrameField>,
+    ) {
+        let doc = &mut self.documents[doc_idx];
+        let mut last_id = None;
+        for field in frame_fields {
+            let stored = StoredFrameField {
+                id: doc.next_frame_field_id(),
+                title: field.title,
+                source_plot_ids: source_plot_ids.clone(),
+                source_plot_names: source_plot_names.clone(),
+                frame_kind: field.frame_kind,
+                samples: field.samples,
+            };
+            last_id = Some(stored.id);
+            doc.frame_fields.push(stored);
+        }
+        if let Some(id) = last_id {
+            doc.frame_playback.selected_frame_field = Some(id);
+            doc.frame_playback.phase = 0.0;
+            if !doc
+                .frame_attachments
+                .iter()
+                .any(|attachment| attachment.frame_field_id == id)
+            {
+                doc.frame_attachments.extend([
+                    FrameAttachment {
+                        name: "Marker".to_string(),
+                        frame_field_id: id,
+                        kind: FrameAttachmentKind::Marker,
+                        enabled: false,
+                        scale: 1.0,
+                        camera_distance: 3.0,
+                    },
+                    FrameAttachment {
+                        name: "Triad".to_string(),
+                        frame_field_id: id,
+                        kind: FrameAttachmentKind::Triad,
+                        enabled: true,
+                        scale: 1.0,
+                        camera_distance: 3.0,
+                    },
+                    FrameAttachment {
+                        name: "Camera".to_string(),
+                        frame_field_id: id,
+                        kind: FrameAttachmentKind::Camera,
+                        enabled: false,
+                        scale: 1.0,
+                        camera_distance: 3.0,
+                    },
+                    FrameAttachment {
+                        name: "Profile Ring".to_string(),
+                        frame_field_id: id,
+                        kind: FrameAttachmentKind::ProfileRing,
+                        enabled: false,
+                        scale: 0.35,
+                        camera_distance: 3.0,
+                    },
+                ]);
+            }
+        }
+    }
+
+    fn apply_frame_playback(&mut self, dt: f32) {
+        let doc = &mut self.documents[self.active_document_idx];
+        if !doc.frame_playback.playing {
+            return;
+        }
+        doc.frame_playback.phase += dt * doc.frame_playback.speed.max(0.01);
+        if doc.frame_playback.phase >= 1.0 {
+            doc.frame_playback.phase = 1.0;
+            doc.frame_playback.playing = false;
+        }
+    }
+
+    fn apply_frame_camera_attachment(&mut self) {
+        let doc = &mut self.documents[self.active_document_idx];
+        let Some(field) = doc.active_frame_field().cloned() else {
+            return;
+        };
+        let Some(sample) = sample_frame_field(&field, doc.frame_playback.phase).cloned() else {
+            return;
+        };
+        let Some(attachment) = doc
+            .frame_attachments
+            .iter()
+            .find(|attachment| {
+                attachment.enabled
+                    && attachment.frame_field_id == field.id
+                    && attachment.kind == FrameAttachmentKind::Camera
+            })
+            .cloned()
+        else {
+            return;
+        };
+        doc.camera.set_center(glam::Vec3::from_array(sample.position));
+        let _ = attachment;
+    }
+
+    pub(crate) fn inject_frame_attachments(
+        &self,
+        doc_idx: usize,
+        frame_data: &mut viewport_lib::FrameData,
+    ) {
+        let doc = &self.documents[doc_idx];
+        let Some(field) = doc.active_frame_field() else {
+            return;
+        };
+        let Some(sample) = sample_frame_field(field, doc.frame_playback.phase) else {
+            return;
+        };
+        let position = sample.position;
+        let tangent = glam::Vec3::from_array(sample.tangent);
+        let normal = glam::Vec3::from_array(sample.normal);
+        let binormal = glam::Vec3::from_array(sample.binormal);
+
+        for attachment in doc
+            .frame_attachments
+            .iter()
+            .filter(|attachment| attachment.enabled && attachment.frame_field_id == field.id)
+        {
+            match attachment.kind {
+                FrameAttachmentKind::Marker => {
+                    let mut points = viewport_lib::PointCloudItem::default();
+                    points.positions.push(position);
+                    points.point_size = 12.0 * attachment.scale.max(0.2);
+                    points.default_colour = [1.0, 0.82, 0.2, 1.0];
+                    points.settings.pick_id = viewport_lib::PickId::NONE;
+                    frame_data.scene.point_clouds.push(points);
+                }
+                FrameAttachmentKind::Triad => {
+                    for (vector, colour) in [
+                        ((tangent * attachment.scale).to_array(), [1.0, 0.2, 0.2, 1.0]),
+                        ((normal * attachment.scale).to_array(), [0.2, 0.95, 0.25, 1.0]),
+                        ((binormal * attachment.scale).to_array(), [0.25, 0.45, 1.0, 1.0]),
+                    ] {
+                        let mut glyphs = viewport_lib::GlyphItem::default();
+                        glyphs.positions = vec![position];
+                        glyphs.vectors = vec![glam::Vec3::from_array(vector).normalize_or_zero().to_array()];
+                        glyphs.scalars = vec![0.0];
+                        glyphs.use_default_colour = true;
+                        glyphs.default_colour = colour;
+                        glyphs.scale = attachment.scale.max(0.01);
+                        glyphs.scale_by_magnitude = false;
+                        glyphs.settings.pick_id = viewport_lib::PickId::NONE;
+                        frame_data.scene.glyphs.push(glyphs);
+                    }
+                }
+                FrameAttachmentKind::ProfileRing => {
+                    let mut polyline = viewport_lib::PolylineItem::default();
+                    let radius = attachment.scale.max(0.05);
+                    let segments = 24usize;
+                    for index in 0..=segments {
+                        let theta = index as f32 / segments as f32 * std::f32::consts::TAU;
+                        let offset = normal * (theta.cos() * radius) + binormal * (theta.sin() * radius);
+                        polyline
+                            .positions
+                            .push((glam::Vec3::from_array(position) + offset).to_array());
+                    }
+                    polyline.strip_lengths.push((segments + 1) as u32);
+                    polyline.default_colour = [0.35, 0.9, 1.0, 1.0];
+                    polyline.line_width = 2.0;
+                    polyline.settings.pick_id = viewport_lib::PickId::NONE;
+                    frame_data.scene.polylines.push(polyline);
+                }
+                FrameAttachmentKind::Camera => {}
+            }
+        }
     }
 
     pub(crate) fn insert_plot_entry(
@@ -708,6 +912,7 @@ impl App {
         reports: Vec<poincare_lib::AnalysisReport>,
         tables: Vec<poincare_lib::AnalysisTable>,
         diagnostics: Vec<poincare_lib::Diagnostic>,
+        frame_fields: Vec<poincare_lib::FrameField>,
         provenance: poincare_lib::AnalysisProvenance,
     ) {
         let table_states = (0..tables.len())
@@ -721,8 +926,89 @@ impl App {
             tables,
             table_states,
             diagnostics,
+            frame_fields,
             provenance,
         }));
+    }
+
+    pub(crate) fn open_stored_frame_field_panel(&mut self, doc_idx: usize, frame_field_id: u64) {
+        let Some(field) = self.documents[doc_idx]
+            .frame_fields
+            .iter()
+            .find(|field| field.id == frame_field_id)
+            .cloned()
+        else {
+            return;
+        };
+        let report = poincare_lib::AnalysisReport {
+            title: field.title.clone(),
+            values: vec![
+                ("Frame Kind".to_string(), format!("{:?}", field.frame_kind)),
+                ("Sample Count".to_string(), field.samples.len().to_string()),
+            ],
+        };
+        let table = poincare_lib::AnalysisTable {
+            title: format!("{} Samples", field.title),
+            columns: vec![
+                "row".to_string(),
+                "s".to_string(),
+                "x".to_string(),
+                "y".to_string(),
+                "z".to_string(),
+                "tx".to_string(),
+                "ty".to_string(),
+                "tz".to_string(),
+                "nx".to_string(),
+                "ny".to_string(),
+                "nz".to_string(),
+                "bx".to_string(),
+                "by".to_string(),
+                "bz".to_string(),
+            ],
+            rows: field
+                .samples
+                .iter()
+                .enumerate()
+                .map(|(index, sample)| {
+                    vec![
+                        (index + 1).to_string(),
+                        format!("{:.5}", sample.parameter),
+                        format!("{:.5}", sample.position[0]),
+                        format!("{:.5}", sample.position[1]),
+                        format!("{:.5}", sample.position[2]),
+                        format!("{:.5}", sample.tangent[0]),
+                        format!("{:.5}", sample.tangent[1]),
+                        format!("{:.5}", sample.tangent[2]),
+                        format!("{:.5}", sample.normal[0]),
+                        format!("{:.5}", sample.normal[1]),
+                        format!("{:.5}", sample.normal[2]),
+                        format!("{:.5}", sample.binormal[0]),
+                        format!("{:.5}", sample.binormal[1]),
+                        format!("{:.5}", sample.binormal[2]),
+                    ]
+                })
+                .collect(),
+        };
+        self.open_analysis_results_panel(
+            field.title.clone(),
+            doc_idx,
+            self.documents[doc_idx].selected_plot.unwrap_or_default(),
+            vec![report],
+            vec![table],
+            Vec::new(),
+            vec![poincare_lib::FrameField {
+                title: field.title.clone(),
+                source_plot: field.source_plot_names.join(", "),
+                frame_kind: field.frame_kind,
+                samples: field.samples.clone(),
+            }],
+            poincare_lib::AnalysisProvenance {
+                kind: field.frame_kind,
+                source_plots: field.source_plot_names,
+                parameters: Vec::new(),
+                notes: vec!["Loaded from the persisted document frame-field store.".to_string()],
+            },
+        );
     }
 
     pub(crate) fn data_panel_ui(&mut self, ui: &mut egui::Ui) {
@@ -769,6 +1055,16 @@ impl App {
                                 .collect::<Vec<_>>()
                                 .join(", "),
                         )
+                        .small()
+                        .weak(),
+                    );
+                }
+                if !state.frame_fields.is_empty() {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Frame fields: {} sampled set(s)",
+                            state.frame_fields.len()
+                        ))
                         .small()
                         .weak(),
                     );
@@ -1118,6 +1414,10 @@ impl App {
             return;
         }
 
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Questionmark)) {
+            self.shortcuts_open = true;
+            return;
+        }
         if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::X)) {
             self.request_delete_selected_plot();
             return;
@@ -1155,6 +1455,20 @@ impl App {
                 };
                 let _ = doc;
                 self.set_selected_plot(self.active_document_idx, Some(next));
+            }
+            return;
+        }
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::G)) {
+            let doc = &self.documents[self.active_document_idx];
+            if !doc.plots.is_empty() {
+                self.set_selected_plot(self.active_document_idx, Some(0));
+            }
+            return;
+        }
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::G)) {
+            let doc = &self.documents[self.active_document_idx];
+            if let Some(last) = doc.plots.len().checked_sub(1) {
+                self.set_selected_plot(self.active_document_idx, Some(last));
             }
             return;
         }
@@ -1394,6 +1708,7 @@ impl App {
             shadow_colour: [0.0, 0.0, 0.0, 1.0],
             shadow_opacity: 0.35,
         };
+        self.inject_frame_attachments(self.active_document_idx, &mut frame_data);
 
         Ok(viewport_renderer.render_offscreen(
             &render_state.device,
@@ -2431,6 +2746,11 @@ impl eframe::App for App {
         let dt = ctx.input(|i| i.stable_dt) as f64;
         let sweeps_active = self.tick_parameter_sweeps(dt);
         if sweeps_active {
+            ctx.request_repaint();
+        }
+        self.apply_frame_playback(dt as f32);
+        self.apply_frame_camera_attachment();
+        if self.documents[self.active_document_idx].frame_playback.playing {
             ctx.request_repaint();
         }
         {
