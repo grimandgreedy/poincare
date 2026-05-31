@@ -32,3 +32,5 @@ Analysis tools include surface normals, curvature, moving frames, arc-length, to
 It uses [`viewport-lib`](https://github.com/grimandgreedy/viewport-lib) for the interactive viewport, camera, and GPU rendering layer. Both crates need to be in your dependency tree.
 
 See [`poincare-dvd`](crates/poincare-dvd) for a minimal standalone demo.
+
+https://github.com/user-attachments/assets/1eabc329-85fd-461b-9519-812ac14ebfc3
