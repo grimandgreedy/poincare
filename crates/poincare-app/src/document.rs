@@ -135,7 +135,6 @@ pub(crate) struct Document {
     pub probe_mode: bool,
     pub probe_hit: Option<ProbeHit>,
     pub last_probe_hit: Option<ProbeHit>,
-    pub hovered_plot: Option<usize>,
     pub viewport_selection_hidden_for: Option<usize>,
     pub pinned_probes: Vec<ProbeHit>,
     pub intersection_cache: Vec<glam::Vec3>,
@@ -188,7 +187,6 @@ impl Document {
             probe_mode: false,
             probe_hit: None,
             last_probe_hit: None,
-            hovered_plot: None,
             viewport_selection_hidden_for: None,
             pinned_probes: Vec::new(),
             intersection_cache: Vec::new(),
@@ -472,7 +470,6 @@ impl Document {
         self.export_progress = None;
         self.probe_hit = None;
         self.last_probe_hit = None;
-        self.hovered_plot = None;
         self.pinned_probes.clear();
         self.intersection_cache.clear();
         self.probe_snap_point = None;

@@ -90,7 +90,6 @@ impl App {
 
         if self.documents[self.active_document_idx].probe_mode {
             self.probe_tick(ui, &response, rect);
-            self.documents[self.active_document_idx].hovered_plot = None;
             if response.clicked()
                 && ui.input(|i| i.modifiers.command)
                 && !probe_btn_hit_test(response.interact_pointer_pos(), rect)
@@ -103,10 +102,16 @@ impl App {
             }
         } else {
             self.documents[self.active_document_idx].probe_hit = None;
-            self.documents[self.active_document_idx].hovered_plot =
-                self.pick_plot_from_viewport(frame, &response, rect);
+            let picked_plot = (!consumed_click
+                && (response.clicked() || response.double_clicked()))
+            .then(|| {
+                response
+                    .interact_pointer_pos()
+                    .and_then(|pos| self.pick_plot_at(frame, pos, rect))
+            })
+            .flatten();
             if !consumed_click && response.clicked() {
-                if let Some(plot_idx) = self.documents[self.active_document_idx].hovered_plot {
+                if let Some(plot_idx) = picked_plot {
                     self.set_selected_plot(self.active_document_idx, Some(plot_idx));
                     self.documents[self.active_document_idx].viewport_selection_hidden_for = None;
                     self.pending_focus_tab = Some(crate::dock::DockTab::PlotProperties);
@@ -115,14 +120,8 @@ impl App {
                         self.documents[self.active_document_idx].selected_plot;
                 }
             }
-            if response.double_clicked()
-                && !consumed_click
-                && self.documents[self.active_document_idx]
-                    .hovered_plot
-                    .is_some()
-            {
-                self.documents[self.active_document_idx].selected_plot =
-                    self.documents[self.active_document_idx].hovered_plot;
+            if response.double_clicked() && !consumed_click && picked_plot.is_some() {
+                self.documents[self.active_document_idx].selected_plot = picked_plot;
                 self.run_camera_command(CameraCommand::FrameSelected);
             }
         }
@@ -433,8 +432,6 @@ impl App {
 
         if self.documents[self.active_document_idx].probe_mode {
             ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
-        } else if self.documents[doc_idx].hovered_plot.is_some() {
-            ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
         } else if response.dragged() {
             ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
         } else if response.hovered() {
@@ -570,13 +567,12 @@ impl App {
         self.documents[self.active_document_idx].scene_extent()
     }
 
-    fn pick_plot_from_viewport(
+    fn pick_plot_at(
         &self,
         frame: &mut eframe::Frame,
-        response: &egui::Response,
+        cursor: egui::Pos2,
         rect: egui::Rect,
     ) -> Option<usize> {
-        let cursor = response.hover_pos()?;
         let local = glam::Vec2::new(cursor.x - rect.left(), cursor.y - rect.top());
         let viewport_size = glam::Vec2::new(rect.width(), rect.height());
         let view_proj = self.documents[self.active_document_idx]
