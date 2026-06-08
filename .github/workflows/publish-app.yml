@@ -1,9 +1,7 @@
 name: Publish poincare-app
 
 on:
-  push:
-    tags:
-      - "app-v*"
+  workflow_dispatch:
 
 jobs:
   publish:
@@ -42,3 +40,129 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           body: ${{ steps.changelog.outputs.body }}
+
+  build-macos:
+    needs: publish
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-13
+            target: x86_64-apple-darwin
+            artifact: poincare-macos-x86_64.zip
+          - runner: macos-14
+            target: aarch64-apple-darwin
+            artifact: poincare-macos-aarch64.zip
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build app
+        run: cargo build -p poincare-app --release --target ${{ matrix.target }}
+
+      - name: Bundle app
+        run: scripts/macos_bundle_app.sh release ${{ matrix.target }}
+
+      - name: Archive app
+        run: |
+          cd target/${{ matrix.target }}/release
+          ditto -c -k --sequesterRsrc --keepParent Poincare.app ../../../${{ matrix.artifact }}
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.artifact }}
+
+  build-linux:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install system dependencies
+        run: sudo apt-get update -q && sudo apt-get install -y pkg-config libfontconfig1-dev libgtk-3-dev libxkbcommon-dev
+
+      - name: Build app
+        run: cargo build -p poincare-app --release --target x86_64-unknown-linux-gnu
+
+      - name: Bundle app
+        run: scripts/linux_bundle_app.sh release x86_64-unknown-linux-gnu
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: target/x86_64-unknown-linux-gnu/release/poincare-*-linux-x86_64-unknown-linux-gnu.tar.gz
+
+  build-windows:
+    needs: publish
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build app
+        run: cargo build -p poincare-app --release
+
+      - name: Bundle app
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path crates/poincare-app/Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches.Groups[1].Value
+          $bundle = "poincare-$version-windows-x86_64"
+          New-Item -ItemType Directory -Force -Path $bundle | Out-Null
+          Copy-Item target/release/poincare.exe "$bundle/poincare.exe"
+          @"
+          Poincare $version
+
+          Run with:
+            poincare.exe
+          "@ | Set-Content "$bundle/README.txt"
+          Compress-Archive -Path $bundle -DestinationPath "$bundle.zip" -Force
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: poincare-*-windows-x86_64.zip
+
+  build-flatpak:
+    needs: publish
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-25.08
+      options: --privileged
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: poincare-linux-x86_64.flatpak
+          manifest-path: packaging/flatpak/io.github.grimandgreedy.Poincare.yml
+          cache-key: flatpak-builder-${{ github.sha }}
+          arch: x86_64
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: poincare-linux-x86_64.flatpak
