@@ -2,7 +2,7 @@
 
 All notable changes to this crate will be documented in this file.
 
-## [Unreleased]
+## [0.7.0]
 - Added Phase 3 analysis support with `PointCloudStatistics` and `DataQualityChecks`.
 - Added sample-data analysis for point-backed and sampled plots, including imported scatter data, vector sample positions, surface-grid samples, interpolated curves, derived polylines, and built-in scatter clouds.
 - Added point-cloud statistics outputs including centroid, bounds, variance/covariance, PCA directions, and optional derived centroid/PCA geometry.
