@@ -23,7 +23,7 @@ use crate::plot::kind::{PlotKind, SeedMode};
 use crate::plot::sweep::ParameterSweep;
 use crate::plot::table::TableImportDefinition;
 
-const APP_STATE_KEY: &str = "poincare_app_v2_state";
+const APP_STATE_KEY: &str = "poincare_app_state";
 
 // ---------------------------------------------------------------------------
 // Top-level eframe storage blob
@@ -2142,9 +2142,9 @@ mod tests {
     }
 
     #[test]
-    fn app_state_accepts_legacy_empty_blob() {
+    fn app_state_accepts_empty_blob_defaults() {
         let saved: PersistedAppState =
-            serde_json::from_str("{}").expect("legacy app state should use defaults");
+            serde_json::from_str("{}").expect("empty app state should use defaults");
 
         assert!(saved.session.is_none());
         assert!(!saved.settings.save_state_on_exit);

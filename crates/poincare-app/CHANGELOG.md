@@ -2,7 +2,7 @@
 
 All notable changes to this crate will be documented in this file.
 
-## [v0.8.0]
+## [0.8.0]
 
 ### Fixes
 - Removed continuous hover picking. With high resolution meshes the interaction and camera transforms are considerably smoother. The hover picking was used before we added the probe and should have been removed at that point.
