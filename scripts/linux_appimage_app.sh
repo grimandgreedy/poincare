@@ -37,7 +37,7 @@ rm -rf "$appdir"
 mkdir -p "$appdir/usr/bin" "$appdir/usr/share/applications" "$appdir/usr/share/icons/hicolor/512x512/apps"
 
 cp "$binary_path" "$appdir/usr/bin/poincare"
-cp "$repo_root/crates/poincare-app/assets/icon.png" "$appdir/usr/share/icons/hicolor/512x512/apps/poincare.png"
+cp "$repo_root/crates/poincare-app/assets/icon_512.png" "$appdir/usr/share/icons/hicolor/512x512/apps/poincare.png"
 
 cat >"$appdir/usr/share/applications/poincare.desktop" <<DESKTOP
 [Desktop Entry]
