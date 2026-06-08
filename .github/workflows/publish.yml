@@ -60,13 +60,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-13
+          - runner: macos-15-intel
             target: x86_64-apple-darwin
             artifact: poincare-macos-x86_64.zip
-          - runner: macos-14
+          - runner: macos-15
             target: aarch64-apple-darwin
             artifact: poincare-macos-aarch64.zip
     runs-on: ${{ matrix.runner }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "13.0"
 
     steps:
       - uses: actions/checkout@v4
