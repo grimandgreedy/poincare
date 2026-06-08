@@ -198,7 +198,7 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
           LIB_VERSION: ${{ needs.preflight.outputs.lib_version }}
         run: |
-          if curl --fail --silent "https://crates.io/api/v1/crates/poincare-lib/${LIB_VERSION}" >/dev/null; then
+          if cargo info --registry crates-io "poincare-lib@${LIB_VERSION}" >/dev/null 2>&1; then
             echo "poincare-lib ${LIB_VERSION} is already published; skipping."
           else
             cargo publish -p poincare-lib
@@ -209,7 +209,7 @@ jobs:
           LIB_VERSION: ${{ needs.preflight.outputs.lib_version }}
         run: |
           for attempt in {1..60}; do
-            if cargo search poincare-lib --limit 5 | grep -q "^poincare-lib = \"${LIB_VERSION}\""; then
+            if cargo info --registry crates-io "poincare-lib@${LIB_VERSION}" >/dev/null 2>&1; then
               exit 0
             fi
             echo "Waiting for poincare-lib ${LIB_VERSION} to appear in crates.io index (${attempt}/60)"
@@ -223,7 +223,7 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
           APP_VERSION: ${{ needs.preflight.outputs.app_version }}
         run: |
-          if curl --fail --silent "https://crates.io/api/v1/crates/poincare-app/${APP_VERSION}" >/dev/null; then
+          if cargo info --registry crates-io "poincare-app@${APP_VERSION}" >/dev/null 2>&1; then
             echo "poincare-app ${APP_VERSION} is already published; skipping."
           else
             cargo publish -p poincare-app --dry-run
