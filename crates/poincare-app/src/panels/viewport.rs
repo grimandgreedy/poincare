@@ -678,14 +678,19 @@ pub(crate) fn push_egui_events_filtered(
                         state,
                     });
                 }
-                egui::Event::MouseWheel { delta, .. } => {
+                egui::Event::MouseWheel { unit, delta, .. } => {
                     if !pointer_over_viewport {
                         continue;
                     }
+                    let units = match unit {
+                        egui::MouseWheelUnit::Line => ScrollUnits::Lines,
+                        egui::MouseWheelUnit::Point => ScrollUnits::Pixels,
+                        egui::MouseWheelUnit::Page => ScrollUnits::Pages,
+                    };
                     let scroll_sign = if invert_scroll { -1.0 } else { 1.0 };
                     controller.push_event(ViewportEvent::Wheel {
                         delta: glam::Vec2::new(delta.x * scroll_sign, delta.y * scroll_sign),
-                        units: ScrollUnits::Pixels,
+                        units,
                     });
                 }
                 egui::Event::Key {
@@ -797,14 +802,19 @@ pub(crate) fn push_egui_events(
                         state,
                     });
                 }
-                egui::Event::MouseWheel { delta, .. } => {
+                egui::Event::MouseWheel { unit, delta, .. } => {
                     if !pointer_over_viewport {
                         continue;
                     }
+                    let units = match unit {
+                        egui::MouseWheelUnit::Line => ScrollUnits::Lines,
+                        egui::MouseWheelUnit::Point => ScrollUnits::Pixels,
+                        egui::MouseWheelUnit::Page => ScrollUnits::Pages,
+                    };
                     let scroll_sign = if invert_scroll { -1.0 } else { 1.0 };
                     controller.push_event(ViewportEvent::Wheel {
                         delta: glam::Vec2::new(delta.x * scroll_sign, delta.y * scroll_sign),
-                        units: ScrollUnits::Pixels,
+                        units,
                     });
                 }
                 egui::Event::Key {

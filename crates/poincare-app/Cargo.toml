@@ -18,7 +18,7 @@ path = "src/main.rs"
 [dependencies]
 poincare-lib = { workspace = true }
 viewport-lib = { workspace = true }
-eframe = { version = "=0.33.3", default-features = false, features = ["wgpu", "default_fonts", "persistence", "x11"] }
+eframe = { version = "=0.33.3", default-features = false, features = ["wgpu", "default_fonts", "persistence", "x11", "wayland"] }
 egui = { version = "=0.33.3" }
 grimdock = { version = "0.2.0" }
 glam = { workspace = true }
