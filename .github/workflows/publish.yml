@@ -118,10 +118,20 @@ jobs:
       - name: Bundle app
         run: scripts/linux_bundle_app.sh release x86_64-unknown-linux-gnu
 
+      - name: Install AppImage tooling
+        run: |
+          curl -L -o target/linuxdeploy-x86_64.AppImage https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod +x target/linuxdeploy-x86_64.AppImage
+
+      - name: Build AppImage
+        run: scripts/linux_appimage_app.sh release x86_64-unknown-linux-gnu
+
       - uses: actions/upload-artifact@v4
         with:
           name: poincare-linux-x86_64
-          path: target/x86_64-unknown-linux-gnu/release/poincare-*-linux-x86_64-unknown-linux-gnu.tar.gz
+          path: |
+            target/x86_64-unknown-linux-gnu/release/poincare-*-linux-x86_64-unknown-linux-gnu.tar.gz
+            target/x86_64-unknown-linux-gnu/release/Poincare-*-linux-x86_64.AppImage
           if-no-files-found: error
 
   build-windows:
