@@ -2,10 +2,14 @@
 
 All notable changes to this crate will be documented in this file.
 
+## [0.8.1]
+- Fixed viewport zoom with physical mouse wheels by preserving line, pixel, and page scroll units when forwarding eframe input to `viewport-lib`.
+
 ## [0.8.0]
 
 ### Fixes
 - Removed continuous hover picking. With high resolution meshes the interaction and camera transforms are considerably smoother. The hover picking was used before we added the probe and should have been removed at that point.
+- Enabled native Wayland support to improve text and line rendering on Linux desktops using display scaling.
 
 ## [0.7.0]
 
