@@ -1,6 +1,6 @@
 [package]
 name = "poincare-app"
-version = "0.8.0"
+version = "0.8.1"
 edition = "2024"
 description = "Interactive 3D mathematical graphing application"
 license = "MIT"
