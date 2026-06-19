@@ -1,0 +1,35 @@
+[package]
+name = "poincare-mobile"
+version = "0.1.0"
+edition = "2024"
+description = "Mobile shell for Poincare"
+license = "MIT"
+
+[lib]
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "poincare-mobile-desktop"
+path = "gen/bin/desktop.rs"
+
+[dependencies]
+poincare-lib = { workspace = true }
+viewport-lib = { workspace = true }
+wgpu = { workspace = true }
+glam = { workspace = true }
+winit = "0.30"
+pollster = "0.4"
+
+[target.'cfg(target_os = "android")'.dependencies]
+android-activity = { version = "0.6", features = ["native-activity"] }
+
+[package.metadata.android]
+package = "io.github.grimandgreedy.poincare.mobile"
+build_targets = ["aarch64-linux-android", "x86_64-linux-android"]
+
+[package.metadata.android.sdk]
+min_sdk_version = 23
+target_sdk_version = 33
+
+[package.metadata.android.application]
+label = "Poincare Mobile"

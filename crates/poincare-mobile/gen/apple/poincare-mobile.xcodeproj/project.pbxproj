@@ -1,0 +1,412 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		11D81C9F06A4A1AB47A48F63 /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 103CA483CC59E1392664F90C /* CoreGraphics.framework */; };
+		1DB83831D058B686FF117B8B /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B8A7A3ADDAE1CAF17B6EAE0B /* Security.framework */; };
+		2EB03026624268B545C7F16A /* libpoincare_mobile.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9674EF0DC434B9422D99D5C5 /* libpoincare_mobile.a */; };
+		51A2503388AC745BB3ECEDE5 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5C7F4F2CFBB30A93B7BDA9E6 /* QuartzCore.framework */; };
+		5BF6B1A5192340D6A002C068 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 45CF2F31B43D5392307AA200 /* MetalKit.framework */; };
+		93E3CEC5DC79D1E975948AA1 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = DD7C4934CFCC326BA2DD4CD4 /* main.mm */; };
+		D97E7813DF2467F372AC2D1B /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 25F9E1ED0F42C419DB6C6C1E /* UIKit.framework */; };
+		ECFB6C9A16E08498675BDEA4 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 263A5D99F4EC97960A3959BB /* Metal.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		103CA483CC59E1392664F90C /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
+		25F9E1ED0F42C419DB6C6C1E /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
+		263A5D99F4EC97960A3959BB /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		45CF2F31B43D5392307AA200 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
+		4FA35CAB02052A831F9DD0D4 /* poincare-mobile_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "poincare-mobile_iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		5C7F4F2CFBB30A93B7BDA9E6 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
+		7694244B6B3ED8A585F70D7D /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
+		9674EF0DC434B9422D99D5C5 /* libpoincare_mobile.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libpoincare_mobile.a; sourceTree = "<group>"; };
+		B8A7A3ADDAE1CAF17B6EAE0B /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		DD7C4934CFCC326BA2DD4CD4 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
+		E04DF12B44C01207FC158543 /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		6E2FCA449E06B19B61A64B10 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2EB03026624268B545C7F16A /* libpoincare_mobile.a in Frameworks */,
+				11D81C9F06A4A1AB47A48F63 /* CoreGraphics.framework in Frameworks */,
+				ECFB6C9A16E08498675BDEA4 /* Metal.framework in Frameworks */,
+				5BF6B1A5192340D6A002C068 /* MetalKit.framework in Frameworks */,
+				51A2503388AC745BB3ECEDE5 /* QuartzCore.framework in Frameworks */,
+				1DB83831D058B686FF117B8B /* Security.framework in Frameworks */,
+				D97E7813DF2467F372AC2D1B /* UIKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		088EB84D5CCF16D55F3E9DE2 /* bindings */ = {
+			isa = PBXGroup;
+			children = (
+				E04DF12B44C01207FC158543 /* bindings.h */,
+			);
+			path = bindings;
+			sourceTree = "<group>";
+		};
+		66DAAF950CF3F92E18D2D685 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				103CA483CC59E1392664F90C /* CoreGraphics.framework */,
+				9674EF0DC434B9422D99D5C5 /* libpoincare_mobile.a */,
+				263A5D99F4EC97960A3959BB /* Metal.framework */,
+				45CF2F31B43D5392307AA200 /* MetalKit.framework */,
+				5C7F4F2CFBB30A93B7BDA9E6 /* QuartzCore.framework */,
+				B8A7A3ADDAE1CAF17B6EAE0B /* Security.framework */,
+				25F9E1ED0F42C419DB6C6C1E /* UIKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		74FC74CD471755D3713B0D38 = {
+			isa = PBXGroup;
+			children = (
+				B4CADCB30A81899582CFDEC3 /* Sources */,
+				88149FF64B20859280917C00 /* src */,
+				66DAAF950CF3F92E18D2D685 /* Frameworks */,
+				B87727C485E9498C3C5C113D /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		88149FF64B20859280917C00 /* src */ = {
+			isa = PBXGroup;
+			children = (
+				7694244B6B3ED8A585F70D7D /* lib.rs */,
+			);
+			name = src;
+			path = ../../src;
+			sourceTree = "<group>";
+		};
+		9C75223FC5EF33C1CE5E1376 /* poincare-mobile */ = {
+			isa = PBXGroup;
+			children = (
+				DD7C4934CFCC326BA2DD4CD4 /* main.mm */,
+				088EB84D5CCF16D55F3E9DE2 /* bindings */,
+			);
+			path = "poincare-mobile";
+			sourceTree = "<group>";
+		};
+		B4CADCB30A81899582CFDEC3 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				9C75223FC5EF33C1CE5E1376 /* poincare-mobile */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		B87727C485E9498C3C5C113D /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				4FA35CAB02052A831F9DD0D4 /* poincare-mobile_iOS.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		E936C8FD8936BCC0C8D8A8FF /* poincare-mobile_iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 79B244ABEEFDA56FB6DD5B88 /* Build configuration list for PBXNativeTarget "poincare-mobile_iOS" */;
+			buildPhases = (
+				227DFCAF09B11097C778C75E /* Build Rust Code */,
+				16A2A831D94D18289B8F0709 /* Sources */,
+				6E2FCA449E06B19B61A64B10 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "poincare-mobile_iOS";
+			packageProductDependencies = (
+			);
+			productName = "poincare-mobile_iOS";
+			productReference = 4FA35CAB02052A831F9DD0D4 /* poincare-mobile_iOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		EC6E089FC063E648124E01F5 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					E936C8FD8936BCC0C8D8A8FF = {
+						DevelopmentTeam = 0;
+					};
+				};
+			};
+			buildConfigurationList = F076C23045DBFC2A6F4B4266 /* Build configuration list for PBXProject "poincare-mobile" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 74FC74CD471755D3713B0D38;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = B87727C485E9498C3C5C113D /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				E936C8FD8936BCC0C8D8A8FF /* poincare-mobile_iOS */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		227DFCAF09B11097C778C75E /* Build Rust Code */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Rust Code";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(SRCROOT)/../../../../target/aarch64-apple-ios/${CONFIGURATION}/deps/libpoincare_mobile.a",
+				"$(SRCROOT)/../../../../target/aarch64-apple-ios-sim/${CONFIGURATION}/deps/libpoincare_mobile.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "PATH=/opt/local/bin:/opt/local/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/opt/X11/bin:/Library/Apple/usr/bin:/Library/TeX/texbin:/opt/homebrew/bin:/Applications/quarto/bin:/Users/noah/.codex/tmp/arg0/codex-arg0njuhvN:/Users/noah/.nvm/versions/node/v24.14.1/bin:/Users/noah/.codeium/windsurf/bin:/usr/local/texlive/2024/bin/x86_64-linux:/opt/local/bin:/opt/local/sbin:/opt/pmk/env/global/bin:/Applications/kitty.app/Contents/MacOS:/Users/noah/.cargo/bin:/Applications/iTerm.app/Contents/Resources/utilities:/opt/homebrew/bin/:/Users/noah/Library/Python/3.9/bin:/opt/local/bin/:/Users/noah/.local/bin:/home/noah/.local/bin:/home/noah/.cargo/bin:${HOME:?}/.cargo/bin\nexport CARGO=${CARGO:-${HOME:?}/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo}\nexport RUSTC=${RUSTC:-${HOME:?}/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc}\nexport CARGO_TARGET_DIR=\"${SRCROOT:?}/../../../../target\"\nCARGO_APPLE=`which cargo-apple`\n${CARGO_APPLE} xcode-script -v --platform \"${PLATFORM_DISPLAY_NAME:?}\" --sdk-root ${SDKROOT:?} --framework-search-paths \"${FRAMEWORK_SEARCH_PATHS:?}\" --header-search-paths \"${HEADER_SEARCH_PATHS:?}\" --gcc-preprocessor-definitions \"${GCC_PREPROCESSOR_DEFINITIONS:?}\" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?} ${FEATURES}";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		16A2A831D94D18289B8F0709 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				93E3CEC5DC79D1E975948AA1 /* main.mm in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		632277B37F1C509882FF2631 /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = debug;
+		};
+		92FF17BDCF9B33179E6FBFF6 /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ARCHS = (
+					arm64,
+				);
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = 0;
+				ENABLE_BITCODE = NO;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = "poincare-mobile_iOS/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(inherited) $(SRCROOT)/../../../../target/aarch64-apple-ios/$(CONFIGURATION)";
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(inherited) $(SRCROOT)/../../../../target/aarch64-apple-ios-sim/$(CONFIGURATION)";
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.grimandgreedy.poincare.mobile;
+				PRODUCT_NAME = "Poincare Mobile";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALID_ARCHS = arm64;
+			};
+			name = debug;
+		};
+		E11D61123395C90CC72ADD8C /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ARCHS = (
+					arm64,
+				);
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = 0;
+				ENABLE_BITCODE = NO;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = "poincare-mobile_iOS/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(inherited) $(SRCROOT)/../../../../target/aarch64-apple-ios/$(CONFIGURATION)";
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(inherited) $(SRCROOT)/../../../../target/aarch64-apple-ios-sim/$(CONFIGURATION)";
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.grimandgreedy.poincare.mobile;
+				PRODUCT_NAME = "Poincare Mobile";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALID_ARCHS = arm64;
+			};
+			name = release;
+		};
+		FD5F519A80DECA9A01118E9C /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		79B244ABEEFDA56FB6DD5B88 /* Build configuration list for PBXNativeTarget "poincare-mobile_iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				92FF17BDCF9B33179E6FBFF6 /* debug */,
+				E11D61123395C90CC72ADD8C /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+		F076C23045DBFC2A6F4B4266 /* Build configuration list for PBXProject "poincare-mobile" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				632277B37F1C509882FF2631 /* debug */,
+				FD5F519A80DECA9A01118E9C /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = EC6E089FC063E648124E01F5 /* Project object */;
+}

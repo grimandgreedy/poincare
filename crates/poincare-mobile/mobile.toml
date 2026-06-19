@@ -1,0 +1,10 @@
+[app]
+name = "poincare-mobile"
+stylized-name = "Poincare Mobile"
+identifier = "io.github.grimandgreedy.poincare.mobile"
+template-pack = "winit"
+
+[apple]
+development-team = "0"
+
+[target]

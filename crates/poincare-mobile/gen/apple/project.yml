@@ -1,0 +1,73 @@
+name: poincare-mobile
+options:
+  bundleIdPrefix: io.github.grimandgreedy.poincare.mobile
+  deploymentTarget:
+    iOS: 13.0
+fileGroups: [../../src]
+configs:
+  debug: debug
+  release: release
+settingGroups:
+  app:
+    base:
+      PRODUCT_NAME: Poincare Mobile
+      PRODUCT_BUNDLE_IDENTIFIER: io.github.grimandgreedy.poincare.mobile
+      DEVELOPMENT_TEAM: 0
+targets:
+  poincare-mobile_iOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+    info:
+      path: poincare-mobile_iOS/Info.plist
+      properties:
+        LSRequiresIPhoneOS: true
+        UILaunchStoryboardName: LaunchScreen
+        UIRequiredDeviceCapabilities: [arm64, metal]
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        CFBundleShortVersionString: 1.0.0
+        CFBundleVersion: 1.0.0
+    scheme:
+      environmentVariables:
+        RUST_BACKTRACE: full
+        RUST_LOG: info
+    settings:
+      base:
+        ENABLE_BITCODE: false
+        ARCHS: [arm64]
+        VALID_ARCHS: arm64
+        LIBRARY_SEARCH_PATHS[sdk=iphoneos*]: $(inherited) $(SRCROOT)/../../../../target/aarch64-apple-ios/$(CONFIGURATION)
+        LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]: $(inherited) $(SRCROOT)/../../../../target/aarch64-apple-ios-sim/$(CONFIGURATION)
+        ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: true
+      groups: [app]
+    dependencies:
+      - framework: libpoincare_mobile.a
+        embed: false
+      - sdk: CoreGraphics.framework
+      - sdk: Metal.framework
+      - sdk: MetalKit.framework
+      - sdk: QuartzCore.framework
+      - sdk: Security.framework
+      - sdk: UIKit.framework
+    preBuildScripts:
+      - script: |-
+          PATH=${PATH}:${HOME:?}/.cargo/bin
+          export CARGO=${CARGO:-${HOME:?}/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo}
+          export RUSTC=${RUSTC:-${HOME:?}/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc}
+          export CARGO_TARGET_DIR="${SRCROOT:?}/../../../../target"
+          CARGO_APPLE=`which cargo-apple`
+          ${CARGO_APPLE} xcode-script -v --platform "${PLATFORM_DISPLAY_NAME:?}" --sdk-root ${SDKROOT:?} --framework-search-paths "${FRAMEWORK_SEARCH_PATHS:?}" --header-search-paths "${HEADER_SEARCH_PATHS:?}" --gcc-preprocessor-definitions "${GCC_PREPROCESSOR_DEFINITIONS:?}" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?} ${FEATURES}
+        name: Build Rust Code
+        basedOnDependencyAnalysis: false
+        outputFiles:
+          - $(SRCROOT)/../../../../target/aarch64-apple-ios/${CONFIGURATION}/deps/libpoincare_mobile.a
+          - $(SRCROOT)/../../../../target/aarch64-apple-ios-sim/${CONFIGURATION}/deps/libpoincare_mobile.a

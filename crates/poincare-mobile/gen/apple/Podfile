@@ -1,0 +1,3 @@
+target 'poincare-mobile_iOS' do
+platform :ios, '13.0'
+end
