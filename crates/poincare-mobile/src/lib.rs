@@ -31,7 +31,7 @@ enum TouchMode {
     #[default]
     None,
     OneFingerOrbit,
-    TwoFingerPan,
+    TwoFingerZoom,
 }
 
 #[derive(Default)]
@@ -799,7 +799,8 @@ fn render_ui(state: &mut AppState, ctx: &egui::Context) -> bool {
     let snapshot = state.model.snapshot();
     let output = mobile_ui::render(ctx, &snapshot);
     state.ui_hit_regions = output.hit_regions;
-    state.apply_ui_commands(output.commands)
+    let command_redraw = state.apply_ui_commands(output.commands);
+    command_redraw || output.redraw_requested
 }
 
 fn direct_ui_touch(state: &mut AppState, event: &WindowEvent) -> DirectUiTouch {
@@ -906,9 +907,10 @@ fn handle_touch(state: &mut AppState, phase: TouchPhase, id: u64, pos: glam::Vec
 
             match state.touches.len() {
                 1 => {
-                    state
-                        .controller
-                        .push_event(ViewportEvent::PointerMoved { position: pos });
+                    let orbit_pos = orbit_touch_pos(state, pos);
+                    state.controller.push_event(ViewportEvent::PointerMoved {
+                        position: orbit_pos,
+                    });
                     state.controller.push_event(ViewportEvent::MouseButton {
                         button: MouseButton::Left,
                         state: ButtonState::Pressed,
@@ -924,12 +926,8 @@ fn handle_touch(state: &mut AppState, phase: TouchPhase, id: u64, pos: glam::Vec
                     state
                         .controller
                         .push_event(ViewportEvent::PointerMoved { position: centroid });
-                    state.controller.push_event(ViewportEvent::MouseButton {
-                        button: MouseButton::Middle,
-                        state: ButtonState::Pressed,
-                    });
                     state.prev_pinch_dist = Some(touches_distance(&state.touches));
-                    state.touch_mode = TouchMode::TwoFingerPan;
+                    state.touch_mode = TouchMode::TwoFingerZoom;
                 }
                 3 => {
                     release_touch_buttons(state);
@@ -944,11 +942,12 @@ fn handle_touch(state: &mut AppState, phase: TouchPhase, id: u64, pos: glam::Vec
 
             match state.touch_mode {
                 TouchMode::OneFingerOrbit => {
-                    state
-                        .controller
-                        .push_event(ViewportEvent::PointerMoved { position: pos });
+                    let orbit_pos = orbit_touch_pos(state, pos);
+                    state.controller.push_event(ViewportEvent::PointerMoved {
+                        position: orbit_pos,
+                    });
                 }
-                TouchMode::TwoFingerPan => {
+                TouchMode::TwoFingerZoom => {
                     let centroid = touches_centroid(&state.touches);
                     state
                         .controller
@@ -959,7 +958,7 @@ fn handle_touch(state: &mut AppState, phase: TouchPhase, id: u64, pos: glam::Vec
                         let delta = dist - prev;
                         if delta.abs() > 0.5 {
                             state.controller.push_event(ViewportEvent::Wheel {
-                                delta: glam::Vec2::new(0.0, delta * 0.25),
+                                delta: glam::Vec2::new(0.0, delta * 0.5),
                                 units: ScrollUnits::Pixels,
                             });
                         }
@@ -981,31 +980,19 @@ fn handle_touch(state: &mut AppState, phase: TouchPhase, id: u64, pos: glam::Vec
                     });
                     state.touch_mode = TouchMode::None;
                 }
-                TouchMode::TwoFingerPan => {
-                    state.controller.push_event(ViewportEvent::MouseButton {
-                        button: MouseButton::Middle,
-                        state: ButtonState::Released,
-                    });
+                TouchMode::TwoFingerZoom => {
                     state.prev_pinch_dist = None;
 
-                    if state.touches.len() == 1 {
-                        let remaining = *state.touches.values().next().unwrap();
-                        state.controller.push_event(ViewportEvent::PointerMoved {
-                            position: remaining,
-                        });
-                        state.controller.push_event(ViewportEvent::MouseButton {
-                            button: MouseButton::Left,
-                            state: ButtonState::Pressed,
-                        });
-                        state.touch_mode = TouchMode::OneFingerOrbit;
-                    } else {
-                        state.touch_mode = TouchMode::None;
-                    }
+                    state.touch_mode = TouchMode::None;
                 }
                 TouchMode::None => {}
             }
         }
     }
+}
+
+fn orbit_touch_pos(state: &AppState, pos: glam::Vec2) -> glam::Vec2 {
+    glam::vec2(state.surface_config.width as f32 - pos.x, pos.y)
 }
 
 fn release_touch_buttons(state: &mut AppState) {

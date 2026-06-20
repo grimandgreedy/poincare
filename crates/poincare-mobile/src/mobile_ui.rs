@@ -12,6 +12,7 @@ const PANEL_RADIUS: f32 = 8.0;
 const EDGE_MARGIN: f32 = 12.0;
 const DIRECT_HIT_PAD: f32 = 12.0;
 const QUICK_BUTTON_RIGHT_INSET: f32 = 20.0;
+const SHEET_BOTTOM_SAFE_MARGIN: i8 = 86;
 
 #[derive(Clone, Debug)]
 pub(crate) struct HitRegion {
@@ -23,6 +24,7 @@ pub(crate) struct HitRegion {
 pub(crate) struct RenderOutput {
     pub commands: Vec<UiCommand>,
     pub hit_regions: Vec<HitRegion>,
+    pub redraw_requested: bool,
 }
 
 pub(crate) fn render(ctx: &Context, snapshot: &UiSnapshot) -> RenderOutput {
@@ -30,6 +32,7 @@ pub(crate) fn render(ctx: &Context, snapshot: &UiSnapshot) -> RenderOutput {
 
     let mut commands = Vec::new();
     let mut hit_regions = Vec::new();
+    let mut redraw_requested = false;
     show_hamburger(ctx, &mut commands, &mut hit_regions);
     show_quick_controls(ctx, snapshot, &mut commands, &mut hit_regions);
 
@@ -38,7 +41,13 @@ pub(crate) fn render(ctx: &Context, snapshot: &UiSnapshot) -> RenderOutput {
     }
 
     if snapshot.editor_open {
-        show_equation_sheet(ctx, snapshot, &mut commands, &mut hit_regions);
+        show_equation_sheet(
+            ctx,
+            snapshot,
+            &mut commands,
+            &mut hit_regions,
+            &mut redraw_requested,
+        );
     }
 
     if snapshot.settings_open {
@@ -46,13 +55,20 @@ pub(crate) fn render(ctx: &Context, snapshot: &UiSnapshot) -> RenderOutput {
     }
 
     if snapshot.plot_properties_open {
-        show_plot_properties_sheet(ctx, snapshot, &mut commands, &mut hit_regions);
+        show_plot_properties_sheet(
+            ctx,
+            snapshot,
+            &mut commands,
+            &mut hit_regions,
+            &mut redraw_requested,
+        );
     }
 
     show_error(ctx, snapshot);
     RenderOutput {
         commands,
         hit_regions,
+        redraw_requested,
     }
 }
 
@@ -256,10 +272,13 @@ fn show_equation_sheet(
     snapshot: &UiSnapshot,
     commands: &mut Vec<UiCommand>,
     hit_regions: &mut Vec<HitRegion>,
+    redraw_requested: &mut bool,
 ) {
+    show_keyboard_avoidance_spacer(ctx, "mobile_equation_keyboard_spacer");
+
     TopBottomPanel::bottom("mobile_equation_sheet")
         .resizable(false)
-        .exact_height(230.0)
+        .exact_height(282.0)
         .frame(
             Frame::NONE
                 .fill(Color32::from_rgba_unmultiplied(11, 15, 22, 248))
@@ -268,7 +287,7 @@ fn show_equation_sheet(
                     left: 18,
                     right: 18,
                     top: 10,
-                    bottom: 34,
+                    bottom: SHEET_BOTTOM_SAFE_MARGIN,
                 }),
         )
         .show(ctx, |ui| {
@@ -295,10 +314,11 @@ fn show_equation_sheet(
 
             let mut equation = snapshot.equation.clone();
             ui.add_space(8.0);
-            ui.add_sized(
+            let equation_response = ui.add_sized(
                 [ui.available_width(), TOUCH_TARGET],
                 TextEdit::singleline(&mut equation).hint_text("z = f(x, y)"),
             );
+            request_keyboard_avoidance_repaint(&equation_response, redraw_requested);
             if equation != snapshot.equation {
                 commands.push(UiCommand::SetEquation(equation));
             }
@@ -359,10 +379,13 @@ fn show_plot_properties_sheet(
     snapshot: &UiSnapshot,
     commands: &mut Vec<UiCommand>,
     hit_regions: &mut Vec<HitRegion>,
+    redraw_requested: &mut bool,
 ) {
     let Some(plot) = snapshot.selected_plot.as_ref() else {
         return;
     };
+
+    show_keyboard_avoidance_spacer(ctx, "mobile_plot_properties_keyboard_spacer");
 
     TopBottomPanel::bottom("mobile_plot_properties_sheet")
         .resizable(false)
@@ -379,14 +402,19 @@ fn show_plot_properties_sheet(
             );
 
             egui::ScrollArea::vertical().show(ui, |ui| {
-                edit_surface(ui, plot, commands);
-                edit_domain(ui, plot, commands);
+                edit_surface(ui, plot, commands, redraw_requested);
+                edit_domain(ui, plot, commands, redraw_requested);
                 edit_style(ui, plot, commands, hit_regions);
             });
         });
 }
 
-fn edit_surface(ui: &mut Ui, plot: &PlotEditorSnapshot, commands: &mut Vec<UiCommand>) {
+fn edit_surface(
+    ui: &mut Ui,
+    plot: &PlotEditorSnapshot,
+    commands: &mut Vec<UiCommand>,
+    redraw_requested: &mut bool,
+) {
     section_label(ui, "Surface");
     ui.label(
         RichText::new(plot.name.as_str())
@@ -396,10 +424,11 @@ fn edit_surface(ui: &mut Ui, plot: &PlotEditorSnapshot, commands: &mut Vec<UiCom
 
     let mut equation = plot.equation.clone();
     ui.add_space(4.0);
-    ui.add_sized(
+    let equation_response = ui.add_sized(
         [ui.available_width(), TOUCH_TARGET],
         TextEdit::singleline(&mut equation).hint_text("z = f(x, y)"),
     );
+    request_keyboard_avoidance_repaint(&equation_response, redraw_requested);
     if equation != plot.equation {
         commands.push(UiCommand::SetSelectedPlotEquation(equation));
     }
@@ -408,9 +437,13 @@ fn edit_surface(ui: &mut Ui, plot: &PlotEditorSnapshot, commands: &mut Vec<UiCom
         let mut u = plot.resolution_u;
         let mut v = plot.resolution_v;
         ui.label("Resolution");
-        let u_changed = ui.add(DragValue::new(&mut u).range(8..=256)).changed();
+        let u_response = ui.add(DragValue::new(&mut u).range(8..=256));
+        request_keyboard_avoidance_repaint(&u_response, redraw_requested);
+        let u_changed = u_response.changed();
         ui.label("x");
-        let v_changed = ui.add(DragValue::new(&mut v).range(8..=256)).changed();
+        let v_response = ui.add(DragValue::new(&mut v).range(8..=256));
+        request_keyboard_avoidance_repaint(&v_response, redraw_requested);
+        let v_changed = v_response.changed();
         if u_changed || v_changed {
             commands.push(UiCommand::SetSelectedPlotResolution(PlotResolutionEdit {
                 u,
@@ -420,11 +453,40 @@ fn edit_surface(ui: &mut Ui, plot: &PlotEditorSnapshot, commands: &mut Vec<UiCom
     });
 }
 
-fn edit_domain(ui: &mut Ui, plot: &PlotEditorSnapshot, commands: &mut Vec<UiCommand>) {
+fn edit_domain(
+    ui: &mut Ui,
+    plot: &PlotEditorSnapshot,
+    commands: &mut Vec<UiCommand>,
+    redraw_requested: &mut bool,
+) {
     section_label(ui, "Domain");
-    edit_range(ui, "X", PlotAxis::X, plot.x_min, plot.x_max, commands);
-    edit_range(ui, "Y", PlotAxis::Y, plot.y_min, plot.y_max, commands);
-    edit_range(ui, "Z", PlotAxis::Z, plot.z_min, plot.z_max, commands);
+    edit_range(
+        ui,
+        "X",
+        PlotAxis::X,
+        plot.x_min,
+        plot.x_max,
+        commands,
+        redraw_requested,
+    );
+    edit_range(
+        ui,
+        "Y",
+        PlotAxis::Y,
+        plot.y_min,
+        plot.y_max,
+        commands,
+        redraw_requested,
+    );
+    edit_range(
+        ui,
+        "Z",
+        PlotAxis::Z,
+        plot.z_min,
+        plot.z_max,
+        commands,
+        redraw_requested,
+    );
 }
 
 fn edit_range(
@@ -434,17 +496,18 @@ fn edit_range(
     min: f64,
     max: f64,
     commands: &mut Vec<UiCommand>,
+    redraw_requested: &mut bool,
 ) {
     let mut next_min = min;
     let mut next_max = max;
     ui.horizontal(|ui| {
         ui.label(label);
-        let min_changed = ui
-            .add(DragValue::new(&mut next_min).speed(0.1).prefix("min "))
-            .changed();
-        let max_changed = ui
-            .add(DragValue::new(&mut next_max).speed(0.1).prefix("max "))
-            .changed();
+        let min_response = ui.add(DragValue::new(&mut next_min).speed(0.1).prefix("min "));
+        request_keyboard_avoidance_repaint(&min_response, redraw_requested);
+        let min_changed = min_response.changed();
+        let max_response = ui.add(DragValue::new(&mut next_max).speed(0.1).prefix("max "));
+        request_keyboard_avoidance_repaint(&max_response, redraw_requested);
+        let max_changed = max_response.changed();
         if min_changed || max_changed {
             commands.push(UiCommand::SetSelectedPlotDomain(PlotDomainEdit {
                 axis,
@@ -613,8 +676,29 @@ fn sheet_frame() -> Frame {
             left: 18,
             right: 18,
             top: 10,
-            bottom: 34,
+            bottom: SHEET_BOTTOM_SAFE_MARGIN,
         })
+}
+
+fn show_keyboard_avoidance_spacer(ctx: &Context, id: &'static str) {
+    let input_focused = ctx.memory(|memory| memory.focused().is_some());
+    if !input_focused && !ctx.wants_keyboard_input() {
+        return;
+    }
+
+    let height = (ctx.content_rect().height() * 0.42).clamp(220.0, 380.0);
+    TopBottomPanel::bottom(id)
+        .resizable(false)
+        .exact_height(height)
+        .frame(Frame::NONE)
+        .show(ctx, |_| {});
+}
+
+fn request_keyboard_avoidance_repaint(response: &egui::Response, redraw_requested: &mut bool) {
+    if response.gained_focus() {
+        response.ctx.request_repaint();
+        *redraw_requested = true;
+    }
 }
 
 fn sheet_grabber(ui: &mut Ui) {
