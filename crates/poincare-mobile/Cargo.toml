@@ -4,6 +4,14 @@ version = "0.1.0"
 edition = "2024"
 description = "Mobile shell for Poincare"
 license = "MIT"
+include = [
+    "Cargo.toml",
+    "README.md",
+    "mobile.toml",
+    "src/**",
+    "gen/bin/**",
+    "assets/**",
+]
 
 [lib]
 crate-type = ["staticlib", "cdylib", "rlib"]

@@ -1,0 +1,61 @@
+name: Publish poincare-mobile
+
+on:
+  push:
+    tags:
+      - "mobile-v*"
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: poincare
+
+      - uses: actions/checkout@v4
+        with:
+          repository: grimandgreedy/viewport-lib
+          path: viewport-lib
+
+      - name: Check tag matches Cargo.toml version
+        working-directory: poincare
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#mobile-v}"
+          CARGO_VERSION=$(grep '^version = ' crates/poincare-mobile/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          test "$TAG_VERSION" = "$CARGO_VERSION"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            poincare -> target
+            viewport-lib -> target
+
+      - name: Install system dependencies
+        run: sudo apt-get update -q && sudo apt-get install -y pkg-config libfontconfig1-dev libxkbcommon-dev
+
+      - name: Dry-run mobile publish
+        working-directory: poincare
+        run: cargo publish -p poincare-mobile --dry-run
+
+      - name: Publish mobile crate if needed
+        working-directory: poincare
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          MOBILE_VERSION=$(grep '^version = ' crates/poincare-mobile/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          if cargo info --registry crates-io "poincare-mobile@${MOBILE_VERSION}" >/dev/null 2>&1; then
+            echo "poincare-mobile ${MOBILE_VERSION} is already published; skipping."
+          else
+            cargo publish -p poincare-mobile
+          fi
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          body: "Published poincare-mobile ${{ github.ref_name }} to crates.io."

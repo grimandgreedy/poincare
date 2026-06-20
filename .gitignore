@@ -5,8 +5,22 @@ target/
 # Workspace target symlink used by cargo-apple/Xcode for poincare-mobile
 /crates/poincare-mobile/target
 
+# poincare-mobile generated native build output
+/crates/poincare-mobile/gen/android/**/build/
+/crates/poincare-mobile/gen/android/**/.gradle/
+/crates/poincare-mobile/gen/android/**/*.apk
+/crates/poincare-mobile/gen/android/**/*.so
+/crates/poincare-mobile/gen/apple/Sources/*/debug/
+/crates/poincare-mobile/gen/apple/Sources/*/release/
+/crates/poincare-mobile/gen/apple/**/*.a
+/crates/poincare-mobile/gen/apple/DerivedData/
+/crates/poincare-mobile/gen/apple/Pods/
+/crates/poincare-mobile/gen/apple/*.xcworkspace
+/crates/poincare-mobile/gen/apple/**/xcuserdata/
+
 # cargo-mobile2
-.cargo/
+/.cargo/*
+!/.cargo/config.toml
 /gen
 
 # macOS
