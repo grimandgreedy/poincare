@@ -13,7 +13,7 @@ use poincare_lib::{AxisConfig, GraphScene, GraphSpec};
 use viewport_lib::{
     ButtonState, Camera, CameraFrame, GroundPlane, GroundPlaneMode, LightingSettings, MouseButton,
     OrbitCameraController, PostProcessSettings, ScrollUnits, ViewportContext, ViewportEvent,
-    ViewportRenderer,
+    ViewportRenderer, picking,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, Touch, TouchPhase, WindowEvent};
@@ -26,12 +26,21 @@ use winit::event_loop::EventLoop;
 use winit::keyboard::Key;
 use winit::window::{Window, WindowAttributes, WindowId};
 
+const DOUBLE_TAP_MAX_INTERVAL: Duration = Duration::from_millis(360);
+const DOUBLE_TAP_MAX_DISTANCE: f32 = 96.0;
+const TAP_MAX_MOVEMENT: f32 = 24.0;
+
 #[derive(Default, PartialEq)]
 enum TouchMode {
     #[default]
     None,
     OneFingerOrbit,
     TwoFingerZoom,
+}
+
+struct TapRecord {
+    time: Instant,
+    pos: glam::Vec2,
 }
 
 #[derive(Default)]
@@ -56,10 +65,12 @@ struct AppState {
     model: MobileModel,
     scene: GraphScene,
     touches: HashMap<u64, glam::Vec2>,
+    touch_starts: HashMap<u64, glam::Vec2>,
     direct_ui_touches: HashMap<u64, Vec<UiCommand>>,
     ui_hit_regions: Vec<mobile_ui::HitRegion>,
     touch_mode: TouchMode,
     prev_pinch_dist: Option<f32>,
+    last_tap: Option<TapRecord>,
     frame_count: u64,
     rebuild_count: u64,
     pipeline_cache_path: Option<PathBuf>,
@@ -324,10 +335,12 @@ impl ApplicationHandler for App {
             model: MobileModel::new(),
             scene: GraphScene::new(),
             touches: HashMap::new(),
+            touch_starts: HashMap::new(),
             direct_ui_touches: HashMap::new(),
             ui_hit_regions: Vec::new(),
             touch_mode: TouchMode::None,
             prev_pinch_dist: None,
+            last_tap: None,
             frame_count: 0,
             rebuild_count: 0,
             pipeline_cache_path,
@@ -904,6 +917,7 @@ fn handle_touch(state: &mut AppState, phase: TouchPhase, id: u64, pos: glam::Vec
     match phase {
         TouchPhase::Started => {
             state.touches.insert(id, pos);
+            state.touch_starts.insert(id, pos);
 
             match state.touches.len() {
                 1 => {
@@ -970,6 +984,7 @@ fn handle_touch(state: &mut AppState, phase: TouchPhase, id: u64, pos: glam::Vec
         }
 
         TouchPhase::Ended | TouchPhase::Cancelled => {
+            let start_pos = state.touch_starts.remove(&id);
             state.touches.remove(&id);
 
             match state.touch_mode {
@@ -979,6 +994,13 @@ fn handle_touch(state: &mut AppState, phase: TouchPhase, id: u64, pos: glam::Vec
                         state: ButtonState::Released,
                     });
                     state.touch_mode = TouchMode::None;
+                    if phase == TouchPhase::Ended
+                        && start_pos
+                            .map(|start| start.distance(pos) <= TAP_MAX_MOVEMENT)
+                            .unwrap_or(false)
+                    {
+                        handle_tap(state, pos);
+                    }
                 }
                 TouchMode::TwoFingerZoom => {
                     state.prev_pinch_dist = None;
@@ -989,6 +1011,103 @@ fn handle_touch(state: &mut AppState, phase: TouchPhase, id: u64, pos: glam::Vec
             }
         }
     }
+}
+
+fn handle_tap(state: &mut AppState, pos: glam::Vec2) {
+    let now = Instant::now();
+    let is_double_tap = state
+        .last_tap
+        .as_ref()
+        .map(|tap| {
+            now.duration_since(tap.time) <= DOUBLE_TAP_MAX_INTERVAL
+                && tap.pos.distance(pos) <= DOUBLE_TAP_MAX_DISTANCE
+        })
+        .unwrap_or(false);
+
+    if is_double_tap {
+        state.last_tap = None;
+        if let Some(plot_index) = pick_plot_at(state, pos) {
+            state.apply_ui_commands([UiCommand::OpenPlotProperties(plot_index)]);
+        }
+    } else {
+        state.last_tap = Some(TapRecord { time: now, pos });
+    }
+}
+
+fn pick_plot_at(state: &AppState, pos: glam::Vec2) -> Option<usize> {
+    let viewport_size = glam::vec2(
+        state.surface_config.width as f32,
+        state.surface_config.height as f32,
+    );
+    if viewport_size.x <= 0.0 || viewport_size.y <= 0.0 {
+        return None;
+    }
+
+    let (ray_origin, ray_dir) = picking::screen_to_ray(
+        pos,
+        viewport_size,
+        state.camera.view_proj_matrix().inverse(),
+    );
+    let mut best: Option<(f32, usize)> = None;
+    for surface in state.scene.probe_data().surfaces {
+        let Some(plot_index) = surface.pick_id.checked_sub(1).map(|id| id as usize) else {
+            continue;
+        };
+        for triangle in surface.indices.chunks_exact(3) {
+            let (Some(a), Some(b), Some(c)) = (
+                surface.positions.get(triangle[0] as usize),
+                surface.positions.get(triangle[1] as usize),
+                surface.positions.get(triangle[2] as usize),
+            ) else {
+                continue;
+            };
+            let a = *a;
+            let b = *b;
+            let c = *c;
+            let a = glam::vec3(a[0], a[1], a[2]);
+            let b = glam::vec3(b[0], b[1], b[2]);
+            let c = glam::vec3(c[0], c[1], c[2]);
+            if let Some(t) = ray_triangle_intersection(ray_origin, ray_dir, a, b, c)
+                && best.map(|(best_t, _)| t < best_t).unwrap_or(true)
+            {
+                best = Some((t, plot_index));
+            }
+        }
+    }
+
+    best.map(|(_, plot_index)| plot_index)
+}
+
+fn ray_triangle_intersection(
+    origin: glam::Vec3,
+    dir: glam::Vec3,
+    a: glam::Vec3,
+    b: glam::Vec3,
+    c: glam::Vec3,
+) -> Option<f32> {
+    let edge1 = b - a;
+    let edge2 = c - a;
+    let h = dir.cross(edge2);
+    let det = edge1.dot(h);
+    if det.abs() < 1.0e-6 {
+        return None;
+    }
+
+    let inv_det = 1.0 / det;
+    let s = origin - a;
+    let u = inv_det * s.dot(h);
+    if !(0.0..=1.0).contains(&u) {
+        return None;
+    }
+
+    let q = s.cross(edge1);
+    let v = inv_det * dir.dot(q);
+    if v < 0.0 || u + v > 1.0 {
+        return None;
+    }
+
+    let t = inv_det * edge2.dot(q);
+    (t > 1.0e-4).then_some(t)
 }
 
 fn orbit_touch_pos(state: &AppState, pos: glam::Vec2) -> glam::Vec2 {
@@ -1006,6 +1125,7 @@ fn release_touch_buttons(state: &mut AppState) {
     });
     state.touch_mode = TouchMode::None;
     state.prev_pinch_dist = None;
+    state.touch_starts.clear();
 }
 
 fn touches_centroid(touches: &HashMap<u64, glam::Vec2>) -> glam::Vec2 {
