@@ -26,6 +26,7 @@ egui-winit = "=0.33.3"
 
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = { version = "0.6", features = ["native-activity"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 [package.metadata.android]
 package = "io.github.grimandgreedy.poincare.mobile"

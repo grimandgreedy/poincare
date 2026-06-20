@@ -3,6 +3,7 @@ mod model;
 
 use std::collections::HashMap;
 use std::fmt;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -11,8 +12,8 @@ use model::{MobileModel, UiCommand};
 use poincare_lib::{AxisConfig, GraphScene, GraphSpec};
 use viewport_lib::{
     ButtonState, Camera, CameraFrame, GroundPlane, GroundPlaneMode, LightingSettings, MouseButton,
-    OrbitCameraController, PostProcessSettings, ScrollUnits, SurfaceSubmission, ViewportContext,
-    ViewportEvent, ViewportRenderer,
+    OrbitCameraController, PostProcessSettings, ScrollUnits, ViewportContext, ViewportEvent,
+    ViewportRenderer,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, Touch, TouchPhase, WindowEvent};
@@ -37,6 +38,7 @@ enum TouchMode {
 struct App {
     state: Option<AppState>,
     startup_redraws_remaining: u8,
+    pipeline_cache_path: Option<PathBuf>,
 }
 
 struct AppState {
@@ -60,6 +62,18 @@ struct AppState {
     prev_pinch_dist: Option<f32>,
     frame_count: u64,
     rebuild_count: u64,
+    pipeline_cache_path: Option<PathBuf>,
+    pipeline_cache_saved: bool,
+}
+
+impl App {
+    #[cfg(target_os = "android")]
+    fn with_pipeline_cache_path(pipeline_cache_path: Option<PathBuf>) -> Self {
+        Self {
+            pipeline_cache_path,
+            ..Default::default()
+        }
+    }
 }
 
 #[derive(Default)]
@@ -146,41 +160,73 @@ impl ApplicationHandler for App {
             return;
         }
 
+        let init_start = Instant::now();
+        mobile_log(format_args!("init start"));
+
+        let step_start = Instant::now();
         let window = Arc::new(
             event_loop
                 .create_window(WindowAttributes::default().with_title("Poincare Mobile"))
                 .expect("window"),
         );
+        mobile_log(format_args!(
+            "init create_window={}",
+            fmt_duration(step_start.elapsed()),
+        ));
 
+        let step_start = Instant::now();
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: mobile_backends(),
             #[cfg(target_os = "android")]
             flags: wgpu::InstanceFlags::empty(),
             ..Default::default()
         });
+        mobile_log(format_args!(
+            "init instance={}",
+            fmt_duration(step_start.elapsed()),
+        ));
+
+        let step_start = Instant::now();
         let surface = instance.create_surface(window.clone()).expect("surface");
+        mobile_log(format_args!(
+            "init create_surface={}",
+            fmt_duration(step_start.elapsed()),
+        ));
+
+        let step_start = Instant::now();
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: Some(&surface),
             ..Default::default()
         }))
         .expect("adapter");
+        mobile_log(format_args!(
+            "init request_adapter={}",
+            fmt_duration(step_start.elapsed()),
+        ));
 
-        let required_features = if adapter
-            .features()
-            .contains(wgpu::Features::INDIRECT_FIRST_INSTANCE)
-        {
-            wgpu::Features::INDIRECT_FIRST_INSTANCE
-        } else {
-            wgpu::Features::empty()
-        };
+        let step_start = Instant::now();
+        let adapter_features = adapter.features();
+        let mut required_features = wgpu::Features::empty();
+        if adapter_features.contains(wgpu::Features::INDIRECT_FIRST_INSTANCE) {
+            required_features |= wgpu::Features::INDIRECT_FIRST_INSTANCE;
+        }
+        if adapter_features.contains(wgpu::Features::PIPELINE_CACHE) {
+            required_features |= wgpu::Features::PIPELINE_CACHE;
+        }
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("poincare-mobile"),
             required_features,
             required_limits: adapter.limits(),
             ..Default::default()
         }))
         .expect("device");
+        mobile_log(format_args!(
+            "init request_device={}",
+            fmt_duration(step_start.elapsed()),
+        ));
 
+        let step_start = Instant::now();
         let size = window.inner_size();
         let caps = surface.get_capabilities(&adapter);
         let format = caps
@@ -200,10 +246,14 @@ impl ApplicationHandler for App {
             desired_maximum_frame_latency: 2,
         };
         surface.configure(&device, &surface_config);
+        mobile_log(format_args!(
+            "init configure_surface={}",
+            fmt_duration(step_start.elapsed()),
+        ));
 
-        let renderer = ViewportRenderer::new(&device, format);
+        let step_start = Instant::now();
         let egui_ctx = egui::Context::default();
-        let egui_state = egui_winit::State::new(
+        let mut egui_state = egui_winit::State::new(
             egui_ctx.clone(),
             egui::ViewportId::ROOT,
             window.as_ref(),
@@ -211,8 +261,38 @@ impl ApplicationHandler for App {
             window.theme(),
             None,
         );
-        let egui_renderer =
+        let mut egui_renderer =
             EguiRenderer::new(&device, format, egui_wgpu::RendererOptions::default());
+        mobile_log(format_args!(
+            "init egui={}",
+            fmt_duration(step_start.elapsed()),
+        ));
+
+        render_startup_splash_frame(
+            &window,
+            &surface,
+            &device,
+            &queue,
+            &surface_config,
+            &egui_ctx,
+            &mut egui_state,
+            &mut egui_renderer,
+        );
+
+        let step_start = Instant::now();
+        let pipeline_cache_path = self.pipeline_cache_path.clone();
+        let saved_pipeline_cache = load_pipeline_cache(pipeline_cache_path.as_ref());
+        let renderer = ViewportRenderer::new_with_pipeline_cache(
+            &device,
+            format,
+            saved_pipeline_cache.as_deref(),
+        );
+        mobile_log(format_args!(
+            "init viewport_renderer={}",
+            fmt_duration(step_start.elapsed()),
+        ));
+
+        let step_start = Instant::now();
         let camera = Camera {
             distance: 8.0,
             ..Camera::default()
@@ -223,7 +303,12 @@ impl ApplicationHandler for App {
             focused: true,
             viewport_size: [surface_config.width as f32, surface_config.height as f32],
         });
+        mobile_log(format_args!(
+            "init camera_controller={}",
+            fmt_duration(step_start.elapsed()),
+        ));
 
+        let step_start = Instant::now();
         let mut state = AppState {
             window,
             surface,
@@ -245,16 +330,35 @@ impl ApplicationHandler for App {
             prev_pinch_dist: None,
             frame_count: 0,
             rebuild_count: 0,
+            pipeline_cache_path,
+            pipeline_cache_saved: false,
         };
+        mobile_log(format_args!(
+            "init app_state={}",
+            fmt_duration(step_start.elapsed()),
+        ));
+
+        let step_start = Instant::now();
         state.rebuild_scene();
+        mobile_log(format_args!(
+            "init rebuild_scene_total={}",
+            fmt_duration(step_start.elapsed()),
+        ));
         self.state = Some(state);
         self.startup_redraws_remaining = 2;
         if let Some(state) = self.state.as_ref() {
             state.window.request_redraw();
         }
+        mobile_log(format_args!(
+            "init total={}",
+            fmt_duration(init_start.elapsed())
+        ));
     }
 
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Some(state) = self.state.as_mut() {
+            save_pipeline_cache(state, "suspend");
+        }
         self.state = None;
         self.startup_redraws_remaining = 0;
     }
@@ -407,7 +511,6 @@ fn render(state: &mut AppState) {
         pp
     };
     let build_frame_elapsed = build_frame_start.elapsed();
-    let surface_count = surface_submission_count(&frame_data.scene.surfaces);
 
     let viewport_start = Instant::now();
     let viewport_cmd =
@@ -498,6 +601,7 @@ fn render(state: &mut AppState) {
     let present_start = Instant::now();
     frame.present();
     let present_elapsed = present_start.elapsed();
+    save_pipeline_cache_once(state);
     let total_elapsed = total_start.elapsed();
     if total_elapsed >= Duration::from_millis(40) || frame_index <= 5 || frame_index % 60 == 0 {
         mobile_log(format_args!(
@@ -515,15 +619,6 @@ fn render(state: &mut AppState) {
             ui_requested_redraw,
         ));
     }
-    if cfg!(target_os = "android") && surface_count > 0 && frame_index <= 40 {
-        mobile_log(format_args!(
-            "android frame scene surfaces={surface_count} shadows_enabled={} axes_indicator={} grid={} ground={}",
-            frame_data.effects.lighting.shadows_enabled,
-            frame_data.viewport.show_axes_indicator,
-            frame_data.viewport.show_grid,
-            state.model.show_ground(),
-        ));
-    }
     if ui_requested_redraw {
         state.window.request_redraw();
     }
@@ -533,6 +628,171 @@ fn render(state: &mut AppState) {
         focused: true,
         viewport_size: [w, h],
     });
+}
+
+fn render_startup_splash_frame(
+    window: &Window,
+    surface: &wgpu::Surface<'static>,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    surface_config: &wgpu::SurfaceConfiguration,
+    egui_ctx: &egui::Context,
+    egui_state: &mut egui_winit::State,
+    egui_renderer: &mut EguiRenderer,
+) {
+    let splash_start = Instant::now();
+    let frame = match surface.get_current_texture() {
+        Ok(frame) => frame,
+        Err(err) => {
+            mobile_log(format_args!("startup_splash skipped acquire_error={err:?}"));
+            return;
+        }
+    };
+    let view = frame
+        .texture
+        .create_view(&wgpu::TextureViewDescriptor::default());
+    let egui_input = egui_state.take_egui_input(window);
+    let egui_output = egui_ctx.run(egui_input, |ctx| {
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE.fill(egui::Color32::from_rgb(15, 17, 23)))
+            .show(ctx, |ui| {
+                ui.with_layout(
+                    egui::Layout::centered_and_justified(egui::Direction::TopDown),
+                    |ui| {
+                        ui.label(
+                            egui::RichText::new("Poincare")
+                                .size(42.0)
+                                .color(egui::Color32::from_rgb(232, 238, 244)),
+                        );
+                    },
+                );
+            });
+    });
+    egui_state.handle_platform_output(window, egui_output.platform_output);
+
+    let paint_jobs = egui_ctx.tessellate(egui_output.shapes, egui_output.pixels_per_point);
+    let screen_descriptor = ScreenDescriptor {
+        size_in_pixels: [surface_config.width, surface_config.height],
+        pixels_per_point: egui_output.pixels_per_point,
+    };
+    for (id, image_delta) in &egui_output.textures_delta.set {
+        egui_renderer.update_texture(device, queue, *id, image_delta);
+    }
+
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("startup_splash_encoder"),
+    });
+    egui_renderer.update_buffers(device, queue, &mut encoder, &paint_jobs, &screen_descriptor);
+    {
+        let mut render_pass = encoder
+            .begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("startup_splash_pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 15.0 / 255.0,
+                            g: 17.0 / 255.0,
+                            b: 23.0 / 255.0,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            })
+            .forget_lifetime();
+        egui_renderer.render(&mut render_pass, &paint_jobs, &screen_descriptor);
+    }
+    for id in &egui_output.textures_delta.free {
+        egui_renderer.free_texture(id);
+    }
+    queue.submit([encoder.finish()]);
+    frame.present();
+    mobile_log(format_args!(
+        "startup_splash frame={}",
+        fmt_duration(splash_start.elapsed())
+    ));
+}
+
+fn load_pipeline_cache(path: Option<&PathBuf>) -> Option<Vec<u8>> {
+    let path = path?;
+    match std::fs::read(path) {
+        Ok(bytes) => {
+            mobile_log(format_args!(
+                "pipeline_cache load ok path={} bytes={}",
+                path.display(),
+                bytes.len()
+            ));
+            Some(bytes)
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            mobile_log(format_args!(
+                "pipeline_cache load miss path={}",
+                path.display()
+            ));
+            None
+        }
+        Err(err) => {
+            mobile_log(format_args!(
+                "pipeline_cache load failed path={} error={err}",
+                path.display()
+            ));
+            None
+        }
+    }
+}
+
+fn save_pipeline_cache_once(state: &mut AppState) {
+    if !state.pipeline_cache_saved {
+        save_pipeline_cache(state, "first_frame");
+    }
+}
+
+fn save_pipeline_cache(state: &mut AppState, reason: &str) {
+    let Some(path) = state.pipeline_cache_path.as_ref() else {
+        return;
+    };
+    let Some(bytes) = state.renderer.pipeline_cache_data() else {
+        mobile_log(format_args!(
+            "pipeline_cache save skipped reason={reason} unsupported"
+        ));
+        state.pipeline_cache_saved = true;
+        return;
+    };
+
+    if let Some(parent) = path.parent()
+        && let Err(err) = std::fs::create_dir_all(parent)
+    {
+        mobile_log(format_args!(
+            "pipeline_cache save failed reason={reason} path={} error={err}",
+            path.display()
+        ));
+        return;
+    }
+
+    let tmp = path.with_extension("tmp");
+    match std::fs::write(&tmp, &bytes).and_then(|()| std::fs::rename(&tmp, path)) {
+        Ok(()) => {
+            state.pipeline_cache_saved = true;
+            mobile_log(format_args!(
+                "pipeline_cache save ok reason={reason} path={} bytes={}",
+                path.display(),
+                bytes.len()
+            ));
+        }
+        Err(err) => {
+            let _ = std::fs::remove_file(&tmp);
+            mobile_log(format_args!(
+                "pipeline_cache save failed reason={reason} path={} error={err}",
+                path.display()
+            ));
+        }
+    }
 }
 
 fn render_ui(state: &mut AppState, ctx: &egui::Context) -> bool {
@@ -795,22 +1055,12 @@ fn mobile_lighting_settings() -> LightingSettings {
     {
         let mut lighting = LightingSettings::default();
         lighting.shadows_enabled = false;
-        lighting.shadow_cascade_count = 1;
-        lighting.shadow_atlas_resolution = 1024;
-        lighting.hemisphere_intensity = 0.8;
         return lighting;
     }
 
     #[cfg(not(target_os = "android"))]
     {
         LightingSettings::default()
-    }
-}
-
-fn surface_submission_count(surfaces: &SurfaceSubmission) -> usize {
-    match surfaces {
-        SurfaceSubmission::Flat(items) => items.len(),
-        _ => 0,
     }
 }
 
@@ -835,6 +1085,84 @@ fn android_log(message: &str) {
             fmt.as_ptr(),
             message.as_ptr(),
         );
+    }
+}
+
+#[cfg(target_os = "android")]
+fn init_rust_logging() {
+    use std::sync::Once;
+
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        let filter = std::env::var("RUST_LOG")
+            .ok()
+            .or_else(|| option_env!("RUST_LOG").map(ToOwned::to_owned))
+            .unwrap_or_else(|| "warn".to_owned());
+        let env_filter = tracing_subscriber::EnvFilter::try_new(&filter)
+            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn"));
+        let init_result = tracing_subscriber::fmt()
+            .with_env_filter(env_filter)
+            .with_writer(AndroidTraceWriter)
+            .with_ansi(false)
+            .compact()
+            .try_init();
+        if init_result.is_ok() {
+            mobile_log(format_args!("RUST_LOG={filter}"));
+        }
+    });
+}
+
+#[cfg(target_os = "android")]
+#[derive(Clone, Copy)]
+struct AndroidTraceWriter;
+
+#[cfg(target_os = "android")]
+impl<'writer> tracing_subscriber::fmt::MakeWriter<'writer> for AndroidTraceWriter {
+    type Writer = AndroidTraceLine;
+
+    fn make_writer(&'writer self) -> Self::Writer {
+        AndroidTraceLine::default()
+    }
+}
+
+#[cfg(target_os = "android")]
+#[derive(Default)]
+struct AndroidTraceLine {
+    buffer: Vec<u8>,
+}
+
+#[cfg(target_os = "android")]
+impl AndroidTraceLine {
+    fn emit(&mut self) {
+        if self.buffer.is_empty() {
+            return;
+        }
+        let message = String::from_utf8_lossy(&self.buffer);
+        let message = message.trim_end();
+        if !message.is_empty() {
+            android_log(message);
+        }
+        self.buffer.clear();
+    }
+}
+
+#[cfg(target_os = "android")]
+impl std::io::Write for AndroidTraceLine {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.buffer.extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.emit();
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "android")]
+impl Drop for AndroidTraceLine {
+    fn drop(&mut self) {
+        self.emit();
     }
 }
 
@@ -877,12 +1205,17 @@ fn android_main(app: android_activity::AndroidApp) {
     use winit::error::EventLoopError;
     use winit::platform::android::EventLoopBuilderExtAndroid;
 
+    init_rust_logging();
+    let pipeline_cache_path = app
+        .internal_data_path()
+        .map(|path| path.join("viewport_pipeline_cache.bin"));
+
     let event_loop = match EventLoop::builder().with_android_app(app).build() {
         Ok(event_loop) => event_loop,
         Err(EventLoopError::RecreationAttempt) => return,
         Err(err) => panic!("event loop: {err}"),
     };
-    match event_loop.run_app(&mut App::default()) {
+    match event_loop.run_app(&mut App::with_pipeline_cache_path(pipeline_cache_path)) {
         Ok(()) | Err(EventLoopError::RecreationAttempt) => {}
         Err(err) => panic!("run: {err}"),
     }

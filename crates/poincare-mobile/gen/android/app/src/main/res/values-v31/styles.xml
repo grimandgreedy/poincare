@@ -1,10 +1,11 @@
 <resources>
-
     <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowActionBar">false</item>
         <item name="android:windowBackground">@drawable/splash_background</item>
         <item name="android:colorAccent">#94D9CC</item>
+        <item name="android:windowSplashScreenBackground">@color/splashBackground</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_wordmark</item>
     </style>
 </resources>

@@ -519,48 +519,19 @@ fn cartesian_plot(equation: String) -> PlotSpec {
             y: -5.0..=5.0,
             z: -5.0..=5.0,
         },
-        resolution: default_plot_resolution(),
-        style: default_plot_style(),
-        definition: PlotDefinition::ExprCartesian {
-            expression: equation,
-            parameters: Vec::new(),
-        },
-    }
-}
-
-fn default_plot_resolution() -> Resolution {
-    #[cfg(target_os = "android")]
-    {
-        return Resolution { u: 40, v: 40 };
-    }
-
-    #[cfg(not(target_os = "android"))]
-    {
-        Resolution { u: 80, v: 80 }
-    }
-}
-
-fn default_plot_style() -> PlotStyle {
-    #[cfg(target_os = "android")]
-    {
-        return PlotStyle {
-            colour_mode: ColourMode::Solid([0.35, 0.8, 1.0, 1.0]),
-            two_sided: false,
-            shading: ShadingMode::Unlit,
-            ..PlotStyle::default()
-        };
-    }
-
-    #[cfg(not(target_os = "android"))]
-    {
-        PlotStyle {
+        resolution: Resolution { u: 80, v: 80 },
+        style: PlotStyle {
             colour_mode: ColourMode::Colormap {
                 colormap: ColormapSource::Builtin(BuiltinColourmap::Rainbow),
                 scalar_range: None,
             },
             two_sided: true,
             ..PlotStyle::default()
-        }
+        },
+        definition: PlotDefinition::ExprCartesian {
+            expression: equation,
+            parameters: Vec::new(),
+        },
     }
 }
 
