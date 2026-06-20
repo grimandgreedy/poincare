@@ -3,7 +3,10 @@ use poincare_lib::{
     Resolution, ShadingMode,
 };
 use serde::{Deserialize, Serialize};
+use std::time::Instant;
 use viewport_lib::BuiltinColourmap;
+
+use crate::{fmt_duration, mobile_log};
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(tag = "type", content = "payload")]
@@ -374,8 +377,19 @@ impl MobileModel {
             plots,
         };
 
+        let validate_start = Instant::now();
+        mobile_log(format_args!(
+            "model add_equation_plot validate start plots={} resolution={}x{}",
+            spec.plots.len(),
+            plot.resolution.u,
+            plot.resolution.v,
+        ));
         match spec.build_scene() {
             Ok(_) => {
+                mobile_log(format_args!(
+                    "model add_equation_plot validate ok elapsed={}",
+                    fmt_duration(validate_start.elapsed()),
+                ));
                 self.plots.push(plot);
                 self.selected_plot = Some(self.plots.len() - 1);
                 self.scene_error = None;
@@ -386,6 +400,10 @@ impl MobileModel {
                 }
             }
             Err(err) => {
+                mobile_log(format_args!(
+                    "model add_equation_plot validate failed elapsed={} err={err}",
+                    fmt_duration(validate_start.elapsed()),
+                ));
                 self.scene_error = Some(err.to_string());
                 UiEffects::redraw()
             }
@@ -440,8 +458,17 @@ impl MobileModel {
             plots,
         };
 
+        let validate_start = Instant::now();
+        mobile_log(format_args!(
+            "model update_selected_plot validate start plots={}",
+            spec.plots.len(),
+        ));
         match spec.build_scene() {
             Ok(_) => {
+                mobile_log(format_args!(
+                    "model update_selected_plot validate ok elapsed={}",
+                    fmt_duration(validate_start.elapsed()),
+                ));
                 self.plots = spec.plots;
                 self.scene_error = None;
                 UiEffects {
@@ -450,6 +477,10 @@ impl MobileModel {
                 }
             }
             Err(err) => {
+                mobile_log(format_args!(
+                    "model update_selected_plot validate failed elapsed={} err={err}",
+                    fmt_duration(validate_start.elapsed()),
+                ));
                 self.scene_error = Some(err.to_string());
                 UiEffects::redraw()
             }
@@ -488,19 +519,48 @@ fn cartesian_plot(equation: String) -> PlotSpec {
             y: -5.0..=5.0,
             z: -5.0..=5.0,
         },
-        resolution: Resolution { u: 80, v: 80 },
-        style: PlotStyle {
+        resolution: default_plot_resolution(),
+        style: default_plot_style(),
+        definition: PlotDefinition::ExprCartesian {
+            expression: equation,
+            parameters: Vec::new(),
+        },
+    }
+}
+
+fn default_plot_resolution() -> Resolution {
+    #[cfg(target_os = "android")]
+    {
+        return Resolution { u: 40, v: 40 };
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        Resolution { u: 80, v: 80 }
+    }
+}
+
+fn default_plot_style() -> PlotStyle {
+    #[cfg(target_os = "android")]
+    {
+        return PlotStyle {
+            colour_mode: ColourMode::Solid([0.35, 0.8, 1.0, 1.0]),
+            two_sided: false,
+            shading: ShadingMode::Unlit,
+            ..PlotStyle::default()
+        };
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        PlotStyle {
             colour_mode: ColourMode::Colormap {
                 colormap: ColormapSource::Builtin(BuiltinColourmap::Rainbow),
                 scalar_range: None,
             },
             two_sided: true,
             ..PlotStyle::default()
-        },
-        definition: PlotDefinition::ExprCartesian {
-            expression: equation,
-            parameters: Vec::new(),
-        },
+        }
     }
 }
 

@@ -13,6 +13,7 @@
 		51A2503388AC745BB3ECEDE5 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5C7F4F2CFBB30A93B7BDA9E6 /* QuartzCore.framework */; };
 		5BF6B1A5192340D6A002C068 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 45CF2F31B43D5392307AA200 /* MetalKit.framework */; };
 		93E3CEC5DC79D1E975948AA1 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = DD7C4934CFCC326BA2DD4CD4 /* main.mm */; };
+		BBC55B3D685F65CCE8A37ECC /* libpoincare_mobile.a in Resources */ = {isa = PBXBuildFile; fileRef = C86D81D97B8D724F27E2D377 /* libpoincare_mobile.a */; };
 		D97E7813DF2467F372AC2D1B /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 25F9E1ED0F42C419DB6C6C1E /* UIKit.framework */; };
 		ECFB6C9A16E08498675BDEA4 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 263A5D99F4EC97960A3959BB /* Metal.framework */; };
 /* End PBXBuildFile section */
@@ -25,9 +26,12 @@
 		4FA35CAB02052A831F9DD0D4 /* poincare-mobile_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "poincare-mobile_iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		5C7F4F2CFBB30A93B7BDA9E6 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
 		7694244B6B3ED8A585F70D7D /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
+		890F8F2AEC1DA56482A98A8A /* mobile_ui.rs */ = {isa = PBXFileReference; path = mobile_ui.rs; sourceTree = "<group>"; };
 		9674EF0DC434B9422D99D5C5 /* libpoincare_mobile.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libpoincare_mobile.a; sourceTree = "<group>"; };
 		B8A7A3ADDAE1CAF17B6EAE0B /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		C86D81D97B8D724F27E2D377 /* libpoincare_mobile.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libpoincare_mobile.a; sourceTree = "<group>"; };
 		DD7C4934CFCC326BA2DD4CD4 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
+		DF341E81ED241A7D2F03E564 /* model.rs */ = {isa = PBXFileReference; path = model.rs; sourceTree = "<group>"; };
 		E04DF12B44C01207FC158543 /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -71,6 +75,14 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
+		72531CF7FC6C388F417D9879 /* aarch64-apple-ios-sim */ = {
+			isa = PBXGroup;
+			children = (
+				9FC7F092E4186EF6C57C46E1 /* debug */,
+			);
+			path = "aarch64-apple-ios-sim";
+			sourceTree = "<group>";
+		};
 		74FC74CD471755D3713B0D38 = {
 			isa = PBXGroup;
 			children = (
@@ -85,6 +97,8 @@
 			isa = PBXGroup;
 			children = (
 				7694244B6B3ED8A585F70D7D /* lib.rs */,
+				890F8F2AEC1DA56482A98A8A /* mobile_ui.rs */,
+				DF341E81ED241A7D2F03E564 /* model.rs */,
 			);
 			name = src;
 			path = ../../src;
@@ -99,9 +113,18 @@
 			path = "poincare-mobile";
 			sourceTree = "<group>";
 		};
+		9FC7F092E4186EF6C57C46E1 /* debug */ = {
+			isa = PBXGroup;
+			children = (
+				C86D81D97B8D724F27E2D377 /* libpoincare_mobile.a */,
+			);
+			path = debug;
+			sourceTree = "<group>";
+		};
 		B4CADCB30A81899582CFDEC3 /* Sources */ = {
 			isa = PBXGroup;
 			children = (
+				72531CF7FC6C388F417D9879 /* aarch64-apple-ios-sim */,
 				9C75223FC5EF33C1CE5E1376 /* poincare-mobile */,
 			);
 			path = Sources;
@@ -124,6 +147,7 @@
 			buildPhases = (
 				227DFCAF09B11097C778C75E /* Build Rust Code */,
 				16A2A831D94D18289B8F0709 /* Sources */,
+				98CF864EAA7D3D59B224B2D5 /* Resources */,
 				6E2FCA449E06B19B61A64B10 /* Frameworks */,
 			);
 			buildRules = (
@@ -170,6 +194,17 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		98CF864EAA7D3D59B224B2D5 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BBC55B3D685F65CCE8A37ECC /* libpoincare_mobile.a in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXShellScriptBuildPhase section */
 		227DFCAF09B11097C778C75E /* Build Rust Code */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -190,7 +225,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "PATH=/opt/local/bin:/opt/local/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/opt/X11/bin:/Library/Apple/usr/bin:/Library/TeX/texbin:/opt/homebrew/bin:/Applications/quarto/bin:/Users/noah/.codex/tmp/arg0/codex-arg0njuhvN:/Users/noah/.nvm/versions/node/v24.14.1/bin:/Users/noah/.codeium/windsurf/bin:/usr/local/texlive/2024/bin/x86_64-linux:/opt/local/bin:/opt/local/sbin:/opt/pmk/env/global/bin:/Applications/kitty.app/Contents/MacOS:/Users/noah/.cargo/bin:/Applications/iTerm.app/Contents/Resources/utilities:/opt/homebrew/bin/:/Users/noah/Library/Python/3.9/bin:/opt/local/bin/:/Users/noah/.local/bin:/home/noah/.local/bin:/home/noah/.cargo/bin:${HOME:?}/.cargo/bin\nexport CARGO=${CARGO:-${HOME:?}/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo}\nexport RUSTC=${RUSTC:-${HOME:?}/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc}\nexport CARGO_TARGET_DIR=\"${SRCROOT:?}/../../../../target\"\nCARGO_APPLE=`which cargo-apple`\n${CARGO_APPLE} xcode-script -v --platform \"${PLATFORM_DISPLAY_NAME:?}\" --sdk-root ${SDKROOT:?} --framework-search-paths \"${FRAMEWORK_SEARCH_PATHS:?}\" --header-search-paths \"${HEADER_SEARCH_PATHS:?}\" --gcc-preprocessor-definitions \"${GCC_PREPROCESSOR_DEFINITIONS:?}\" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?} ${FEATURES}";
+			shellScript = "PATH=${PATH}:${HOME:?}/.cargo/bin\nexport CARGO=${CARGO:-${HOME:?}/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo}\nexport RUSTC=${RUSTC:-${HOME:?}/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc}\nexport CARGO_TARGET_DIR=\"${SRCROOT:?}/../../../../target\"\nCARGO_APPLE=`which cargo-apple`\n${CARGO_APPLE} xcode-script -v --platform \"${PLATFORM_DISPLAY_NAME:?}\" --sdk-root ${SDKROOT:?} --framework-search-paths \"${FRAMEWORK_SEARCH_PATHS:?}\" --header-search-paths \"${HEADER_SEARCH_PATHS:?}\" --gcc-preprocessor-definitions \"${GCC_PREPROCESSOR_DEFINITIONS:?}\" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?} ${FEATURES}";
 		};
 /* End PBXShellScriptBuildPhase section */
 

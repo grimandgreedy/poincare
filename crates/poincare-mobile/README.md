@@ -37,3 +37,17 @@ cargo run -p poincare-mobile --bin poincare-mobile-desktop
 cargo check -p poincare-mobile --target aarch64-apple-ios-sim
 cargo check -p poincare-mobile --target aarch64-linux-android
 ```
+
+Android project:
+
+```sh
+cd crates/poincare-mobile
+ANDROID_HOME=~/Library/Android/sdk NDK_HOME=~/Library/Android/sdk/ndk/29.0.14206865 cargo android build -v
+
+cd gen/android
+ANDROID_HOME=~/Library/Android/sdk NDK_HOME=~/Library/Android/sdk/ndk/29.0.14206865 ./gradlew assembleArm64Debug
+```
+
+If your default `cargo` comes from Homebrew, put rustup's stable toolchain first
+in `PATH` for Android builds. Homebrew Rust does not include the Android std
+libraries used here.

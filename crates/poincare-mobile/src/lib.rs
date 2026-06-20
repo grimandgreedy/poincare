@@ -2,15 +2,17 @@ mod mobile_ui;
 mod model;
 
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use egui_wgpu::{Renderer as EguiRenderer, ScreenDescriptor};
 use model::{MobileModel, UiCommand};
 use poincare_lib::{AxisConfig, GraphScene, GraphSpec};
 use viewport_lib::{
     ButtonState, Camera, CameraFrame, GroundPlane, GroundPlaneMode, LightingSettings, MouseButton,
-    OrbitCameraController, PostProcessSettings, ScrollUnits, ViewportContext, ViewportEvent,
-    ViewportRenderer,
+    OrbitCameraController, PostProcessSettings, ScrollUnits, SurfaceSubmission, ViewportContext,
+    ViewportEvent, ViewportRenderer,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, Touch, TouchPhase, WindowEvent};
@@ -56,6 +58,8 @@ struct AppState {
     ui_hit_regions: Vec<mobile_ui::HitRegion>,
     touch_mode: TouchMode,
     prev_pinch_dist: Option<f32>,
+    frame_count: u64,
+    rebuild_count: u64,
 }
 
 #[derive(Default)]
@@ -66,33 +70,66 @@ struct DirectUiTouch {
 
 impl AppState {
     fn rebuild_scene(&mut self) {
+        self.rebuild_count += 1;
+        let rebuild_index = self.rebuild_count;
+        let total_start = Instant::now();
         let spec = GraphSpec {
             axis_config: AxisConfig::default(),
             plots: self.model.plots(),
         };
+        let plot_count = spec.plots.len();
+        mobile_log(format_args!(
+            "rebuild_scene #{rebuild_index} start plots={plot_count}"
+        ));
 
+        let build_start = Instant::now();
         match spec.build_scene() {
             Ok(mut scene) => {
+                let build_elapsed = build_start.elapsed();
+                let upload_start = Instant::now();
                 match scene.upload_meshes(&self.device, &self.queue, self.renderer.resources_mut())
                 {
                     Ok(()) => {
+                        let upload_elapsed = upload_start.elapsed();
+                        let total_elapsed = total_start.elapsed();
                         self.scene = scene;
                         self.model.clear_scene_error();
+                        mobile_log(format_args!(
+                            "rebuild_scene #{rebuild_index} ok plots={plot_count} build_scene={} upload_meshes={} total={}",
+                            fmt_duration(build_elapsed),
+                            fmt_duration(upload_elapsed),
+                            fmt_duration(total_elapsed),
+                        ));
                     }
                     Err(err) => {
+                        mobile_log(format_args!(
+                            "rebuild_scene #{rebuild_index} upload failed after {}: {err}",
+                            fmt_duration(upload_start.elapsed()),
+                        ));
                         self.model
                             .set_scene_error(format!("mesh upload failed: {err}"));
                     }
                 }
             }
             Err(err) => {
+                mobile_log(format_args!(
+                    "rebuild_scene #{rebuild_index} build failed after {}: {err}",
+                    fmt_duration(build_start.elapsed()),
+                ));
                 self.model.set_scene_error(err.to_string());
             }
         }
     }
 
     fn apply_ui_commands(&mut self, commands: impl IntoIterator<Item = UiCommand>) -> bool {
+        let commands = commands.into_iter().collect::<Vec<_>>();
+        if !commands.is_empty() {
+            mobile_log(format_args!("ui commands: {commands:?}"));
+        }
         let effects = self.model.apply_commands(commands);
+        if effects.plot_changed {
+            mobile_log(format_args!("ui effects: plot_changed=true"));
+        }
         if effects.plot_changed {
             self.rebuild_scene();
         }
@@ -206,6 +243,8 @@ impl ApplicationHandler for App {
             ui_hit_regions: Vec::new(),
             touch_mode: TouchMode::None,
             prev_pinch_dist: None,
+            frame_count: 0,
+            rebuild_count: 0,
         };
         state.rebuild_scene();
         self.state = Some(state);
@@ -240,6 +279,11 @@ impl ApplicationHandler for App {
         let Some(state) = self.state.as_mut() else {
             return;
         };
+
+        if matches!(event, WindowEvent::RedrawRequested) {
+            render(state);
+            return;
+        }
 
         let direct_ui_touch = direct_ui_touch(state, &event);
         let is_touch_event = matches!(event, WindowEvent::Touch { .. });
@@ -294,8 +338,6 @@ impl ApplicationHandler for App {
                 }
             }
 
-            WindowEvent::RedrawRequested => render(state),
-
             _ => {}
         }
 
@@ -306,6 +348,10 @@ impl ApplicationHandler for App {
 }
 
 fn render(state: &mut AppState) {
+    state.frame_count += 1;
+    let frame_index = state.frame_count;
+    let total_start = Instant::now();
+    let acquire_start = Instant::now();
     let frame = match state.surface.get_current_texture() {
         Ok(frame) => frame,
         Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
@@ -316,6 +362,7 @@ fn render(state: &mut AppState) {
         }
         Err(_) => return,
     };
+    let acquire_elapsed = acquire_start.elapsed();
 
     let view = frame
         .texture
@@ -326,14 +373,15 @@ fn render(state: &mut AppState) {
     state.controller.apply_to_camera(&mut state.camera);
     state.camera.set_aspect_ratio(w, h);
 
+    let build_frame_start = Instant::now();
     let mut frame_data = state
         .scene
         .build_frame_with_selection(&state.camera, Some(1), None);
     frame_data.camera = CameraFrame::from_camera(&state.camera, [w, h]);
     frame_data.viewport.show_grid = state.model.show_grid();
-    frame_data.viewport.show_axes_indicator = true;
+    frame_data.viewport.show_axes_indicator = !cfg!(target_os = "android");
     frame_data.viewport.background_colour = Some([0.06, 0.06, 0.07, 1.0]);
-    frame_data.effects.lighting = LightingSettings::default();
+    frame_data.effects.lighting = mobile_lighting_settings();
     frame_data.effects.ground_plane = GroundPlane {
         mode: if state.model.show_ground() {
             GroundPlaneMode::Tile
@@ -349,19 +397,27 @@ fn render(state: &mut AppState) {
     };
     frame_data.effects.post_process = {
         let mut pp = PostProcessSettings::default();
-        pp.enabled = true;
-        pp.bloom = true;
+        #[cfg(not(target_os = "android"))]
+        {
+            pp.enabled = true;
+            pp.bloom = true;
+        }
         pp.bloom_threshold = 1.0;
         pp.bloom_intensity = 0.1;
         pp
     };
+    let build_frame_elapsed = build_frame_start.elapsed();
+    let surface_count = surface_submission_count(&frame_data.scene.surfaces);
 
+    let viewport_start = Instant::now();
     let viewport_cmd =
         state
             .renderer
             .owned()
             .render(&state.device, &state.queue, &view, &frame_data);
+    let viewport_elapsed = viewport_start.elapsed();
 
+    let egui_start = Instant::now();
     let egui_input = state.egui_state.take_egui_input(&state.window);
     let egui_ctx = state.egui_ctx.clone();
     let mut ui_requested_redraw = false;
@@ -371,7 +427,9 @@ fn render(state: &mut AppState) {
     state
         .egui_state
         .handle_platform_output(&state.window, egui_output.platform_output);
+    let egui_elapsed = egui_start.elapsed();
 
+    let tessellate_start = Instant::now();
     let paint_jobs = state
         .egui_ctx
         .tessellate(egui_output.shapes, egui_output.pixels_per_point);
@@ -379,7 +437,9 @@ fn render(state: &mut AppState) {
         size_in_pixels: [state.surface_config.width, state.surface_config.height],
         pixels_per_point: egui_output.pixels_per_point,
     };
+    let tessellate_elapsed = tessellate_start.elapsed();
 
+    let egui_upload_start = Instant::now();
     for (id, image_delta) in &egui_output.textures_delta.set {
         state
             .egui_renderer
@@ -398,6 +458,9 @@ fn render(state: &mut AppState) {
         &paint_jobs,
         &screen_descriptor,
     );
+    let egui_upload_elapsed = egui_upload_start.elapsed();
+
+    let egui_render_start = Instant::now();
     {
         let mut render_pass = encoder
             .begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -420,15 +483,47 @@ fn render(state: &mut AppState) {
             .egui_renderer
             .render(&mut render_pass, &paint_jobs, &screen_descriptor);
     }
+    let egui_render_elapsed = egui_render_start.elapsed();
 
     for id in &egui_output.textures_delta.free {
         state.egui_renderer.free_texture(id);
     }
 
+    let submit_start = Instant::now();
     state
         .queue
         .submit([viewport_cmd, encoder.finish()].into_iter());
+    let submit_elapsed = submit_start.elapsed();
+
+    let present_start = Instant::now();
     frame.present();
+    let present_elapsed = present_start.elapsed();
+    let total_elapsed = total_start.elapsed();
+    if total_elapsed >= Duration::from_millis(40) || frame_index <= 5 || frame_index % 60 == 0 {
+        mobile_log(format_args!(
+            "frame #{frame_index} total={} acquire={} build_frame={} viewport={} egui={} tessellate={} egui_upload={} egui_render={} submit={} present={} ui_redraw={}",
+            fmt_duration(total_elapsed),
+            fmt_duration(acquire_elapsed),
+            fmt_duration(build_frame_elapsed),
+            fmt_duration(viewport_elapsed),
+            fmt_duration(egui_elapsed),
+            fmt_duration(tessellate_elapsed),
+            fmt_duration(egui_upload_elapsed),
+            fmt_duration(egui_render_elapsed),
+            fmt_duration(submit_elapsed),
+            fmt_duration(present_elapsed),
+            ui_requested_redraw,
+        ));
+    }
+    if cfg!(target_os = "android") && surface_count > 0 && frame_index <= 40 {
+        mobile_log(format_args!(
+            "android frame scene surfaces={surface_count} shadows_enabled={} axes_indicator={} grid={} ground={}",
+            frame_data.effects.lighting.shadows_enabled,
+            frame_data.viewport.show_axes_indicator,
+            frame_data.viewport.show_grid,
+            state.model.show_ground(),
+        ));
+    }
     if ui_requested_redraw {
         state.window.request_redraw();
     }
@@ -675,6 +770,71 @@ fn touches_distance(touches: &HashMap<u64, glam::Vec2>) -> f32 {
     match (it.next(), it.next()) {
         (Some(a), Some(b)) => (a - b).length(),
         _ => 0.0,
+    }
+}
+
+pub(crate) fn fmt_duration(duration: Duration) -> String {
+    let micros = duration.as_micros();
+    if micros >= 1_000 {
+        format!("{:.2}ms", micros as f64 / 1_000.0)
+    } else {
+        format!("{micros}us")
+    }
+}
+
+pub(crate) fn mobile_log(args: fmt::Arguments<'_>) {
+    let message = args.to_string();
+    #[cfg(target_os = "android")]
+    android_log(&message);
+    #[cfg(not(target_os = "android"))]
+    eprintln!("[poincare-mobile perf] {message}");
+}
+
+fn mobile_lighting_settings() -> LightingSettings {
+    #[cfg(target_os = "android")]
+    {
+        let mut lighting = LightingSettings::default();
+        lighting.shadows_enabled = false;
+        lighting.shadow_cascade_count = 1;
+        lighting.shadow_atlas_resolution = 1024;
+        lighting.hemisphere_intensity = 0.8;
+        return lighting;
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        LightingSettings::default()
+    }
+}
+
+fn surface_submission_count(surfaces: &SurfaceSubmission) -> usize {
+    match surfaces {
+        SurfaceSubmission::Flat(items) => items.len(),
+        _ => 0,
+    }
+}
+
+#[cfg(target_os = "android")]
+fn android_log(message: &str) {
+    use std::ffi::CString;
+    use std::os::raw::{c_char, c_int};
+
+    const ANDROID_LOG_INFO: c_int = 4;
+
+    unsafe extern "C" {
+        fn __android_log_print(prio: c_int, tag: *const c_char, fmt: *const c_char, ...) -> c_int;
+    }
+
+    let tag = CString::new("poincare-mobile").expect("static tag has no nul");
+    let fmt = CString::new("%s").expect("static format has no nul");
+    let message = CString::new(message.replace('\0', "\\0")).expect("nul replaced");
+    unsafe {
+        __android_log_print(
+            ANDROID_LOG_INFO,
+            tag.as_ptr(),
+            fmt.as_ptr(),
+            message.as_ptr(),
+        );
     }
 }
 
