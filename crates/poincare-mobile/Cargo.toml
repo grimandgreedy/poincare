@@ -14,11 +14,15 @@ path = "gen/bin/desktop.rs"
 
 [dependencies]
 poincare-lib = { workspace = true }
+poincare-mobile-core = { workspace = true }
 viewport-lib = { workspace = true }
 wgpu = { workspace = true }
 glam = { workspace = true }
 winit = "0.30"
 pollster = "0.4"
+egui = "=0.33.3"
+egui-wgpu = "=0.33.3"
+egui-winit = "=0.33.3"
 
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = { version = "0.6", features = ["native-activity"] }

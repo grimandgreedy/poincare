@@ -1,11 +1,11 @@
+mod mobile_ui;
+
 use std::collections::HashMap;
-use std::f64::consts::PI;
 use std::sync::Arc;
 
-use poincare_lib::{
-    AxisConfig, ColormapSource, ColourMode, Domain, GraphScene, GraphSpec, MatcapSource,
-    ParamVisSettings, PlotDefinition, PlotSpec, PlotStyle, Resolution, ShadingMode,
-};
+use egui_wgpu::{Renderer as EguiRenderer, ScreenDescriptor};
+use poincare_lib::{AxisConfig, GraphScene, GraphSpec};
+use poincare_mobile_core::{MobileModel, UiCommand};
 use viewport_lib::{
     ButtonState, Camera, CameraFrame, GroundPlane, GroundPlaneMode, LightingSettings, MouseButton,
     OrbitCameraController, PostProcessSettings, ScrollUnits, ViewportContext, ViewportEvent,
@@ -33,6 +33,7 @@ enum TouchMode {
 #[derive(Default)]
 struct App {
     state: Option<AppState>,
+    startup_redraws_remaining: u8,
 }
 
 struct AppState {
@@ -42,22 +43,31 @@ struct AppState {
     queue: wgpu::Queue,
     surface_config: wgpu::SurfaceConfiguration,
     renderer: ViewportRenderer,
+    egui_ctx: egui::Context,
+    egui_state: egui_winit::State,
+    egui_renderer: EguiRenderer,
     camera: Camera,
     controller: OrbitCameraController,
-    presets: Vec<PlotSpec>,
-    active_plot: usize,
+    model: MobileModel,
     scene: GraphScene,
-    scene_error: Option<String>,
     touches: HashMap<u64, glam::Vec2>,
+    direct_ui_touches: HashMap<u64, UiCommand>,
+    top_ui_hit_regions: Vec<mobile_ui::HitRegion>,
     touch_mode: TouchMode,
     prev_pinch_dist: Option<f32>,
+}
+
+#[derive(Default)]
+struct DirectUiTouch {
+    skip_egui: bool,
+    command: Option<UiCommand>,
 }
 
 impl AppState {
     fn rebuild_scene(&mut self) {
         let spec = GraphSpec {
             axis_config: AxisConfig::default(),
-            plots: vec![self.presets[self.active_plot].clone()],
+            plots: vec![self.model.active_plot()],
         };
 
         match spec.build_scene() {
@@ -66,26 +76,29 @@ impl AppState {
                 {
                     Ok(()) => {
                         self.scene = scene;
-                        self.scene_error = None;
+                        self.model.clear_scene_error();
                     }
                     Err(err) => {
-                        self.scene_error = Some(format!("mesh upload failed: {err}"));
+                        self.model
+                            .set_scene_error(format!("mesh upload failed: {err}"));
                     }
                 }
             }
             Err(err) => {
-                self.scene_error = Some(err.to_string());
+                self.model.set_scene_error(err.to_string());
             }
         }
     }
 
-    fn cycle_plot(&mut self) {
-        if self.presets.is_empty() {
-            return;
+    fn apply_ui_commands(&mut self, commands: impl IntoIterator<Item = UiCommand>) -> bool {
+        let effects = self.model.apply_commands(commands);
+        if effects.plot_changed {
+            self.rebuild_scene();
         }
-        self.active_plot = (self.active_plot + 1) % self.presets.len();
-        self.rebuild_scene();
-        self.window.request_redraw();
+        if effects.redraw_requested {
+            self.window.request_redraw();
+        }
+        effects.redraw_requested
     }
 }
 
@@ -151,6 +164,17 @@ impl ApplicationHandler for App {
         surface.configure(&device, &surface_config);
 
         let renderer = ViewportRenderer::new(&device, format);
+        let egui_ctx = egui::Context::default();
+        let egui_state = egui_winit::State::new(
+            egui_ctx.clone(),
+            egui::ViewportId::ROOT,
+            window.as_ref(),
+            Some(window.scale_factor() as f32),
+            window.theme(),
+            None,
+        );
+        let egui_renderer =
+            EguiRenderer::new(&device, format, egui_wgpu::RendererOptions::default());
         let camera = Camera {
             distance: 8.0,
             ..Camera::default()
@@ -169,23 +193,41 @@ impl ApplicationHandler for App {
             queue,
             surface_config,
             renderer,
+            egui_ctx,
+            egui_state,
+            egui_renderer,
             camera,
             controller,
-            presets: preset_plots(),
-            active_plot: 0,
+            model: MobileModel::new(),
             scene: GraphScene::new(),
-            scene_error: None,
             touches: HashMap::new(),
+            direct_ui_touches: HashMap::new(),
+            top_ui_hit_regions: Vec::new(),
             touch_mode: TouchMode::None,
             prev_pinch_dist: None,
         };
         state.rebuild_scene();
-        state.window.request_redraw();
         self.state = Some(state);
+        self.startup_redraws_remaining = 2;
+        if let Some(state) = self.state.as_ref() {
+            state.window.request_redraw();
+        }
     }
 
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
         self.state = None;
+        self.startup_redraws_remaining = 0;
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        if self.startup_redraws_remaining == 0 {
+            return;
+        }
+
+        self.startup_redraws_remaining -= 1;
+        if let Some(state) = self.state.as_ref() {
+            state.window.request_redraw();
+        }
     }
 
     fn window_event(
@@ -197,6 +239,42 @@ impl ApplicationHandler for App {
         let Some(state) = self.state.as_mut() else {
             return;
         };
+
+        let direct_ui_touch = direct_ui_touch(state, &event);
+        log_touch_event("before egui", &event, &state.egui_ctx, None, None);
+        let is_touch_event = matches!(event, WindowEvent::Touch { .. });
+        let egui_response = if direct_ui_touch.skip_egui {
+            egui_winit::EventResponse::default()
+        } else {
+            state.egui_state.on_window_event(&state.window, &event)
+        };
+        log_touch_event(
+            "after egui",
+            &event,
+            &state.egui_ctx,
+            Some(egui_response.consumed),
+            Some(egui_response.repaint),
+        );
+        if egui_response.repaint {
+            state.window.request_redraw();
+        }
+        if direct_ui_touch.skip_egui {
+            if let WindowEvent::Touch(touch) = &event {
+                log_touch_routing(
+                    touch.phase,
+                    touch.id,
+                    touch.location.x as f32,
+                    touch.location.y as f32,
+                    true,
+                );
+            }
+            if let Some(command) = direct_ui_touch.command {
+                log_ui_commands(std::slice::from_ref(&command));
+                state.apply_ui_commands([command]);
+            }
+            state.window.request_redraw();
+            return;
+        }
 
         match event {
             WindowEvent::Resized(size) => {
@@ -217,17 +295,36 @@ impl ApplicationHandler for App {
                 ..
             }) => {
                 let pos = glam::Vec2::new(location.x as f32, location.y as f32);
-                handle_touch(state, phase, id, pos);
+                let egui_has_touch = egui_response.consumed
+                    || state.egui_ctx.wants_pointer_input()
+                    || state.egui_ctx.is_using_pointer();
+                let viewport_has_touch = state.touches.contains_key(&id);
+                log_touch_routing(
+                    phase,
+                    id,
+                    location.x as f32,
+                    location.y as f32,
+                    egui_has_touch && !viewport_has_touch,
+                );
+                if !egui_has_touch || viewport_has_touch {
+                    handle_touch(state, phase, id, pos);
+                }
                 state.window.request_redraw();
             }
 
             WindowEvent::KeyboardInput { event, .. } => {
-                handle_keyboard(state, event);
+                if !egui_response.consumed {
+                    handle_keyboard(state, event);
+                }
             }
 
             WindowEvent::RedrawRequested => render(state),
 
             _ => {}
+        }
+
+        if is_touch_event {
+            state.window.request_redraw();
         }
     }
 }
@@ -279,12 +376,82 @@ fn render(state: &mut AppState) {
         pp
     };
 
-    let cmd = state
-        .renderer
-        .owned()
-        .render(&state.device, &state.queue, &view, &frame_data);
-    state.queue.submit(std::iter::once(cmd));
+    let viewport_cmd =
+        state
+            .renderer
+            .owned()
+            .render(&state.device, &state.queue, &view, &frame_data);
+
+    let egui_input = state.egui_state.take_egui_input(&state.window);
+    let egui_ctx = state.egui_ctx.clone();
+    let mut ui_requested_redraw = false;
+    let egui_output = egui_ctx.run(egui_input, |ctx| {
+        ui_requested_redraw = render_ui(state, ctx);
+    });
+    state
+        .egui_state
+        .handle_platform_output(&state.window, egui_output.platform_output);
+
+    let paint_jobs = state
+        .egui_ctx
+        .tessellate(egui_output.shapes, egui_output.pixels_per_point);
+    let screen_descriptor = ScreenDescriptor {
+        size_in_pixels: [state.surface_config.width, state.surface_config.height],
+        pixels_per_point: egui_output.pixels_per_point,
+    };
+
+    for (id, image_delta) in &egui_output.textures_delta.set {
+        state
+            .egui_renderer
+            .update_texture(&state.device, &state.queue, *id, image_delta);
+    }
+
+    let mut encoder = state
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("egui_overlay_encoder"),
+        });
+    state.egui_renderer.update_buffers(
+        &state.device,
+        &state.queue,
+        &mut encoder,
+        &paint_jobs,
+        &screen_descriptor,
+    );
+    {
+        let mut render_pass = encoder
+            .begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("egui_overlay_pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            })
+            .forget_lifetime();
+        state
+            .egui_renderer
+            .render(&mut render_pass, &paint_jobs, &screen_descriptor);
+    }
+
+    for id in &egui_output.textures_delta.free {
+        state.egui_renderer.free_texture(id);
+    }
+
+    state
+        .queue
+        .submit([viewport_cmd, encoder.finish()].into_iter());
     frame.present();
+    if ui_requested_redraw {
+        state.window.request_redraw();
+    }
 
     state.controller.begin_frame(ViewportContext {
         hovered: true,
@@ -293,12 +460,166 @@ fn render(state: &mut AppState) {
     });
 }
 
+fn render_ui(state: &mut AppState, ctx: &egui::Context) -> bool {
+    let snapshot = state.model.snapshot();
+    let output = mobile_ui::render(ctx, &snapshot);
+    state.top_ui_hit_regions = output.hit_regions;
+    log_ui_commands(&output.commands);
+    state.apply_ui_commands(output.commands)
+}
+
+fn direct_ui_touch(state: &mut AppState, event: &WindowEvent) -> DirectUiTouch {
+    let WindowEvent::Touch(touch) = event else {
+        return DirectUiTouch::default();
+    };
+
+    match touch.phase {
+        TouchPhase::Started => {
+            if let Some(command) = direct_ui_command_at_touch(state, touch) {
+                state.direct_ui_touches.insert(touch.id, command);
+                return DirectUiTouch {
+                    skip_egui: true,
+                    command: None,
+                };
+            }
+        }
+        TouchPhase::Ended => {
+            if let Some(command) = state.direct_ui_touches.remove(&touch.id) {
+                let command = if direct_ui_command_at_touch(state, touch) == Some(command.clone()) {
+                    Some(command)
+                } else {
+                    None
+                };
+                return DirectUiTouch {
+                    skip_egui: true,
+                    command,
+                };
+            }
+        }
+        TouchPhase::Moved => {
+            if state.direct_ui_touches.contains_key(&touch.id) {
+                return DirectUiTouch {
+                    skip_egui: true,
+                    command: None,
+                };
+            }
+        }
+        TouchPhase::Cancelled => {
+            if state.direct_ui_touches.remove(&touch.id).is_some() {
+                return DirectUiTouch {
+                    skip_egui: true,
+                    command: None,
+                };
+            }
+        }
+    }
+
+    DirectUiTouch::default()
+}
+
+fn direct_ui_command_at_touch(state: &AppState, touch: &Touch) -> Option<UiCommand> {
+    let raw_pos = egui::pos2(touch.location.x as f32, touch.location.y as f32);
+    let scaled_pos = egui_touch_pos(state, touch);
+
+    state
+        .top_ui_hit_regions
+        .iter()
+        .find(|region| region.rect.contains(scaled_pos) || region.rect.contains(raw_pos))
+        .map(|region| region.command.clone())
+        .or_else(|| {
+            let screen_size = egui_screen_size(state);
+            mobile_ui::hit_top_control(screen_size, scaled_pos)
+        })
+        .or_else(|| {
+            let size = state.window.inner_size();
+            let screen_size = egui::vec2(size.width as f32, size.height as f32);
+            mobile_ui::hit_top_control(screen_size, raw_pos)
+        })
+}
+
+fn egui_touch_pos(state: &AppState, touch: &Touch) -> egui::Pos2 {
+    let scale = state.window.scale_factor() as f32;
+    egui::pos2(
+        touch.location.x as f32 / scale,
+        touch.location.y as f32 / scale,
+    )
+}
+
+fn egui_screen_size(state: &AppState) -> egui::Vec2 {
+    let scale = state.window.scale_factor() as f32;
+    let size = state.window.inner_size();
+    egui::vec2(size.width as f32 / scale, size.height as f32 / scale)
+}
+
+#[cfg(debug_assertions)]
+fn log_touch_event(
+    label: &str,
+    event: &WindowEvent,
+    ctx: &egui::Context,
+    consumed: Option<bool>,
+    repaint: Option<bool>,
+) {
+    let WindowEvent::Touch(touch) = event else {
+        return;
+    };
+
+    eprintln!(
+        "[poincare-mobile touch] {label}: phase={:?} id={} pos=({:.1},{:.1}) consumed={:?} repaint={:?} wants_pointer={} using_pointer={}",
+        touch.phase,
+        touch.id,
+        touch.location.x,
+        touch.location.y,
+        consumed,
+        repaint,
+        ctx.wants_pointer_input(),
+        ctx.is_using_pointer(),
+    );
+}
+
+#[cfg(not(debug_assertions))]
+fn log_touch_event(
+    _label: &str,
+    _event: &WindowEvent,
+    _ctx: &egui::Context,
+    _consumed: Option<bool>,
+    _repaint: Option<bool>,
+) {
+}
+
+#[cfg(debug_assertions)]
+fn log_touch_routing(phase: TouchPhase, id: u64, x: f32, y: f32, egui_has_touch: bool) {
+    if matches!(
+        phase,
+        TouchPhase::Started | TouchPhase::Ended | TouchPhase::Cancelled
+    ) {
+        eprintln!(
+            "[poincare-mobile touch] route: phase={phase:?} id={id} pos=({x:.1},{y:.1}) forwarded_to_viewport={}",
+            !egui_has_touch,
+        );
+    }
+}
+
+#[cfg(not(debug_assertions))]
+fn log_touch_routing(_phase: TouchPhase, _id: u64, _x: f32, _y: f32, _egui_has_touch: bool) {}
+
+#[cfg(debug_assertions)]
+fn log_ui_commands(commands: &[UiCommand]) {
+    if !commands.is_empty() {
+        eprintln!("[poincare-mobile ui] commands={commands:?}");
+    }
+}
+
+#[cfg(not(debug_assertions))]
+fn log_ui_commands(_commands: &[UiCommand]) {}
+
 fn handle_keyboard(state: &mut AppState, event: KeyEvent) {
     if event.state != ElementState::Pressed || event.repeat {
         return;
     }
     match event.logical_key {
-        Key::Named(NamedKey::Space) | Key::Named(NamedKey::ArrowRight) => state.cycle_plot(),
+        Key::Named(NamedKey::Space) | Key::Named(NamedKey::ArrowRight) => {
+            state.apply_ui_commands([UiCommand::NextPreset]);
+        }
         _ => {}
     }
 }
@@ -337,7 +658,7 @@ fn handle_touch(state: &mut AppState, phase: TouchPhase, id: u64, pos: glam::Vec
                 }
                 3 => {
                     release_touch_buttons(state);
-                    state.cycle_plot();
+                    state.apply_ui_commands([UiCommand::NextPreset]);
                 }
                 _ => {}
             }
@@ -435,82 +756,6 @@ fn touches_distance(touches: &HashMap<u64, glam::Vec2>) -> f32 {
         (Some(a), Some(b)) => (a - b).length(),
         _ => 0.0,
     }
-}
-
-fn preset_plots() -> Vec<PlotSpec> {
-    vec![
-        PlotSpec {
-            name: "Torus".to_string(),
-            visible: true,
-            domain: Domain {
-                x: 0.0..=(2.0 * PI),
-                y: 0.0..=(2.0 * PI),
-                z: -1.5..=1.5,
-            },
-            resolution: Resolution { u: 80, v: 40 },
-            style: PlotStyle {
-                colour_mode: ColourMode::Colormap {
-                    colormap: ColormapSource::Builtin(viewport_lib::BuiltinColourmap::Viridis),
-                    scalar_range: None,
-                },
-                two_sided: true,
-                shading: ShadingMode::Smooth,
-                matcap: Some(MatcapSource::Builtin(viewport_lib::BuiltinMatcap::Clay)),
-                ..PlotStyle::default()
-            },
-            definition: PlotDefinition::ExprParametricSurface {
-                expression: "(2+cos(v))*cos(u)|(2+cos(v))*sin(u)|sin(v)".to_string(),
-                parameters: Vec::new(),
-            },
-        },
-        PlotSpec {
-            name: "Mobius Strip".to_string(),
-            visible: true,
-            domain: Domain {
-                x: 0.0..=(2.0 * PI),
-                y: -1.0..=1.0,
-                z: -0.5..=0.5,
-            },
-            resolution: Resolution { u: 100, v: 20 },
-            style: PlotStyle {
-                colour_mode: ColourMode::Solid([0.8, 0.5, 1.0, 1.0]),
-                two_sided: true,
-                shading: ShadingMode::Smooth,
-                param_vis: Some(ParamVisSettings {
-                    mode: viewport_lib::ParamVisMode::Checker,
-                    scale: 12.0,
-                }),
-                ..PlotStyle::default()
-            },
-            definition: PlotDefinition::ExprParametricSurface {
-                expression: "(1+v/2*cos(u/2))*cos(u)|(1+v/2*cos(u/2))*sin(u)|v/2*sin(u/2)"
-                    .to_string(),
-                parameters: Vec::new(),
-            },
-        },
-        PlotSpec {
-            name: "Monkey Saddle".to_string(),
-            visible: true,
-            domain: Domain {
-                x: -2.0..=2.0,
-                y: -2.0..=2.0,
-                z: -8.0..=8.0,
-            },
-            resolution: Resolution { u: 80, v: 80 },
-            style: PlotStyle {
-                colour_mode: ColourMode::Colormap {
-                    colormap: ColormapSource::Builtin(viewport_lib::BuiltinColourmap::Plasma),
-                    scalar_range: None,
-                },
-                two_sided: true,
-                ..PlotStyle::default()
-            },
-            definition: PlotDefinition::ExprCartesian {
-                expression: "x^3-3*x*y^2".to_string(),
-                parameters: Vec::new(),
-            },
-        },
-    ]
 }
 
 fn mobile_backends() -> wgpu::Backends {
