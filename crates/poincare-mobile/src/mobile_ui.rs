@@ -1,10 +1,10 @@
+use crate::model::{
+    MobileColormap, MobileColourMode, MobileShadingMode, MobileSolidColour, PlotAxis,
+    PlotDomainEdit, PlotEditorSnapshot, PlotResolutionEdit, UiCommand, UiSnapshot,
+};
 use egui::{
     Align, Align2, Area, Button, Color32, Context, DragValue, Frame, Layout, Margin, Pos2, Rect,
     RichText, Stroke, TextEdit, TopBottomPanel, Ui, Vec2, pos2, vec2,
-};
-use poincare_mobile_core::{
-    MobileShadingMode, PlotAxis, PlotDomainEdit, PlotEditorSnapshot, PlotResolutionEdit, UiCommand,
-    UiSnapshot,
 };
 
 const TOUCH_TARGET: f32 = 48.0;
@@ -182,6 +182,7 @@ fn show_drawer(
                 .inner_margin(Margin::symmetric(18, 18)),
         )
         .show(ctx, |ui| {
+            ui.add_space(48.0);
             ui.horizontal(|ui| {
                 ui.heading(RichText::new("Poincare").size(22.0));
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -197,7 +198,7 @@ fn show_drawer(
             });
 
             ui.add_space(14.0);
-            let settings = secondary_row(ui, "Settings");
+            let settings = secondary_row(ui, "⚙  Settings");
             hit_regions.push(HitRegion {
                 rect: settings.rect.expand(DIRECT_HIT_PAD),
                 commands: vec![UiCommand::OpenSettings],
@@ -209,9 +210,10 @@ fn show_drawer(
             let add_plot = primary_row(ui, "+ Add plot");
             hit_regions.push(HitRegion {
                 rect: add_plot.rect.expand(DIRECT_HIT_PAD),
-                commands: vec![UiCommand::OpenEditor],
+                commands: vec![UiCommand::CloseMenu, UiCommand::OpenEditor],
             });
             if add_plot.clicked() {
+                commands.push(UiCommand::CloseMenu);
                 commands.push(UiCommand::OpenEditor);
             }
 
@@ -224,14 +226,27 @@ fn show_drawer(
                 );
             }
             for plot in &snapshot.plots {
-                let row = selectable_row(ui, plot.name.as_str(), plot.selected);
-                hit_regions.push(HitRegion {
-                    rect: row.rect.expand(DIRECT_HIT_PAD),
-                    commands: vec![UiCommand::OpenPlotProperties(plot.index)],
+                ui.horizontal(|ui| {
+                    let row_width = (ui.available_width() - TOUCH_TARGET - 8.0).max(80.0);
+                    let row =
+                        selectable_row_sized(ui, plot.name.as_str(), plot.selected, row_width);
+                    hit_regions.push(HitRegion {
+                        rect: row.rect.expand(DIRECT_HIT_PAD),
+                        commands: vec![UiCommand::OpenPlotProperties(plot.index)],
+                    });
+                    if row.clicked() {
+                        commands.push(UiCommand::OpenPlotProperties(plot.index));
+                    }
+
+                    let delete = icon_button(ui, "×");
+                    hit_regions.push(HitRegion {
+                        rect: delete.rect.expand(DIRECT_HIT_PAD),
+                        commands: vec![UiCommand::DeletePlot(plot.index)],
+                    });
+                    if delete.clicked() {
+                        commands.push(UiCommand::DeletePlot(plot.index));
+                    }
                 });
-                if row.clicked() {
-                    commands.push(UiCommand::OpenPlotProperties(plot.index));
-                }
             }
         });
 }
@@ -244,12 +259,17 @@ fn show_equation_sheet(
 ) {
     TopBottomPanel::bottom("mobile_equation_sheet")
         .resizable(false)
-        .exact_height(190.0)
+        .exact_height(230.0)
         .frame(
             Frame::NONE
                 .fill(Color32::from_rgba_unmultiplied(11, 15, 22, 248))
                 .corner_radius(PANEL_RADIUS)
-                .inner_margin(Margin::symmetric(18, 10)),
+                .inner_margin(Margin {
+                    left: 18,
+                    right: 18,
+                    top: 10,
+                    bottom: 34,
+                }),
         )
         .show(ctx, |ui| {
             ui.vertical_centered(|ui| {
@@ -310,7 +330,7 @@ fn show_settings_sheet(
 ) {
     TopBottomPanel::bottom("mobile_settings_sheet")
         .resizable(false)
-        .exact_height(210.0)
+        .exact_height(240.0)
         .frame(sheet_frame())
         .show(ctx, |ui| {
             sheet_grabber(ui);
@@ -346,7 +366,7 @@ fn show_plot_properties_sheet(
 
     TopBottomPanel::bottom("mobile_plot_properties_sheet")
         .resizable(false)
-        .exact_height(460.0)
+        .exact_height(500.0)
         .frame(sheet_frame())
         .show(ctx, |ui| {
             sheet_grabber(ui);
@@ -361,7 +381,7 @@ fn show_plot_properties_sheet(
             egui::ScrollArea::vertical().show(ui, |ui| {
                 edit_surface(ui, plot, commands);
                 edit_domain(ui, plot, commands);
-                edit_style(ui, plot, commands);
+                edit_style(ui, plot, commands, hit_regions);
             });
         });
 }
@@ -435,7 +455,12 @@ fn edit_range(
     });
 }
 
-fn edit_style(ui: &mut Ui, plot: &PlotEditorSnapshot, commands: &mut Vec<UiCommand>) {
+fn edit_style(
+    ui: &mut Ui,
+    plot: &PlotEditorSnapshot,
+    commands: &mut Vec<UiCommand>,
+    hit_regions: &mut Vec<HitRegion>,
+) {
     section_label(ui, "Style");
 
     let mut opacity = plot.opacity;
@@ -447,41 +472,111 @@ fn edit_style(ui: &mut Ui, plot: &PlotEditorSnapshot, commands: &mut Vec<UiComma
     }
 
     let mut two_sided = plot.two_sided;
-    if ui.checkbox(&mut two_sided, "Two-sided surface").changed() {
+    let two_sided_response = ui.checkbox(&mut two_sided, "Two-sided surface");
+    hit_regions.push(HitRegion {
+        rect: two_sided_response.rect.expand(DIRECT_HIT_PAD),
+        commands: vec![UiCommand::SetSelectedPlotTwoSided(!plot.two_sided)],
+    });
+    if two_sided_response.changed() {
         commands.push(UiCommand::SetSelectedPlotTwoSided(two_sided));
     }
 
     ui.horizontal(|ui| {
         ui.label("Shading");
-        if ui
-            .selectable_label(plot.shading == MobileShadingMode::Smooth, "Smooth")
-            .clicked()
-        {
+        let smooth = ui.selectable_label(plot.shading == MobileShadingMode::Smooth, "Smooth");
+        hit_regions.push(HitRegion {
+            rect: smooth.rect.expand(DIRECT_HIT_PAD),
+            commands: vec![UiCommand::SetSelectedPlotShading(MobileShadingMode::Smooth)],
+        });
+        if smooth.clicked() {
             commands.push(UiCommand::SetSelectedPlotShading(MobileShadingMode::Smooth));
         }
-        if ui
-            .selectable_label(plot.shading == MobileShadingMode::Flat, "Flat")
-            .clicked()
-        {
+
+        let flat = ui.selectable_label(plot.shading == MobileShadingMode::Flat, "Flat");
+        hit_regions.push(HitRegion {
+            rect: flat.rect.expand(DIRECT_HIT_PAD),
+            commands: vec![UiCommand::SetSelectedPlotShading(MobileShadingMode::Flat)],
+        });
+        if flat.clicked() {
             commands.push(UiCommand::SetSelectedPlotShading(MobileShadingMode::Flat));
         }
     });
 
-    let mut colour = plot.colour;
-    let mut colour32 = Color32::from_rgba_unmultiplied(
-        (colour[0].clamp(0.0, 1.0) * 255.0) as u8,
-        (colour[1].clamp(0.0, 1.0) * 255.0) as u8,
-        (colour[2].clamp(0.0, 1.0) * 255.0) as u8,
-        (colour[3].clamp(0.0, 1.0) * 255.0) as u8,
-    );
-    if ui.color_edit_button_srgba(&mut colour32).changed() {
-        colour = [
-            f32::from(colour32.r()) / 255.0,
-            f32::from(colour32.g()) / 255.0,
-            f32::from(colour32.b()) / 255.0,
-            f32::from(colour32.a()) / 255.0,
-        ];
-        commands.push(UiCommand::SetSelectedPlotColour(colour));
+    ui.horizontal(|ui| {
+        ui.label("Colour");
+        let solid = ui.selectable_label(plot.colour_mode == MobileColourMode::Solid, "Solid");
+        hit_regions.push(HitRegion {
+            rect: solid.rect.expand(DIRECT_HIT_PAD),
+            commands: vec![UiCommand::SetSelectedPlotColourMode(
+                MobileColourMode::Solid,
+            )],
+        });
+        if solid.clicked() {
+            commands.push(UiCommand::SetSelectedPlotColourMode(
+                MobileColourMode::Solid,
+            ));
+        }
+
+        let colormap =
+            ui.selectable_label(plot.colour_mode == MobileColourMode::Colormap, "Colourmap");
+        hit_regions.push(HitRegion {
+            rect: colormap.rect.expand(DIRECT_HIT_PAD),
+            commands: vec![UiCommand::SetSelectedPlotColourMode(
+                MobileColourMode::Colormap,
+            )],
+        });
+        if colormap.clicked() {
+            commands.push(UiCommand::SetSelectedPlotColourMode(
+                MobileColourMode::Colormap,
+            ));
+        }
+    });
+
+    match plot.colour_mode {
+        MobileColourMode::Solid => {
+            ui.horizontal_wrapped(|ui| {
+                for colour in [
+                    MobileSolidColour::Red,
+                    MobileSolidColour::Green,
+                    MobileSolidColour::Blue,
+                    MobileSolidColour::Yellow,
+                    MobileSolidColour::White,
+                ] {
+                    let response = ui
+                        .selectable_label(plot.solid_colour == colour, solid_colour_label(colour));
+                    hit_regions.push(HitRegion {
+                        rect: response.rect.expand(DIRECT_HIT_PAD),
+                        commands: vec![UiCommand::SetSelectedPlotSolidColour(colour)],
+                    });
+                    if response.clicked() {
+                        commands.push(UiCommand::SetSelectedPlotSolidColour(colour));
+                    }
+                }
+            });
+        }
+        MobileColourMode::Colormap => {
+            ui.horizontal_wrapped(|ui| {
+                for colormap in [
+                    MobileColormap::Rainbow,
+                    MobileColormap::Viridis,
+                    MobileColormap::Plasma,
+                    MobileColormap::Coolwarm,
+                    MobileColormap::Turbo,
+                    MobileColormap::Jet,
+                    MobileColormap::Greyscale,
+                ] {
+                    let response =
+                        ui.selectable_label(plot.colormap == colormap, colormap_label(colormap));
+                    hit_regions.push(HitRegion {
+                        rect: response.rect.expand(DIRECT_HIT_PAD),
+                        commands: vec![UiCommand::SetSelectedPlotColormap(colormap)],
+                    });
+                    if response.clicked() {
+                        commands.push(UiCommand::SetSelectedPlotColormap(colormap));
+                    }
+                }
+            });
+        }
     }
 }
 
@@ -514,7 +609,12 @@ fn sheet_frame() -> Frame {
     Frame::NONE
         .fill(Color32::from_rgba_unmultiplied(11, 15, 22, 248))
         .corner_radius(PANEL_RADIUS)
-        .inner_margin(Margin::symmetric(18, 10))
+        .inner_margin(Margin {
+            left: 18,
+            right: 18,
+            top: 10,
+            bottom: 34,
+        })
 }
 
 fn sheet_grabber(ui: &mut Ui) {
@@ -588,12 +688,12 @@ fn secondary_row(ui: &mut Ui, label: &str) -> egui::Response {
     ui.add_sized(
         [ui.available_width(), TOUCH_TARGET],
         Button::new(RichText::new(label).color(Color32::from_rgb(235, 239, 246)))
-            .fill(Color32::from_white_alpha(18))
-            .stroke(Stroke::NONE),
+            .fill(Color32::from_white_alpha(34))
+            .stroke(Stroke::new(1.0, Color32::from_white_alpha(36))),
     )
 }
 
-fn selectable_row(ui: &mut Ui, label: &str, selected: bool) -> egui::Response {
+fn selectable_row_sized(ui: &mut Ui, label: &str, selected: bool, width: f32) -> egui::Response {
     let fill = if selected {
         Color32::from_rgb(255, 209, 124)
     } else {
@@ -606,7 +706,7 @@ fn selectable_row(ui: &mut Ui, label: &str, selected: bool) -> egui::Response {
     };
 
     ui.add_sized(
-        [ui.available_width(), TOUCH_TARGET],
+        [width, TOUCH_TARGET],
         Button::new(RichText::new(label).color(color))
             .fill(fill)
             .stroke(Stroke::NONE),
@@ -628,5 +728,27 @@ fn plot_count_label(plot_count: usize) -> String {
         0 => "No plots".to_string(),
         1 => "1 plot".to_string(),
         count => format!("{count} plots"),
+    }
+}
+
+fn solid_colour_label(colour: MobileSolidColour) -> &'static str {
+    match colour {
+        MobileSolidColour::Red => "Red",
+        MobileSolidColour::Green => "Green",
+        MobileSolidColour::Blue => "Blue",
+        MobileSolidColour::Yellow => "Yellow",
+        MobileSolidColour::White => "White",
+    }
+}
+
+fn colormap_label(colormap: MobileColormap) -> &'static str {
+    match colormap {
+        MobileColormap::Rainbow => "Rainbow",
+        MobileColormap::Viridis => "Viridis",
+        MobileColormap::Plasma => "Plasma",
+        MobileColormap::Coolwarm => "Coolwarm",
+        MobileColormap::Turbo => "Turbo",
+        MobileColormap::Jet => "Jet",
+        MobileColormap::Greyscale => "Greyscale",
     }
 }

@@ -14,11 +14,10 @@ Controls:
 - 3-finger touch: open the Add Plot sheet
 - Desktop helper: `+` opens the Add Plot sheet
 
-## UI frontend boundary
+## UI structure
 
 The mobile shell keeps viewport/rendering state separate from menu commands.
-`crates/poincare-mobile-core` defines the small command/snapshot/model surface
-that any UI layer should use:
+`src/model.rs` defines the small command/snapshot/model surface used by the UI:
 
 - `UiSnapshot`: read-only state needed by menus and sheets
 - `UiCommand`: actions such as opening the drawer, editing equation text, or
@@ -30,11 +29,6 @@ same `winit` window. `src/mobile_ui.rs` is the start of a small mobile component
 layer for that path: touch-sized icon buttons, compact action buttons, a drawer,
 bottom sheet, and shared mobile styling. It emits `UiCommand` values instead of
 mutating renderer state directly.
-
-The Tauri/WebView prototype in `crates/poincare-mobile-tauri` is retained as an
-experiment and calls into the same command layer. It is not the primary UI path:
-Tauri is a WebView app model, not a drop-in widget overlay for this `winit`/`wgpu`
-app.
 
 Build probes:
 

@@ -1,11 +1,12 @@
 mod mobile_ui;
+mod model;
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use egui_wgpu::{Renderer as EguiRenderer, ScreenDescriptor};
+use model::{MobileModel, UiCommand};
 use poincare_lib::{AxisConfig, GraphScene, GraphSpec};
-use poincare_mobile_core::{MobileModel, UiCommand};
 use viewport_lib::{
     ButtonState, Camera, CameraFrame, GroundPlane, GroundPlaneMode, LightingSettings, MouseButton,
     OrbitCameraController, PostProcessSettings, ScrollUnits, ViewportContext, ViewportEvent,
@@ -603,7 +604,7 @@ fn handle_touch(state: &mut AppState, phase: TouchPhase, id: u64, pos: glam::Vec
                         let delta = dist - prev;
                         if delta.abs() > 0.5 {
                             state.controller.push_event(ViewportEvent::Wheel {
-                                delta: glam::Vec2::new(0.0, delta * 0.05),
+                                delta: glam::Vec2::new(0.0, delta * 0.25),
                                 units: ScrollUnits::Pixels,
                             });
                         }
