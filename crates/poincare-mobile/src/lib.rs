@@ -99,7 +99,7 @@ impl AppState {
         let rebuild_index = self.rebuild_count;
         let total_start = Instant::now();
         let spec = GraphSpec {
-            axis_config: AxisConfig::default(),
+            axis_config: mobile_axis_config(self.window.scale_factor() as f32),
             plots: self.model.plots(),
         };
         let plot_count = spec.plots.len();
@@ -641,6 +641,17 @@ fn render(state: &mut AppState) {
         focused: true,
         viewport_size: [w, h],
     });
+}
+
+fn mobile_axis_config(scale_factor: f32) -> AxisConfig {
+    let visual_scale = (scale_factor / 2.0).clamp(1.0, 1.8);
+    AxisConfig {
+        axis_line_width: 2.4 * visual_scale,
+        tick_line_width: 1.8 * visual_scale,
+        tick_label_size: 14.0 * visual_scale,
+        axis_label_size: 17.0 * visual_scale,
+        ..AxisConfig::default()
+    }
 }
 
 fn render_startup_splash_frame(

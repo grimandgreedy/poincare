@@ -61,6 +61,22 @@ pub struct AxisConfig {
 
     /// RGBA colour for tick labels (linear float).
     pub tick_colour: [f32; 4],
+
+    /// Width of main axis lines in screen-space pixels.
+    #[serde(default = "default_axis_line_width")]
+    pub axis_line_width: f32,
+
+    /// Width of tick stubs in screen-space pixels.
+    #[serde(default = "default_tick_line_width")]
+    pub tick_line_width: f32,
+
+    /// Tick-label font size in screen-space pixels.
+    #[serde(default = "default_tick_label_size")]
+    pub tick_label_size: f32,
+
+    /// Axis-name label font size in screen-space pixels.
+    #[serde(default = "default_axis_label_size")]
+    pub axis_label_size: f32,
 }
 
 impl Default for AxisConfig {
@@ -83,8 +99,28 @@ impl Default for AxisConfig {
                 [0.2, 0.2, 0.9, 1.0], // Z: blue
             ],
             tick_colour: dim,
+            axis_line_width: default_axis_line_width(),
+            tick_line_width: default_tick_line_width(),
+            tick_label_size: default_tick_label_size(),
+            axis_label_size: default_axis_label_size(),
         }
     }
+}
+
+fn default_axis_line_width() -> f32 {
+    1.5
+}
+
+fn default_tick_line_width() -> f32 {
+    1.0
+}
+
+fn default_tick_label_size() -> f32 {
+    11.0
+}
+
+fn default_axis_label_size() -> f32 {
+    13.0
 }
 
 // ---------------------------------------------------------------------------
@@ -326,7 +362,7 @@ pub fn build_axis_polyline_projected(
             item.scalar_range = None;
             item.colourmap_id = None;
             item.default_colour = colour;
-            item.line_width = 1.5;
+            item.line_width = config.axis_line_width;
             items.push(item);
         }
 
@@ -348,7 +384,7 @@ pub fn build_axis_polyline_projected(
                 item.scalar_range = None;
                 item.colourmap_id = None;
                 item.default_colour = colour;
-                item.line_width = 1.0;
+                item.line_width = config.tick_line_width;
                 items.push(item);
             }
         }
@@ -420,7 +456,7 @@ pub fn build_axis_labels_projected(
                 Some(tick_label_anchor(domain, vp, Axis3::X, &ticks_per_axis[0], *pos).to_array());
             lbl.text = text.clone();
             lbl.colour = tc;
-            lbl.font_size = 11.0;
+            lbl.font_size = config.tick_label_size;
             labels.push(lbl);
         }
         for (pos, text) in &ticks_per_axis[1] {
@@ -435,7 +471,7 @@ pub fn build_axis_labels_projected(
                 Some(tick_label_anchor(domain, vp, Axis3::Y, &ticks_per_axis[1], *pos).to_array());
             lbl.text = text.clone();
             lbl.colour = tc;
-            lbl.font_size = 11.0;
+            lbl.font_size = config.tick_label_size;
             labels.push(lbl);
         }
         for (pos, text) in &ticks_per_axis[2] {
@@ -450,7 +486,7 @@ pub fn build_axis_labels_projected(
                 Some(tick_label_anchor(domain, vp, Axis3::Z, &ticks_per_axis[2], *pos).to_array());
             lbl.text = text.clone();
             lbl.colour = tc;
-            lbl.font_size = 11.0;
+            lbl.font_size = config.tick_label_size;
             labels.push(lbl);
         }
     }
@@ -508,7 +544,7 @@ pub fn build_axis_labels_projected(
             lbl.world_anchor = Some(world_pos.to_array());
             lbl.text = name.to_string();
             lbl.colour = tc;
-            lbl.font_size = 13.0;
+            lbl.font_size = config.axis_label_size;
             labels.push(lbl);
         }
     }
