@@ -8,14 +8,12 @@ const TOUCH_TARGET: f32 = 48.0;
 const PANEL_RADIUS: f32 = 8.0;
 const EDGE_MARGIN: f32 = 12.0;
 const DIRECT_HIT_PAD: f32 = 12.0;
-const QUICK_BUTTON_GAP: f32 = 8.0;
 const QUICK_BUTTON_RIGHT_INSET: f32 = 20.0;
-const NEXT_BUTTON_WIDTH: f32 = 64.0;
 
 #[derive(Clone, Debug)]
 pub(crate) struct HitRegion {
     pub rect: Rect,
-    pub command: UiCommand,
+    pub commands: Vec<UiCommand>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -33,11 +31,11 @@ pub(crate) fn render(ctx: &Context, snapshot: &UiSnapshot) -> RenderOutput {
     show_quick_controls(ctx, snapshot, &mut commands, &mut hit_regions);
 
     if snapshot.sidebar_open {
-        show_drawer(ctx, snapshot, &mut commands);
+        show_drawer(ctx, snapshot, &mut commands, &mut hit_regions);
     }
 
     if snapshot.editor_open {
-        show_equation_sheet(ctx, snapshot, &mut commands);
+        show_equation_sheet(ctx, snapshot, &mut commands, &mut hit_regions);
     }
 
     show_error(ctx, snapshot);
@@ -65,16 +63,6 @@ pub(crate) fn hit_top_control(screen_size: Vec2, pos: Pos2) -> Option<UiCommand>
     .expand(DIRECT_HIT_PAD);
     if plus.contains(pos) {
         return Some(UiCommand::ToggleEditor);
-    }
-
-    let next_right = plus.left() - QUICK_BUTTON_GAP;
-    let next = Rect::from_min_size(
-        pos2(next_right - NEXT_BUTTON_WIDTH, EDGE_MARGIN + 6.0),
-        vec2(NEXT_BUTTON_WIDTH, TOUCH_TARGET),
-    )
-    .expand(DIRECT_HIT_PAD);
-    if next.contains(pos) {
-        return Some(UiCommand::NextPreset);
     }
 
     None
@@ -107,7 +95,7 @@ fn show_hamburger(ctx: &Context, commands: &mut Vec<UiCommand>, hit_regions: &mu
                     );
                     hit_regions.push(HitRegion {
                         rect: response.rect.expand(DIRECT_HIT_PAD),
-                        command: UiCommand::ToggleMenu,
+                        commands: vec![UiCommand::ToggleMenu],
                     });
                     if response.clicked() {
                         commands.push(UiCommand::ToggleMenu);
@@ -131,34 +119,30 @@ fn show_quick_controls(
                     ui.horizontal(|ui| {
                         ui.add_space(2.0);
                         ui.label(
-                            RichText::new(snapshot.active_preset_name.as_str())
+                            RichText::new(plot_count_label(snapshot.plot_count))
                                 .size(15.0)
                                 .color(Color32::from_rgb(235, 239, 246)),
                         );
 
-                        let next = compact_button(ui, "Next");
-                        hit_regions.push(HitRegion {
-                            rect: next.rect.expand(DIRECT_HIT_PAD),
-                            command: UiCommand::NextPreset,
-                        });
-                        if next.clicked() {
-                            commands.push(UiCommand::NextPreset);
-                        }
-
                         let add = icon_button(ui, "+");
                         hit_regions.push(HitRegion {
                             rect: add.rect.expand(DIRECT_HIT_PAD),
-                            command: UiCommand::ToggleEditor,
+                            commands: vec![UiCommand::OpenEditor],
                         });
                         if add.clicked() {
-                            commands.push(UiCommand::ToggleEditor);
+                            commands.push(UiCommand::OpenEditor);
                         }
                     });
                 });
         });
 }
 
-fn show_drawer(ctx: &Context, snapshot: &UiSnapshot, commands: &mut Vec<UiCommand>) {
+fn show_drawer(
+    ctx: &Context,
+    snapshot: &UiSnapshot,
+    commands: &mut Vec<UiCommand>,
+    hit_regions: &mut Vec<HitRegion>,
+) {
     let screen = ctx.content_rect();
     let drawer_width = screen.width().mul_add(0.82, 0.0).min(340.0).max(280.0);
 
@@ -169,6 +153,10 @@ fn show_drawer(ctx: &Context, snapshot: &UiSnapshot, commands: &mut Vec<UiComman
             let response = ui.allocate_rect(screen, egui::Sense::click());
             ui.painter()
                 .rect_filled(screen, 0.0, Color32::from_black_alpha(120));
+            hit_regions.push(HitRegion {
+                rect: response.rect,
+                commands: vec![UiCommand::CloseMenu],
+            });
             if response.clicked() {
                 commands.push(UiCommand::CloseMenu);
             }
@@ -186,32 +174,51 @@ fn show_drawer(ctx: &Context, snapshot: &UiSnapshot, commands: &mut Vec<UiComman
             ui.horizontal(|ui| {
                 ui.heading(RichText::new("Poincare").size(22.0));
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if text_button(ui, "Done").clicked() {
+                    let done = text_button(ui, "Done");
+                    hit_regions.push(HitRegion {
+                        rect: done.rect.expand(DIRECT_HIT_PAD),
+                        commands: vec![UiCommand::CloseMenu],
+                    });
+                    if done.clicked() {
                         commands.push(UiCommand::CloseMenu);
                     }
                 });
             });
 
             ui.add_space(14.0);
-            if primary_row(ui, "+ Add plot").clicked() {
+            let add_plot = primary_row(ui, "+ Add plot");
+            hit_regions.push(HitRegion {
+                rect: add_plot.rect.expand(DIRECT_HIT_PAD),
+                commands: vec![UiCommand::OpenEditor],
+            });
+            if add_plot.clicked() {
                 commands.push(UiCommand::OpenEditor);
-                commands.push(UiCommand::CloseMenu);
-            }
-            if drawer_row(ui, "Next preset", false).clicked() {
-                commands.push(UiCommand::NextPreset);
             }
 
-            section_label(ui, "Presets");
-            for (idx, name) in snapshot.preset_names.iter().enumerate() {
-                let selected = idx == snapshot.active_preset_index;
-                if drawer_row(ui, name, selected).clicked() {
-                    commands.push(UiCommand::SelectPreset(idx));
-                }
+            section_label(ui, "Plots");
+            if snapshot.plot_names.is_empty() {
+                ui.label(
+                    RichText::new("No plots yet")
+                        .size(15.0)
+                        .color(Color32::from_white_alpha(150)),
+                );
+            }
+            for name in &snapshot.plot_names {
+                ui.label(
+                    RichText::new(name.as_str())
+                        .size(15.0)
+                        .color(Color32::from_rgb(235, 239, 246)),
+                );
             }
         });
 }
 
-fn show_equation_sheet(ctx: &Context, snapshot: &UiSnapshot, commands: &mut Vec<UiCommand>) {
+fn show_equation_sheet(
+    ctx: &Context,
+    snapshot: &UiSnapshot,
+    commands: &mut Vec<UiCommand>,
+    hit_regions: &mut Vec<HitRegion>,
+) {
     TopBottomPanel::bottom("mobile_equation_sheet")
         .resizable(false)
         .exact_height(190.0)
@@ -232,7 +239,12 @@ fn show_equation_sheet(ctx: &Context, snapshot: &UiSnapshot, commands: &mut Vec<
             ui.horizontal(|ui| {
                 ui.heading(RichText::new("Equation").size(19.0));
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if text_button(ui, "Done").clicked() {
+                    let done = text_button(ui, "Done");
+                    hit_regions.push(HitRegion {
+                        rect: done.rect.expand(DIRECT_HIT_PAD),
+                        commands: vec![UiCommand::CloseEditor],
+                    });
+                    if done.clicked() {
                         commands.push(UiCommand::CloseEditor);
                     }
                 });
@@ -250,11 +262,16 @@ fn show_equation_sheet(ctx: &Context, snapshot: &UiSnapshot, commands: &mut Vec<
 
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if primary_compact(ui, "Plot").clicked() {
+                let plot = primary_compact(ui, "Plot");
+                hit_regions.push(HitRegion {
+                    rect: plot.rect.expand(DIRECT_HIT_PAD),
+                    commands: vec![UiCommand::SubmitEquation],
+                });
+                if plot.clicked() {
                     commands.push(UiCommand::SubmitEquation);
                 }
                 ui.label(
-                    RichText::new("M2 will connect this to poincare-lib plotting.")
+                    RichText::new("Creates z = f(x, y).")
                         .size(13.0)
                         .color(Color32::from_white_alpha(150)),
                 );
@@ -285,15 +302,6 @@ fn surface_frame(alpha: u8) -> Frame {
         .fill(Color32::from_black_alpha(alpha))
         .corner_radius(PANEL_RADIUS)
         .stroke(Stroke::new(1.0, Color32::from_white_alpha(28)))
-}
-
-fn compact_button(ui: &mut Ui, label: &str) -> egui::Response {
-    ui.add_sized(
-        [NEXT_BUTTON_WIDTH, TOUCH_TARGET],
-        Button::new(label)
-            .fill(Color32::from_white_alpha(28))
-            .stroke(Stroke::NONE),
-    )
 }
 
 fn icon_button(ui: &mut Ui, label: &str) -> egui::Response {
@@ -332,26 +340,6 @@ fn primary_row(ui: &mut Ui, label: &str) -> egui::Response {
     )
 }
 
-fn drawer_row(ui: &mut Ui, label: &str, selected: bool) -> egui::Response {
-    let fill = if selected {
-        Color32::from_rgb(255, 209, 124)
-    } else {
-        Color32::from_white_alpha(18)
-    };
-    let color = if selected {
-        Color32::from_rgb(6, 16, 13)
-    } else {
-        Color32::from_rgb(235, 239, 246)
-    };
-
-    ui.add_sized(
-        [ui.available_width(), TOUCH_TARGET],
-        Button::new(RichText::new(label).color(color))
-            .fill(fill)
-            .stroke(Stroke::NONE),
-    )
-}
-
 fn section_label(ui: &mut Ui, label: &str) {
     ui.add_space(18.0);
     ui.label(
@@ -360,4 +348,12 @@ fn section_label(ui: &mut Ui, label: &str) {
             .color(Color32::from_white_alpha(145)),
     );
     ui.add_space(2.0);
+}
+
+fn plot_count_label(plot_count: usize) -> String {
+    match plot_count {
+        0 => "No plots".to_string(),
+        1 => "1 plot".to_string(),
+        count => format!("{count} plots"),
+    }
 }

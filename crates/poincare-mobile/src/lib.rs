@@ -19,7 +19,7 @@ use winit::event_loop::ActiveEventLoop;
     not(any(target_os = "ios", target_os = "android"))
 ))]
 use winit::event_loop::EventLoop;
-use winit::keyboard::{Key, NamedKey};
+use winit::keyboard::Key;
 use winit::window::{Window, WindowAttributes, WindowId};
 
 #[derive(Default, PartialEq)]
@@ -51,8 +51,8 @@ struct AppState {
     model: MobileModel,
     scene: GraphScene,
     touches: HashMap<u64, glam::Vec2>,
-    direct_ui_touches: HashMap<u64, UiCommand>,
-    top_ui_hit_regions: Vec<mobile_ui::HitRegion>,
+    direct_ui_touches: HashMap<u64, Vec<UiCommand>>,
+    ui_hit_regions: Vec<mobile_ui::HitRegion>,
     touch_mode: TouchMode,
     prev_pinch_dist: Option<f32>,
 }
@@ -60,14 +60,14 @@ struct AppState {
 #[derive(Default)]
 struct DirectUiTouch {
     skip_egui: bool,
-    command: Option<UiCommand>,
+    commands: Option<Vec<UiCommand>>,
 }
 
 impl AppState {
     fn rebuild_scene(&mut self) {
         let spec = GraphSpec {
             axis_config: AxisConfig::default(),
-            plots: vec![self.model.active_plot()],
+            plots: self.model.plots(),
         };
 
         match spec.build_scene() {
@@ -202,7 +202,7 @@ impl ApplicationHandler for App {
             scene: GraphScene::new(),
             touches: HashMap::new(),
             direct_ui_touches: HashMap::new(),
-            top_ui_hit_regions: Vec::new(),
+            ui_hit_regions: Vec::new(),
             touch_mode: TouchMode::None,
             prev_pinch_dist: None,
         };
@@ -241,36 +241,18 @@ impl ApplicationHandler for App {
         };
 
         let direct_ui_touch = direct_ui_touch(state, &event);
-        log_touch_event("before egui", &event, &state.egui_ctx, None, None);
         let is_touch_event = matches!(event, WindowEvent::Touch { .. });
         let egui_response = if direct_ui_touch.skip_egui {
             egui_winit::EventResponse::default()
         } else {
             state.egui_state.on_window_event(&state.window, &event)
         };
-        log_touch_event(
-            "after egui",
-            &event,
-            &state.egui_ctx,
-            Some(egui_response.consumed),
-            Some(egui_response.repaint),
-        );
         if egui_response.repaint {
             state.window.request_redraw();
         }
         if direct_ui_touch.skip_egui {
-            if let WindowEvent::Touch(touch) = &event {
-                log_touch_routing(
-                    touch.phase,
-                    touch.id,
-                    touch.location.x as f32,
-                    touch.location.y as f32,
-                    true,
-                );
-            }
-            if let Some(command) = direct_ui_touch.command {
-                log_ui_commands(std::slice::from_ref(&command));
-                state.apply_ui_commands([command]);
+            if let Some(commands) = direct_ui_touch.commands {
+                state.apply_ui_commands(commands);
             }
             state.window.request_redraw();
             return;
@@ -299,13 +281,6 @@ impl ApplicationHandler for App {
                     || state.egui_ctx.wants_pointer_input()
                     || state.egui_ctx.is_using_pointer();
                 let viewport_has_touch = state.touches.contains_key(&id);
-                log_touch_routing(
-                    phase,
-                    id,
-                    location.x as f32,
-                    location.y as f32,
-                    egui_has_touch && !viewport_has_touch,
-                );
                 if !egui_has_touch || viewport_has_touch {
                     handle_touch(state, phase, id, pos);
                 }
@@ -463,8 +438,7 @@ fn render(state: &mut AppState) {
 fn render_ui(state: &mut AppState, ctx: &egui::Context) -> bool {
     let snapshot = state.model.snapshot();
     let output = mobile_ui::render(ctx, &snapshot);
-    state.top_ui_hit_regions = output.hit_regions;
-    log_ui_commands(&output.commands);
+    state.ui_hit_regions = output.hit_regions;
     state.apply_ui_commands(output.commands)
 }
 
@@ -475,24 +449,25 @@ fn direct_ui_touch(state: &mut AppState, event: &WindowEvent) -> DirectUiTouch {
 
     match touch.phase {
         TouchPhase::Started => {
-            if let Some(command) = direct_ui_command_at_touch(state, touch) {
-                state.direct_ui_touches.insert(touch.id, command);
+            if let Some(commands) = direct_ui_commands_at_touch(state, touch) {
+                state.direct_ui_touches.insert(touch.id, commands);
                 return DirectUiTouch {
                     skip_egui: true,
-                    command: None,
+                    commands: None,
                 };
             }
         }
         TouchPhase::Ended => {
-            if let Some(command) = state.direct_ui_touches.remove(&touch.id) {
-                let command = if direct_ui_command_at_touch(state, touch) == Some(command.clone()) {
-                    Some(command)
-                } else {
-                    None
-                };
+            if let Some(commands) = state.direct_ui_touches.remove(&touch.id) {
+                let commands =
+                    if direct_ui_commands_at_touch(state, touch) == Some(commands.clone()) {
+                        Some(commands)
+                    } else {
+                        None
+                    };
                 return DirectUiTouch {
                     skip_egui: true,
-                    command,
+                    commands,
                 };
             }
         }
@@ -500,7 +475,7 @@ fn direct_ui_touch(state: &mut AppState, event: &WindowEvent) -> DirectUiTouch {
             if state.direct_ui_touches.contains_key(&touch.id) {
                 return DirectUiTouch {
                     skip_egui: true,
-                    command: None,
+                    commands: None,
                 };
             }
         }
@@ -508,7 +483,7 @@ fn direct_ui_touch(state: &mut AppState, event: &WindowEvent) -> DirectUiTouch {
             if state.direct_ui_touches.remove(&touch.id).is_some() {
                 return DirectUiTouch {
                     skip_egui: true,
-                    command: None,
+                    commands: None,
                 };
             }
         }
@@ -517,23 +492,24 @@ fn direct_ui_touch(state: &mut AppState, event: &WindowEvent) -> DirectUiTouch {
     DirectUiTouch::default()
 }
 
-fn direct_ui_command_at_touch(state: &AppState, touch: &Touch) -> Option<UiCommand> {
+fn direct_ui_commands_at_touch(state: &AppState, touch: &Touch) -> Option<Vec<UiCommand>> {
     let raw_pos = egui::pos2(touch.location.x as f32, touch.location.y as f32);
     let scaled_pos = egui_touch_pos(state, touch);
 
     state
-        .top_ui_hit_regions
+        .ui_hit_regions
         .iter()
+        .rev()
         .find(|region| region.rect.contains(scaled_pos) || region.rect.contains(raw_pos))
-        .map(|region| region.command.clone())
+        .map(|region| region.commands.clone())
         .or_else(|| {
             let screen_size = egui_screen_size(state);
-            mobile_ui::hit_top_control(screen_size, scaled_pos)
+            mobile_ui::hit_top_control(screen_size, scaled_pos).map(|command| vec![command])
         })
         .or_else(|| {
             let size = state.window.inner_size();
             let screen_size = egui::vec2(size.width as f32, size.height as f32);
-            mobile_ui::hit_top_control(screen_size, raw_pos)
+            mobile_ui::hit_top_control(screen_size, raw_pos).map(|command| vec![command])
         })
 }
 
@@ -551,74 +527,13 @@ fn egui_screen_size(state: &AppState) -> egui::Vec2 {
     egui::vec2(size.width as f32 / scale, size.height as f32 / scale)
 }
 
-#[cfg(debug_assertions)]
-fn log_touch_event(
-    label: &str,
-    event: &WindowEvent,
-    ctx: &egui::Context,
-    consumed: Option<bool>,
-    repaint: Option<bool>,
-) {
-    let WindowEvent::Touch(touch) = event else {
-        return;
-    };
-
-    eprintln!(
-        "[poincare-mobile touch] {label}: phase={:?} id={} pos=({:.1},{:.1}) consumed={:?} repaint={:?} wants_pointer={} using_pointer={}",
-        touch.phase,
-        touch.id,
-        touch.location.x,
-        touch.location.y,
-        consumed,
-        repaint,
-        ctx.wants_pointer_input(),
-        ctx.is_using_pointer(),
-    );
-}
-
-#[cfg(not(debug_assertions))]
-fn log_touch_event(
-    _label: &str,
-    _event: &WindowEvent,
-    _ctx: &egui::Context,
-    _consumed: Option<bool>,
-    _repaint: Option<bool>,
-) {
-}
-
-#[cfg(debug_assertions)]
-fn log_touch_routing(phase: TouchPhase, id: u64, x: f32, y: f32, egui_has_touch: bool) {
-    if matches!(
-        phase,
-        TouchPhase::Started | TouchPhase::Ended | TouchPhase::Cancelled
-    ) {
-        eprintln!(
-            "[poincare-mobile touch] route: phase={phase:?} id={id} pos=({x:.1},{y:.1}) forwarded_to_viewport={}",
-            !egui_has_touch,
-        );
-    }
-}
-
-#[cfg(not(debug_assertions))]
-fn log_touch_routing(_phase: TouchPhase, _id: u64, _x: f32, _y: f32, _egui_has_touch: bool) {}
-
-#[cfg(debug_assertions)]
-fn log_ui_commands(commands: &[UiCommand]) {
-    if !commands.is_empty() {
-        eprintln!("[poincare-mobile ui] commands={commands:?}");
-    }
-}
-
-#[cfg(not(debug_assertions))]
-fn log_ui_commands(_commands: &[UiCommand]) {}
-
 fn handle_keyboard(state: &mut AppState, event: KeyEvent) {
     if event.state != ElementState::Pressed || event.repeat {
         return;
     }
     match event.logical_key {
-        Key::Named(NamedKey::Space) | Key::Named(NamedKey::ArrowRight) => {
-            state.apply_ui_commands([UiCommand::NextPreset]);
+        Key::Character(ref key) if key == "+" => {
+            state.apply_ui_commands([UiCommand::OpenEditor]);
         }
         _ => {}
     }
@@ -658,7 +573,7 @@ fn handle_touch(state: &mut AppState, phase: TouchPhase, id: u64, pos: glam::Vec
                 }
                 3 => {
                     release_touch_buttons(state);
-                    state.apply_ui_commands([UiCommand::NextPreset]);
+                    state.apply_ui_commands([UiCommand::OpenEditor]);
                 }
                 _ => {}
             }

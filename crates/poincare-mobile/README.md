@@ -2,16 +2,17 @@
 
 Experimental mobile shell for Poincare.
 
-M1 renders one active preset plot full-screen using `winit`, `wgpu`,
-`viewport-lib`, and `poincare-lib`.
+M1 renders a mobile document full-screen using `winit`, `wgpu`,
+`viewport-lib`, and `poincare-lib`. M2 starts with equation entry: the Add Plot
+sheet creates `poincare-lib::PlotSpec` values and rebuilds/uploads the scene.
 
 Controls:
 
 - 1-finger drag: orbit
 - 2-finger drag: pan
 - 2-finger pinch: zoom
-- 3-finger touch: cycle the active preset plot and rebuild/reupload the scene
-- Desktop helper: Space or ArrowRight cycles the active preset plot
+- 3-finger touch: open the Add Plot sheet
+- Desktop helper: `+` opens the Add Plot sheet
 
 ## UI frontend boundary
 
@@ -20,7 +21,7 @@ The mobile shell keeps viewport/rendering state separate from menu commands.
 that any UI layer should use:
 
 - `UiSnapshot`: read-only state needed by menus and sheets
-- `UiCommand`: actions such as opening the drawer, selecting a preset, or
+- `UiCommand`: actions such as opening the drawer, editing equation text, or
   submitting the equation editor
 - `MobileModel`: renderer-independent state transition layer
 
