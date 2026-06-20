@@ -329,12 +329,16 @@ fn render(state: &mut AppState) {
         .scene
         .build_frame_with_selection(&state.camera, Some(1), None);
     frame_data.camera = CameraFrame::from_camera(&state.camera, [w, h]);
-    frame_data.viewport.show_grid = true;
+    frame_data.viewport.show_grid = state.model.show_grid();
     frame_data.viewport.show_axes_indicator = true;
     frame_data.viewport.background_colour = Some([0.06, 0.06, 0.07, 1.0]);
     frame_data.effects.lighting = LightingSettings::default();
     frame_data.effects.ground_plane = GroundPlane {
-        mode: GroundPlaneMode::Tile,
+        mode: if state.model.show_ground() {
+            GroundPlaneMode::Tile
+        } else {
+            GroundPlaneMode::None
+        },
         height: 0.0,
         colour: [0.18, 0.18, 0.18, 1.0],
         tile_colour2: [0.12, 0.12, 0.12, 1.0],
