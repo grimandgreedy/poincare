@@ -12,9 +12,11 @@
 		2EB03026624268B545C7F16A /* libpoincare_mobile.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9674EF0DC434B9422D99D5C5 /* libpoincare_mobile.a */; };
 		51A2503388AC745BB3ECEDE5 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5C7F4F2CFBB30A93B7BDA9E6 /* QuartzCore.framework */; };
 		5BF6B1A5192340D6A002C068 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 45CF2F31B43D5392307AA200 /* MetalKit.framework */; };
+		835A33E3CD610794D7482E26 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = FADA21AF6EE2E6474A907061 /* LaunchScreen.storyboard */; };
 		93E3CEC5DC79D1E975948AA1 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = DD7C4934CFCC326BA2DD4CD4 /* main.mm */; };
 		BBC55B3D685F65CCE8A37ECC /* libpoincare_mobile.a in Resources */ = {isa = PBXBuildFile; fileRef = C86D81D97B8D724F27E2D377 /* libpoincare_mobile.a */; };
 		D97E7813DF2467F372AC2D1B /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 25F9E1ED0F42C419DB6C6C1E /* UIKit.framework */; };
+		E00F8774E9F6E9EE03BFD129 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 411043B400B3908243DA043E /* Assets.xcassets */; };
 		ECFB6C9A16E08498675BDEA4 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 263A5D99F4EC97960A3959BB /* Metal.framework */; };
 /* End PBXBuildFile section */
 
@@ -22,6 +24,7 @@
 		103CA483CC59E1392664F90C /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
 		25F9E1ED0F42C419DB6C6C1E /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		263A5D99F4EC97960A3959BB /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		411043B400B3908243DA043E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		45CF2F31B43D5392307AA200 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
 		4FA35CAB02052A831F9DD0D4 /* poincare-mobile_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "poincare-mobile_iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		5C7F4F2CFBB30A93B7BDA9E6 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
@@ -33,6 +36,7 @@
 		DD7C4934CFCC326BA2DD4CD4 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
 		DF341E81ED241A7D2F03E564 /* model.rs */ = {isa = PBXFileReference; path = model.rs; sourceTree = "<group>"; };
 		E04DF12B44C01207FC158543 /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
+		FADA21AF6EE2E6474A907061 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -107,6 +111,8 @@
 		9C75223FC5EF33C1CE5E1376 /* poincare-mobile */ = {
 			isa = PBXGroup;
 			children = (
+				411043B400B3908243DA043E /* Assets.xcassets */,
+				FADA21AF6EE2E6474A907061 /* LaunchScreen.storyboard */,
 				DD7C4934CFCC326BA2DD4CD4 /* main.mm */,
 				088EB84D5CCF16D55F3E9DE2 /* bindings */,
 			);
@@ -199,6 +205,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E00F8774E9F6E9EE03BFD129 /* Assets.xcassets in Resources */,
+				835A33E3CD610794D7482E26 /* LaunchScreen.storyboard in Resources */,
 				BBC55B3D685F65CCE8A37ECC /* libpoincare_mobile.a in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
