@@ -335,7 +335,7 @@
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(inherited) $(SRCROOT)/../../../../target/aarch64-apple-ios/$(CONFIGURATION)";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(inherited) $(SRCROOT)/../../../../target/aarch64-apple-ios-sim/$(CONFIGURATION)";
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.grimandgreedy.poincare.mobile;
-				PRODUCT_NAME = "Poincare Mobile";
+				PRODUCT_NAME = Poincare;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALID_ARCHS = arm64;
@@ -365,7 +365,7 @@
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(inherited) $(SRCROOT)/../../../../target/aarch64-apple-ios/$(CONFIGURATION)";
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(inherited) $(SRCROOT)/../../../../target/aarch64-apple-ios-sim/$(CONFIGURATION)";
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.grimandgreedy.poincare.mobile;
-				PRODUCT_NAME = "Poincare Mobile";
+				PRODUCT_NAME = Poincare;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALID_ARCHS = arm64;

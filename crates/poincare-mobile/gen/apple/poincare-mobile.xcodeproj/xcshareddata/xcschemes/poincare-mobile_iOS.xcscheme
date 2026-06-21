@@ -15,7 +15,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "E936C8FD8936BCC0C8D8A8FF"
-               BuildableName = "Poincare Mobile.app"
+               BuildableName = "Poincare.app"
                BlueprintName = "poincare-mobile_iOS"
                ReferencedContainer = "container:poincare-mobile.xcodeproj">
             </BuildableReference>
@@ -31,7 +31,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "E936C8FD8936BCC0C8D8A8FF"
-            BuildableName = "Poincare Mobile.app"
+            BuildableName = "Poincare.app"
             BlueprintName = "poincare-mobile_iOS"
             ReferencedContainer = "container:poincare-mobile.xcodeproj">
          </BuildableReference>
@@ -66,7 +66,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "E936C8FD8936BCC0C8D8A8FF"
-            BuildableName = "Poincare Mobile.app"
+            BuildableName = "Poincare.app"
             BlueprintName = "poincare-mobile_iOS"
             ReferencedContainer = "container:poincare-mobile.xcodeproj">
          </BuildableReference>
@@ -95,7 +95,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "E936C8FD8936BCC0C8D8A8FF"
-            BuildableName = "Poincare Mobile.app"
+            BuildableName = "Poincare.app"
             BlueprintName = "poincare-mobile_iOS"
             ReferencedContainer = "container:poincare-mobile.xcodeproj">
          </BuildableReference>

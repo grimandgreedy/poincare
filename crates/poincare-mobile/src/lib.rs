@@ -177,7 +177,7 @@ impl ApplicationHandler for App {
         let step_start = Instant::now();
         let window = Arc::new(
             event_loop
-                .create_window(WindowAttributes::default().with_title("Poincare Mobile"))
+                .create_window(WindowAttributes::default().with_title("Poincare"))
                 .expect("window"),
         );
         mobile_log(format_args!(

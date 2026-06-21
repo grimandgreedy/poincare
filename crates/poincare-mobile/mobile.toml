@@ -1,6 +1,6 @@
 [app]
 name = "poincare-mobile"
-stylized-name = "Poincare Mobile"
+stylized-name = "Poincare"
 identifier = "io.github.grimandgreedy.poincare.mobile"
 template-pack = "winit"
 

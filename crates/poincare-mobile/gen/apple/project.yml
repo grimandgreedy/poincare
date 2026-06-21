@@ -10,7 +10,7 @@ configs:
 settingGroups:
   app:
     base:
-      PRODUCT_NAME: Poincare Mobile
+      PRODUCT_NAME: Poincare
       PRODUCT_BUNDLE_IDENTIFIER: io.github.grimandgreedy.poincare.mobile
       DEVELOPMENT_TEAM: 0
 targets:
