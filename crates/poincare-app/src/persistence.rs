@@ -240,10 +240,10 @@ impl Default for PersistedAxisConfig {
 }
 
 // ---------------------------------------------------------------------------
-// Plot serialization types (unchanged from before)
+// Plot serialization types
 // ---------------------------------------------------------------------------
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 pub(crate) struct PersistedPlotEntry {
     #[serde(default)]
     plot_id: PlotId,
@@ -251,12 +251,88 @@ pub(crate) struct PersistedPlotEntry {
     parent_plot_id: Option<PlotId>,
     #[serde(default = "default_plot_relationship")]
     relationship: PersistedPlotRelationship,
-    name: String,
-    visible: bool,
-    domain: PersistedDomain,
-    resolution: PersistedResolution,
-    style: PersistedPlotStyle,
-    kind: PersistedPlotKind,
+    #[serde(flatten)]
+    spec: PlotSpec,
+}
+
+#[derive(Deserialize)]
+struct PersistedPlotEntryWire {
+    #[serde(default)]
+    plot_id: PlotId,
+    #[serde(default)]
+    parent_plot_id: Option<PlotId>,
+    #[serde(default = "default_plot_relationship")]
+    relationship: PersistedPlotRelationship,
+    #[serde(flatten)]
+    content: PersistedPlotEntryContent,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum PersistedPlotEntryContent {
+    Current {
+        name: String,
+        visible: bool,
+        domain: Domain,
+        resolution: Resolution,
+        style: PlotStyle,
+        definition: PlotKind,
+    },
+    Legacy {
+        name: String,
+        visible: bool,
+        domain: PersistedDomain,
+        resolution: PersistedResolution,
+        style: PersistedPlotStyle,
+        kind: PersistedPlotKind,
+    },
+}
+
+impl<'de> Deserialize<'de> for PersistedPlotEntry {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let wire = PersistedPlotEntryWire::deserialize(deserializer)?;
+        let spec = match wire.content {
+            PersistedPlotEntryContent::Current {
+                name,
+                visible,
+                domain,
+                resolution,
+                style,
+                definition,
+            } => PlotSpec {
+                name,
+                visible,
+                domain,
+                resolution,
+                style,
+                definition,
+            },
+            PersistedPlotEntryContent::Legacy {
+                name,
+                visible,
+                domain,
+                resolution,
+                style,
+                kind,
+            } => PlotSpec {
+                name,
+                visible,
+                domain: domain.to_domain(),
+                resolution: resolution.to_resolution(),
+                style: style.to_plot_style(),
+                definition: kind.to_plot_kind(),
+            },
+        };
+        Ok(Self {
+            plot_id: wire.plot_id,
+            parent_plot_id: wire.parent_plot_id,
+            relationship: wire.relationship,
+            spec,
+        })
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -265,20 +341,20 @@ enum PersistedPlotRelationship {
     DerivedAnalysis,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct PersistedDomain {
     x: [f64; 2],
     y: [f64; 2],
     z: [f64; 2],
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct PersistedResolution {
     u: u32,
     v: u32,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct PersistedPlotStyle {
     colour_mode: PersistedColourMode,
     opacity: f32,
@@ -297,7 +373,7 @@ struct PersistedPlotStyle {
     surface_lic: Option<PersistedSurfaceLic>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 enum PersistedColourMode {
     Solid([f32; 4]),
     Colormap {
@@ -310,19 +386,19 @@ enum PersistedColourMode {
     },
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct PersistedTransferFunction {
     opacity_scale: f32,
     threshold: Option<(f32, f32)>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct PersistedParamVis {
     mode: u8,
     scale: f32,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct PersistedSurfaceLic {
     vector_field: u8,
     steps: u32,
@@ -340,14 +416,14 @@ pub(crate) struct PersistedSavedCameraView {
     fov_y: f32,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 enum PersistedSeedMode {
     Grid { nx: u32, ny: u32, nz: u32 },
     Plane { axis: usize, offset: f32 },
     ManualCsv { csv_text: String },
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 enum PersistedPlotKind {
     ContouredSurface {
         contour_values: Vec<f32>,
@@ -521,7 +597,7 @@ pub(crate) struct PersistedFramePlaybackState {
     speed: f32,
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, Deserialize)]
 enum PersistedCurveInterpolationKind {
     Linear,
     CatmullRom,
@@ -530,7 +606,7 @@ enum PersistedCurveInterpolationKind {
     SavitzkyGolay,
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, Deserialize)]
 struct PersistedCurveInterpolation {
     kind: PersistedCurveInterpolationKind,
     samples_per_segment: u32,
@@ -540,27 +616,6 @@ struct PersistedCurveInterpolation {
 }
 
 impl PersistedCurveInterpolation {
-    fn from_curve_interpolation(value: CurveInterpolation) -> Self {
-        Self {
-            kind: match value.kind {
-                CurveInterpolationKind::Linear => PersistedCurveInterpolationKind::Linear,
-                CurveInterpolationKind::CatmullRom => PersistedCurveInterpolationKind::CatmullRom,
-                CurveInterpolationKind::CentripetalCatmullRom => {
-                    PersistedCurveInterpolationKind::CentripetalCatmullRom
-                }
-                CurveInterpolationKind::MovingAverage => {
-                    PersistedCurveInterpolationKind::MovingAverage
-                }
-                CurveInterpolationKind::SavitzkyGolay => {
-                    PersistedCurveInterpolationKind::SavitzkyGolay
-                }
-            },
-            samples_per_segment: value.samples_per_segment,
-            closed: value.closed,
-            smoothing_window: value.smoothing_window,
-        }
-    }
-
     fn to_curve_interpolation(self) -> CurveInterpolation {
         CurveInterpolation {
             kind: match self.kind {
@@ -668,7 +723,7 @@ impl DocumentSnapshot {
         Self {
             version: 2,
             title: doc.title.clone(),
-            graph: None,
+            graph: Some(doc.graph_spec()),
             plots: doc
                 .plots
                 .iter()
@@ -744,16 +799,10 @@ impl DocumentSnapshot {
             frame_attachments,
             frame_playback,
         } = self;
-        if let Some(graph) = graph {
-            doc.plots = graph.plots.iter().map(plot_spec_to_plot_entry).collect();
-            doc.axis_config = graph.axis_config;
-        } else {
-            doc.plots = plots
-                .iter()
-                .map(PersistedPlotEntry::to_plot_entry)
-                .collect();
-            doc.axis_config = axis_config.to_axis_config();
-        }
+        doc.plots = restore_plot_entries(graph.as_ref(), &plots);
+        doc.axis_config = graph
+            .map(|graph| graph.axis_config)
+            .unwrap_or_else(|| axis_config.to_axis_config());
         doc.normalize_plot_hierarchy();
         doc.selected_plot = selected_plot.filter(|&i| i < doc.plots.len());
         doc.ground_plane_mode = u8_to_ground_plane(ground_plane_mode);
@@ -806,17 +855,12 @@ impl DocumentSnapshot {
     /// Apply this snapshot to the active document in App (used for session restore).
     fn apply_to_app(&self, app: &mut App) {
         let doc = &mut app.documents[app.active_document_idx];
-        if let Some(graph) = &self.graph {
-            doc.plots = graph.plots.iter().map(plot_spec_to_plot_entry).collect();
-            doc.axis_config = graph.axis_config.clone();
-        } else {
-            doc.plots = self
-                .plots
-                .iter()
-                .map(PersistedPlotEntry::to_plot_entry)
-                .collect();
-            doc.axis_config = self.axis_config.to_axis_config();
-        }
+        doc.plots = restore_plot_entries(self.graph.as_ref(), &self.plots);
+        doc.axis_config = self
+            .graph
+            .as_ref()
+            .map(|graph| graph.axis_config.clone())
+            .unwrap_or_else(|| self.axis_config.to_axis_config());
         doc.normalize_plot_hierarchy();
         doc.selected_plot = self.selected_plot.filter(|&i| i < doc.plots.len());
         doc.ground_plane_mode = u8_to_ground_plane(self.ground_plane_mode);
@@ -865,6 +909,20 @@ impl DocumentSnapshot {
         doc.export_status.clear();
         doc.export_progress = None;
     }
+}
+
+fn restore_plot_entries(graph: Option<&GraphSpec>, plots: &[PersistedPlotEntry]) -> Vec<PlotEntry> {
+    if !plots.is_empty() {
+        return plots
+            .iter()
+            .map(PersistedPlotEntry::to_plot_entry)
+            .collect();
+    }
+    graph
+        .into_iter()
+        .flat_map(|graph| graph.plots.iter())
+        .map(plot_spec_to_plot_entry)
+        .collect()
 }
 
 fn plot_spec_to_plot_entry(spec: &PlotSpec) -> PlotEntry {
@@ -1040,17 +1098,11 @@ fn frame_attachment_kind_from_key(key: &str) -> FrameAttachmentKind {
 
 impl PersistedPlotEntry {
     fn to_plot_entry(&self) -> PlotEntry {
-        PlotEntry {
-            plot_id: self.plot_id,
-            parent_plot_id: self.parent_plot_id,
-            relationship: self.relationship.to_plot_relationship(),
-            name: self.name.clone(),
-            visible: self.visible,
-            domain: self.domain.to_domain(),
-            resolution: self.resolution.to_resolution(),
-            style: self.style.to_plot_style(),
-            kind: self.kind.to_plot_kind(),
-        }
+        let mut entry = PlotEntry::from_plot_spec(self.spec.clone());
+        entry.plot_id = self.plot_id;
+        entry.parent_plot_id = self.parent_plot_id;
+        entry.relationship = self.relationship.to_plot_relationship();
+        entry
     }
 
     fn from_plot_entry(entry: &PlotEntry) -> Self {
@@ -1058,25 +1110,12 @@ impl PersistedPlotEntry {
             plot_id: entry.plot_id,
             parent_plot_id: entry.parent_plot_id,
             relationship: PersistedPlotRelationship::from_plot_relationship(entry.relationship),
-            name: entry.name.clone(),
-            visible: entry.visible,
-            domain: PersistedDomain::from_domain(&entry.domain),
-            resolution: PersistedResolution::from_resolution(entry.resolution),
-            style: PersistedPlotStyle::from_plot_style(&entry.style),
-            kind: PersistedPlotKind::from_plot_kind(&entry.kind),
+            spec: entry.to_plot_spec(),
         }
     }
 }
 
 impl PersistedDomain {
-    fn from_domain(domain: &Domain) -> Self {
-        Self {
-            x: [*domain.x.start(), *domain.x.end()],
-            y: [*domain.y.start(), *domain.y.end()],
-            z: [*domain.z.start(), *domain.z.end()],
-        }
-    }
-
     fn to_domain(&self) -> Domain {
         Domain {
             x: self.x[0]..=self.x[1],
@@ -1087,13 +1126,6 @@ impl PersistedDomain {
 }
 
 impl PersistedResolution {
-    fn from_resolution(resolution: Resolution) -> Self {
-        Self {
-            u: resolution.u,
-            v: resolution.v,
-        }
-    }
-
     fn to_resolution(&self) -> Resolution {
         Resolution {
             u: self.u,
@@ -1103,34 +1135,6 @@ impl PersistedResolution {
 }
 
 impl PersistedPlotStyle {
-    fn from_plot_style(style: &PlotStyle) -> Self {
-        Self {
-            colour_mode: PersistedColourMode::from_colour_mode(&style.colour_mode),
-            opacity: style.opacity,
-            two_sided: style.two_sided,
-            line_width: style.line_width,
-            point_size: style.point_size,
-            glyph_scale: style.glyph_scale,
-            glyph_type: glyph_type_to_u8(style.glyph_type),
-            shading: shading_to_u8(style.shading),
-            tube_radius: style.tube_radius,
-            transfer_function: style
-                .transfer_function
-                .as_ref()
-                .map(PersistedTransferFunction::from_transfer_function),
-            matcap: style.matcap.map(matcap_source_to_u8),
-            param_vis: style
-                .param_vis
-                .as_ref()
-                .map(PersistedParamVis::from_param_vis),
-            face_quantity: style.face_quantity.map(surface_face_quantity_to_u8),
-            surface_lic: style
-                .surface_lic
-                .as_ref()
-                .map(PersistedSurfaceLic::from_surface_lic),
-        }
-    }
-
     fn to_plot_style(&self) -> PlotStyle {
         PlotStyle {
             colour_mode: self.colour_mode.to_colour_mode(),
@@ -1160,23 +1164,6 @@ impl PersistedPlotStyle {
 }
 
 impl PersistedColourMode {
-    fn from_colour_mode(mode: &ColourMode) -> Self {
-        match mode {
-            ColourMode::Solid(rgba) => Self::Solid(*rgba),
-            ColourMode::Colormap {
-                colormap,
-                scalar_range,
-            } => Self::Colormap {
-                colormap: colormap_source_to_u8(colormap),
-                scalar_range: *scalar_range,
-            },
-            ColourMode::ByAttribute { name, kind } => Self::ByAttribute {
-                name: name.clone(),
-                kind: attribute_kind_to_u8(*kind),
-            },
-        }
-    }
-
     fn to_colour_mode(&self) -> ColourMode {
         match self {
             Self::Solid(rgba) => ColourMode::Solid(*rgba),
@@ -1196,13 +1183,6 @@ impl PersistedColourMode {
 }
 
 impl PersistedTransferFunction {
-    fn from_transfer_function(transfer: &TransferFunction) -> Self {
-        Self {
-            opacity_scale: transfer.opacity_scale,
-            threshold: transfer.threshold,
-        }
-    }
-
     fn to_transfer_function(&self) -> TransferFunction {
         TransferFunction {
             opacity_scale: self.opacity_scale,
@@ -1238,13 +1218,6 @@ impl PersistedSavedCameraView {
 }
 
 impl PersistedParamVis {
-    fn from_param_vis(param_vis: &ParamVisSettings) -> Self {
-        Self {
-            mode: param_vis_mode_to_u8(param_vis.mode),
-            scale: param_vis.scale,
-        }
-    }
-
     fn to_param_vis(&self) -> ParamVisSettings {
         ParamVisSettings {
             mode: u8_to_param_vis_mode(self.mode),
@@ -1254,15 +1227,6 @@ impl PersistedParamVis {
 }
 
 impl PersistedSurfaceLic {
-    fn from_surface_lic(surface_lic: &SurfaceLicSettings) -> Self {
-        Self {
-            vector_field: surface_lic_vector_field_to_u8(surface_lic.vector_field),
-            steps: surface_lic.steps,
-            step_size: surface_lic.step_size,
-            strength: surface_lic.strength,
-        }
-    }
-
     fn to_surface_lic(&self) -> SurfaceLicSettings {
         SurfaceLicSettings {
             vector_field: u8_to_surface_lic_vector_field(self.vector_field),
@@ -1274,23 +1238,6 @@ impl PersistedSurfaceLic {
 }
 
 impl PersistedSeedMode {
-    fn from_seed_mode(mode: &SeedMode) -> Self {
-        match mode {
-            SeedMode::Grid { nx, ny, nz } => Self::Grid {
-                nx: *nx,
-                ny: *ny,
-                nz: *nz,
-            },
-            SeedMode::Plane { axis, offset } => Self::Plane {
-                axis: *axis,
-                offset: *offset,
-            },
-            SeedMode::ManualCsv { csv_text } => Self::ManualCsv {
-                csv_text: csv_text.clone(),
-            },
-        }
-    }
-
     fn to_seed_mode(&self) -> SeedMode {
         match self {
             Self::Grid { nx, ny, nz } => SeedMode::Grid {
@@ -1310,222 +1257,6 @@ impl PersistedSeedMode {
 }
 
 impl PersistedPlotKind {
-    fn from_plot_kind(kind: &PlotKind) -> Self {
-        match kind {
-            PlotKind::ContouredSurface {
-                contour_values,
-                contour_style,
-            } => Self::ContouredSurface {
-                contour_values: contour_values.clone(),
-                contour_style: PersistedPlotStyle::from_plot_style(contour_style),
-            },
-            PlotKind::SphericalHarmonic => Self::SphericalHarmonic,
-            PlotKind::HelixCurve => Self::HelixCurve,
-            PlotKind::ScatterCloud => Self::ScatterCloud,
-            PlotKind::VectorField => Self::VectorField,
-            PlotKind::GridSurface => Self::GridSurface,
-            PlotKind::Streamlines { seeds } => Self::Streamlines {
-                seeds: seeds.clone(),
-            },
-            PlotKind::VolumeRender { resolution } => Self::VolumeRender {
-                resolution: *resolution,
-            },
-            PlotKind::Isosurface {
-                isovalues,
-                resolution,
-            } => Self::Isosurface {
-                isovalues: isovalues.clone(),
-                resolution: *resolution,
-            },
-            PlotKind::ExprCartesian {
-                expression,
-                parameters,
-            } => Self::ExprCartesian {
-                expression: expression.clone(),
-                parameters: parameters.clone(),
-            },
-            PlotKind::ExprCurve {
-                expression,
-                parameters,
-                t_range,
-            } => Self::ExprCurve {
-                expression: expression.clone(),
-                parameters: parameters.clone(),
-                t_range: *t_range,
-            },
-            PlotKind::ExprCartesianLine {
-                dep_var,
-                ind_var,
-                expression,
-                parameters,
-            } => Self::ExprCartesianLine {
-                dep_var: dep_var.clone(),
-                ind_var: ind_var.clone(),
-                expression: expression.clone(),
-                parameters: parameters.clone(),
-            },
-            PlotKind::ExprSpherical {
-                expression,
-                parameters,
-            } => Self::ExprSpherical {
-                expression: expression.clone(),
-                parameters: parameters.clone(),
-            },
-            PlotKind::ExprCylindrical {
-                expression,
-                parameters,
-            } => Self::ExprCylindrical {
-                expression: expression.clone(),
-                parameters: parameters.clone(),
-            },
-            PlotKind::ExprPolar {
-                expression,
-                parameters,
-            } => Self::ExprPolar {
-                expression: expression.clone(),
-                parameters: parameters.clone(),
-            },
-            PlotKind::ExprParametricSurface {
-                expression,
-                parameters,
-            } => Self::ExprParametricSurface {
-                expression: expression.clone(),
-                parameters: parameters.clone(),
-            },
-            PlotKind::ImportedTable { definition } => Self::ImportedTable {
-                definition: definition.clone(),
-            },
-            PlotKind::ScalarSlice {
-                expression,
-                parameters,
-                axis,
-                position,
-                contour_values,
-                contour_style,
-            } => Self::ScalarSlice {
-                expression: expression.clone(),
-                parameters: parameters.clone(),
-                axis: slice_axis_to_u8(*axis),
-                position: *position,
-                contour_values: contour_values.clone(),
-                contour_style: PersistedPlotStyle::from_plot_style(contour_style),
-            },
-            PlotKind::VectorSlice {
-                expression,
-                parameters,
-                axis,
-                position,
-            } => Self::VectorSlice {
-                expression: expression.clone(),
-                parameters: parameters.clone(),
-                axis: slice_axis_to_u8(*axis),
-                position: *position,
-            },
-            PlotKind::GradientField {
-                expression,
-                parameters,
-            } => Self::GradientField {
-                expression: expression.clone(),
-                parameters: parameters.clone(),
-            },
-            PlotKind::DivergenceField {
-                expression,
-                parameters,
-                vol_resolution,
-            } => Self::DivergenceField {
-                expression: expression.clone(),
-                parameters: parameters.clone(),
-                vol_resolution: *vol_resolution,
-            },
-            PlotKind::CurlField {
-                expression,
-                parameters,
-            } => Self::CurlField {
-                expression: expression.clone(),
-                parameters: parameters.clone(),
-            },
-            PlotKind::PointAnnotations {
-                points,
-                show_labels,
-            } => Self::PointAnnotations {
-                points: points.clone(),
-                show_labels: *show_labels,
-            },
-            PlotKind::ArrowAnnotations {
-                arrows,
-                show_labels,
-            } => Self::ArrowAnnotations {
-                arrows: arrows.clone(),
-                show_labels: *show_labels,
-            },
-            PlotKind::DerivedSurfaceMesh {
-                positions,
-                indices,
-                values,
-                value_name,
-            } => Self::DerivedSurfaceMesh {
-                positions: positions.clone(),
-                indices: indices.clone(),
-                values: values.clone(),
-                value_name: value_name.clone(),
-            },
-            PlotKind::DerivedPolylineGroups { groups } => Self::DerivedPolylineGroups {
-                groups: groups.clone(),
-            },
-            PlotKind::InterpolatedCurve {
-                points,
-                interpolation,
-            } => Self::InterpolatedCurve {
-                points: points.clone(),
-                interpolation: PersistedCurveInterpolation::from_curve_interpolation(
-                    *interpolation,
-                ),
-            },
-            PlotKind::ExprVectorField {
-                expression,
-                parameters,
-            } => Self::ExprVectorField {
-                expression: expression.clone(),
-                parameters: parameters.clone(),
-            },
-            PlotKind::ExprVolume {
-                expression,
-                parameters,
-                vol_resolution,
-            } => Self::ExprVolume {
-                expression: expression.clone(),
-                parameters: parameters.clone(),
-                vol_resolution: *vol_resolution,
-            },
-            PlotKind::ExprIsosurface {
-                expression,
-                parameters,
-                isovalues,
-                iso_colours,
-                vol_resolution,
-            } => Self::ExprIsosurface {
-                expression: expression.clone(),
-                parameters: parameters.clone(),
-                isovalues: isovalues.clone(),
-                iso_colours: iso_colours.clone(),
-                vol_resolution: *vol_resolution,
-            },
-            PlotKind::ExprStreamlines {
-                expression,
-                parameters,
-                seed_mode,
-                step_size,
-                max_steps,
-            } => Self::ExprStreamlines {
-                expression: expression.clone(),
-                parameters: parameters.clone(),
-                seed_mode: PersistedSeedMode::from_seed_mode(seed_mode),
-                step_size: *step_size,
-                max_steps: *max_steps,
-            },
-        }
-    }
-
     fn to_plot_kind(&self) -> PlotKind {
         match self {
             Self::ContouredSurface {
@@ -1895,33 +1626,6 @@ fn u8_to_export_format(value: u8) -> ExportFormat {
     }
 }
 
-fn slice_axis_to_u8(axis: SliceAxis) -> u8 {
-    match axis {
-        SliceAxis::X => 0,
-        SliceAxis::Y => 1,
-        SliceAxis::Z => 2,
-    }
-}
-
-fn colormap_source_to_u8(value: &ColormapSource) -> u8 {
-    match value {
-        ColormapSource::Builtin(value) => builtin_colormap_to_u8(*value),
-        ColormapSource::Uploaded(_) => builtin_colormap_to_u8(BuiltinColourmap::Viridis),
-    }
-}
-
-fn attribute_kind_to_u8(value: AttributeKind) -> u8 {
-    match value {
-        AttributeKind::Vertex => 0,
-        AttributeKind::Cell => 1,
-        AttributeKind::Face => 2,
-        AttributeKind::FaceColour => 3,
-        AttributeKind::Edge => 4,
-        AttributeKind::Halfedge => 5,
-        AttributeKind::Corner => 6,
-    }
-}
-
 fn u8_to_attribute_kind(value: u8) -> AttributeKind {
     match value {
         1 => AttributeKind::Cell,
@@ -1934,14 +1638,6 @@ fn u8_to_attribute_kind(value: u8) -> AttributeKind {
     }
 }
 
-fn shading_to_u8(value: ShadingMode) -> u8 {
-    match value {
-        ShadingMode::Flat => 0,
-        ShadingMode::Smooth => 1,
-        ShadingMode::Unlit => 2,
-    }
-}
-
 fn u8_to_shading(value: u8) -> ShadingMode {
     match value {
         0 => ShadingMode::Flat,
@@ -1950,38 +1646,11 @@ fn u8_to_shading(value: u8) -> ShadingMode {
     }
 }
 
-fn glyph_type_to_u8(value: GlyphType) -> u8 {
-    match value {
-        GlyphType::Arrow => 0,
-        GlyphType::Sphere => 1,
-        GlyphType::Cube => 2,
-    }
-}
-
 fn u8_to_glyph_type(value: u8) -> GlyphType {
     match value {
         1 => GlyphType::Sphere,
         2 => GlyphType::Cube,
         _ => GlyphType::Arrow,
-    }
-}
-
-fn matcap_source_to_u8(value: MatcapSource) -> u8 {
-    match value {
-        MatcapSource::Builtin(value) => builtin_matcap_to_u8(value),
-    }
-}
-
-fn builtin_matcap_to_u8(value: BuiltinMatcap) -> u8 {
-    match value {
-        BuiltinMatcap::Clay => 0,
-        BuiltinMatcap::Wax => 1,
-        BuiltinMatcap::Candy => 2,
-        BuiltinMatcap::Flat => 3,
-        BuiltinMatcap::Ceramic => 4,
-        BuiltinMatcap::Jade => 5,
-        BuiltinMatcap::Mud => 6,
-        BuiltinMatcap::Normal => 7,
     }
 }
 
@@ -1999,15 +1668,6 @@ fn u8_to_builtin_matcap(value: u8) -> BuiltinMatcap {
     }
 }
 
-fn param_vis_mode_to_u8(value: ParamVisMode) -> u8 {
-    match value {
-        ParamVisMode::Checker => 0,
-        ParamVisMode::Grid => 1,
-        ParamVisMode::LocalChecker => 2,
-        ParamVisMode::LocalRadial => 3,
-    }
-}
-
 fn u8_to_param_vis_mode(value: u8) -> ParamVisMode {
     match value {
         1 => ParamVisMode::Grid,
@@ -2017,26 +1677,10 @@ fn u8_to_param_vis_mode(value: u8) -> ParamVisMode {
     }
 }
 
-fn surface_face_quantity_to_u8(value: SurfaceFaceQuantity) -> u8 {
-    match value {
-        SurfaceFaceQuantity::AngleDistortion => 0,
-        SurfaceFaceQuantity::AreaDistortion => 1,
-    }
-}
-
 fn u8_to_surface_face_quantity(value: u8) -> SurfaceFaceQuantity {
     match value {
         1 => SurfaceFaceQuantity::AreaDistortion,
         _ => SurfaceFaceQuantity::AngleDistortion,
-    }
-}
-
-fn surface_lic_vector_field_to_u8(value: SurfaceLicVectorField) -> u8 {
-    match value {
-        SurfaceLicVectorField::TangentU => 0,
-        SurfaceLicVectorField::TangentV => 1,
-        SurfaceLicVectorField::Diagonal => 2,
-        SurfaceLicVectorField::Saddle => 3,
     }
 }
 
@@ -2139,6 +1783,62 @@ mod tests {
         assert_eq!(loaded.selected_plot, doc.selected_plot);
         assert_eq!(loaded.plots.len(), doc.plots.len());
         assert_eq!(loaded.plots[0].name, doc.plots[0].name);
+    }
+
+    #[test]
+    fn document_snapshot_writes_lib_plot_definition() {
+        let snapshot = DocumentSnapshot::from_document(&sample_document());
+        let json = serde_json::to_value(&snapshot).expect("serialize snapshot");
+        let plot = &json["plots"][0];
+
+        assert!(plot.get("definition").is_some());
+        assert!(plot.get("kind").is_none());
+        assert!(json["graph"].get("plots").is_some());
+    }
+
+    #[test]
+    fn legacy_plot_kind_entries_still_load() {
+        let json = r#"
+        {
+          "plots": [
+            {
+              "plot_id": 7,
+              "relationship": "Primary",
+              "name": "legacy wave",
+              "visible": true,
+              "domain": {"x": [-5.0, 5.0], "y": [-5.0, 5.0], "z": [-5.0, 5.0]},
+              "resolution": {"u": 64, "v": 48},
+              "style": {
+                "colour_mode": {"Solid": [1.0, 0.0, 0.0, 1.0]},
+                "opacity": 1.0,
+                "two_sided": true,
+                "line_width": 2.0,
+                "point_size": 6.0,
+                "glyph_scale": 0.2,
+                "glyph_type": 0,
+                "shading": 1,
+                "tube_radius": null,
+                "transfer_function": null,
+                "matcap": null,
+                "param_vis": null,
+                "face_quantity": null,
+                "surface_lic": null
+              },
+              "kind": {"ExprCartesian": {"expression": "sin(x)", "parameters": []}}
+            }
+          ]
+        }
+        "#;
+
+        let snapshot: DocumentSnapshot = serde_json::from_str(json).expect("legacy snapshot");
+        let doc = snapshot.into_document();
+
+        assert_eq!(doc.plots[0].plot_id, 7);
+        assert_eq!(doc.plots[0].name, "legacy wave");
+        match &doc.plots[0].kind {
+            PlotKind::ExprCartesian { expression, .. } => assert_eq!(expression, "sin(x)"),
+            _ => panic!("expected legacy Cartesian expression plot"),
+        }
     }
 
     #[test]
