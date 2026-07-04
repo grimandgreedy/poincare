@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use poincare_lib::{AnalysisKind, AxisConfig, FrameSample, GraphScene};
+use poincare_lib::{AnalysisKind, AxisConfig, DomainEditorMetadata, FrameSample, GraphScene};
 use viewport_lib::{Aabb, Camera, GroundPlaneMode};
 
 use crate::picking::ProbeHit;
 use crate::picking::segment_segment_closest;
 use crate::plot::analysis::SliceAxis;
-use crate::plot::entry::{PlotEntry, PlotId, PlotRelationship, build_graph_spec};
-use crate::plot::kind::{DomainLabels, PlotKind, PlotKindExt};
+use crate::plot::entry::{PlotEntry, PlotId, PlotRelationship};
+use crate::plot::kind::{PlotKind, PlotKindExt};
 use crate::plot::sweep::ParameterSweep;
 use crate::plot::table::TableDataSet;
 
@@ -313,7 +313,10 @@ impl Document {
 
     #[allow(dead_code)]
     pub(crate) fn graph_spec(&self) -> poincare_lib::GraphSpec {
-        build_graph_spec(&self.plots, self.axis_config.clone())
+        poincare_lib::GraphSpec {
+            axis_config: self.axis_config.clone(),
+            plots: self.plots.iter().map(PlotEntry::to_plot_spec).collect(),
+        }
     }
 
     /// Approximate scene extent (half-diagonal) for adaptive snap radii.
@@ -842,31 +845,43 @@ pub(crate) fn plot_bounds(plot: &PlotEntry) -> Option<Aabb> {
         _ => {}
     }
 
-    let x0 = *plot.domain.x.start() as f32;
-    let x1 = *plot.domain.x.end() as f32;
-    let y0 = *plot.domain.y.start() as f32;
-    let y1 = *plot.domain.y.end() as f32;
-    let z0 = *plot.domain.z.start() as f32;
-    let z1 = *plot.domain.z.end() as f32;
-
-    let (mut min, mut max) = match plot.kind.domain_labels() {
-        DomainLabels::None => return None,
-        DomainLabels::Xy | DomainLabels::Xyz | DomainLabels::Uv => {
-            (glam::vec3(x0, y0, z0), glam::vec3(x1, y1, z1))
-        }
-        DomainLabels::ThetaPhi => (glam::vec3(-6.0, -6.0, -6.0), glam::vec3(6.0, 6.0, 6.0)),
-        DomainLabels::ThetaZ => (glam::vec3(-6.0, -6.0, z0), glam::vec3(6.0, 6.0, z1)),
-        DomainLabels::Theta => (glam::vec3(-6.0, -6.0, -1.0), glam::vec3(6.0, 6.0, 1.0)),
-        DomainLabels::T | DomainLabels::SingleVar(_) => {
-            (glam::vec3(x0, x0, x0), glam::vec3(x1, x1, x1))
-        }
+    let Some(mut bounds) = bounds_from_domain_metadata(&plot.domain, plot.kind.domain_editor())
+    else {
+        return None;
     };
 
-    if (max - min).length_squared() < 1.0e-8 {
+    if (bounds.max - bounds.min).length_squared() < 1.0e-8 {
         let pad = glam::Vec3::splat(0.5);
-        min -= pad;
-        max += pad;
+        bounds.min -= pad;
+        bounds.max += pad;
     }
+
+    Some(bounds)
+}
+
+fn bounds_from_domain_metadata(
+    domain: &poincare_lib::Domain,
+    metadata: DomainEditorMetadata,
+) -> Option<Aabb> {
+    let x0 = *domain.x.start() as f32;
+    let x1 = *domain.x.end() as f32;
+    let y0 = *domain.y.start() as f32;
+    let y1 = *domain.y.end() as f32;
+    let z0 = *domain.z.start() as f32;
+    let z1 = *domain.z.end() as f32;
+
+    let (min, max) = match metadata {
+        DomainEditorMetadata::Fixed => return None,
+        DomainEditorMetadata::One { .. } => (glam::vec3(x0, x0, x0), glam::vec3(x1, x1, x1)),
+        DomainEditorMetadata::Two { primary, secondary } => {
+            match (primary.as_str(), secondary.as_str()) {
+                ("theta", "phi") => (glam::vec3(-6.0, -6.0, -6.0), glam::vec3(6.0, 6.0, 6.0)),
+                ("theta", "z") => (glam::vec3(-6.0, -6.0, z0), glam::vec3(6.0, 6.0, z1)),
+                _ => (glam::vec3(x0, y0, z0), glam::vec3(x1, y1, z1)),
+            }
+        }
+        DomainEditorMetadata::Three { .. } => (glam::vec3(x0, y0, z0), glam::vec3(x1, y1, z1)),
+    };
 
     Some(Aabb { min, max })
 }

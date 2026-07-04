@@ -40,6 +40,19 @@ use crate::plot::kind::{DEFAULT_ISO_PALETTE, PlotKind, SeedMode};
 use crate::plot::selected_type::SelectedPlotType;
 use crate::plot::table::TableImportDefinition;
 
+fn plot_entry(
+    name: impl Into<String>,
+    domain: Domain,
+    resolution: Resolution,
+    style: PlotStyle,
+    kind: PlotKind,
+) -> PlotEntry {
+    PlotEntry::new(name, kind)
+        .with_domain(domain)
+        .with_resolution(resolution)
+        .with_style(style)
+}
+
 /// Build a PlotEntry from the current "Add Plot" input state.
 pub(crate) fn build_plot_entry_from_inputs(
     plot_type: SelectedPlotType,
@@ -66,15 +79,11 @@ pub(crate) fn build_plot_entry_from_inputs(
                 DetectedPlotType::CartesianSurface => {
                     let parsed = parse_expr_with_vars(rhs, &["x", "y"])
                         .map_err(|e| format!("Parse error: {e}"))?;
-                    PlotEntry {
-                        plot_id: 0,
-                        parent_plot_id: None,
-                        relationship: crate::plot::entry::PlotRelationship::Primary,
-                        name: full.clone(),
-                        visible: true,
-                        domain: default_domain,
-                        resolution: default_res,
-                        style: PlotStyle {
+                    plot_entry(
+                        full.clone(),
+                        default_domain,
+                        default_res,
+                        PlotStyle {
                             colour_mode: ColourMode::Colormap {
                                 colormap: ColormapSource::Builtin(
                                     viewport_lib::BuiltinColourmap::Viridis,
@@ -84,24 +93,20 @@ pub(crate) fn build_plot_entry_from_inputs(
                             two_sided: true,
                             ..PlotStyle::default()
                         },
-                        kind: PlotKind::ExprCartesian {
+                        PlotKind::ExprCartesian {
                             expression: rhs.clone(),
                             parameters: parsed.parameters,
                         },
-                    }
+                    )
                 }
                 DetectedPlotType::SphericalSurface => {
                     let parsed = parse_expr_with_vars(rhs, &["theta", "phi"])
                         .map_err(|e| format!("Parse error: {e}"))?;
-                    PlotEntry {
-                        plot_id: 0,
-                        parent_plot_id: None,
-                        relationship: crate::plot::entry::PlotRelationship::Primary,
-                        name: full.clone(),
-                        visible: true,
-                        domain: Domain::default(),
-                        resolution: default_res,
-                        style: PlotStyle {
+                    plot_entry(
+                        full.clone(),
+                        Domain::default(),
+                        default_res,
+                        PlotStyle {
                             colour_mode: ColourMode::Colormap {
                                 colormap: ColormapSource::Builtin(
                                     viewport_lib::BuiltinColourmap::Viridis,
@@ -111,24 +116,20 @@ pub(crate) fn build_plot_entry_from_inputs(
                             two_sided: true,
                             ..PlotStyle::default()
                         },
-                        kind: PlotKind::ExprSpherical {
+                        PlotKind::ExprSpherical {
                             expression: rhs.clone(),
                             parameters: parsed.parameters,
                         },
-                    }
+                    )
                 }
                 DetectedPlotType::CylindricalSurface => {
                     let parsed = parse_expr_with_vars(rhs, &["theta", "z"])
                         .map_err(|e| format!("Parse error: {e}"))?;
-                    PlotEntry {
-                        plot_id: 0,
-                        parent_plot_id: None,
-                        relationship: crate::plot::entry::PlotRelationship::Primary,
-                        name: full.clone(),
-                        visible: true,
-                        domain: default_domain,
-                        resolution: default_res,
-                        style: PlotStyle {
+                    plot_entry(
+                        full.clone(),
+                        default_domain,
+                        default_res,
+                        PlotStyle {
                             colour_mode: ColourMode::Colormap {
                                 colormap: ColormapSource::Builtin(
                                     viewport_lib::BuiltinColourmap::Viridis,
@@ -138,24 +139,20 @@ pub(crate) fn build_plot_entry_from_inputs(
                             two_sided: true,
                             ..PlotStyle::default()
                         },
-                        kind: PlotKind::ExprCylindrical {
+                        PlotKind::ExprCylindrical {
                             expression: rhs.clone(),
                             parameters: parsed.parameters,
                         },
-                    }
+                    )
                 }
                 DetectedPlotType::PolarSurface => {
                     let parsed = parse_expr_with_vars(rhs, &["theta"])
                         .map_err(|e| format!("Parse error: {e}"))?;
-                    PlotEntry {
-                        plot_id: 0,
-                        parent_plot_id: None,
-                        relationship: crate::plot::entry::PlotRelationship::Primary,
-                        name: full.clone(),
-                        visible: true,
-                        domain: Domain::default(),
-                        resolution: default_res,
-                        style: PlotStyle {
+                    plot_entry(
+                        full.clone(),
+                        Domain::default(),
+                        default_res,
+                        PlotStyle {
                             colour_mode: ColourMode::Colormap {
                                 colormap: ColormapSource::Builtin(
                                     viewport_lib::BuiltinColourmap::Viridis,
@@ -165,35 +162,31 @@ pub(crate) fn build_plot_entry_from_inputs(
                             two_sided: true,
                             ..PlotStyle::default()
                         },
-                        kind: PlotKind::ExprPolar {
+                        PlotKind::ExprPolar {
                             expression: rhs.clone(),
                             parameters: parsed.parameters,
                         },
-                    }
+                    )
                 }
                 DetectedPlotType::CartesianLine { dep, ind } => {
                     let parsed = parse_expr_with_vars(rhs, &[ind.as_str()])
                         .map_err(|e| format!("Parse error: {e}"))?;
-                    PlotEntry {
-                        plot_id: 0,
-                        parent_plot_id: None,
-                        relationship: crate::plot::entry::PlotRelationship::Primary,
-                        name: full.clone(),
-                        visible: true,
-                        domain: default_domain,
-                        resolution: Resolution { u: 200, v: 2 },
-                        style: PlotStyle {
+                    plot_entry(
+                        full.clone(),
+                        default_domain,
+                        Resolution { u: 200, v: 2 },
+                        PlotStyle {
                             colour_mode: ColourMode::Solid([1.0, 0.85, 0.2, 1.0]),
                             line_width: 2.0,
                             ..PlotStyle::default()
                         },
-                        kind: PlotKind::ExprCartesianLine {
+                        PlotKind::ExprCartesianLine {
                             dep_var: dep,
                             ind_var: ind,
                             expression: rhs.clone(),
                             parameters: parsed.parameters,
                         },
-                    }
+                    )
                 }
                 DetectedPlotType::PermutedCartesian {
                     dep,
@@ -229,15 +222,11 @@ pub(crate) fn build_plot_entry_from_inputs(
                         }
                     }
                     let expression = format!("{}|{}|{}", ex, ey, ez);
-                    PlotEntry {
-                        plot_id: 0,
-                        parent_plot_id: None,
-                        relationship: crate::plot::entry::PlotRelationship::Primary,
-                        name: full.clone(),
-                        visible: true,
-                        domain: Domain::default(),
-                        resolution: default_res,
-                        style: PlotStyle {
+                    plot_entry(
+                        full.clone(),
+                        Domain::default(),
+                        default_res,
+                        PlotStyle {
                             colour_mode: ColourMode::Colormap {
                                 colormap: ColormapSource::Builtin(
                                     viewport_lib::BuiltinColourmap::Viridis,
@@ -247,11 +236,11 @@ pub(crate) fn build_plot_entry_from_inputs(
                             two_sided: true,
                             ..PlotStyle::default()
                         },
-                        kind: PlotKind::ExprParametricSurface {
+                        PlotKind::ExprParametricSurface {
                             expression,
                             parameters: params,
                         },
-                    }
+                    )
                 }
                 DetectedPlotType::Unknown => {
                     return Err(
@@ -264,15 +253,11 @@ pub(crate) fn build_plot_entry_from_inputs(
             let expr = expr_fields[0].trim().to_string();
             let parsed = parse_expr_with_vars(&expr, &["x", "y"])
                 .map_err(|e| format!("Parse error: {e}"))?;
-            PlotEntry {
-                plot_id: 0,
-                parent_plot_id: None,
-                relationship: crate::plot::entry::PlotRelationship::Primary,
-                name: format!("f(x,y) = {expr}"),
-                visible: true,
-                domain: default_domain,
-                resolution: default_res,
-                style: PlotStyle {
+            plot_entry(
+                format!("f(x,y) = {expr}"),
+                default_domain,
+                default_res,
+                PlotStyle {
                     colour_mode: ColourMode::Colormap {
                         colormap: ColormapSource::Builtin(BuiltinColourmap::Viridis),
                         scalar_range: None,
@@ -280,25 +265,21 @@ pub(crate) fn build_plot_entry_from_inputs(
                     two_sided: true,
                     ..PlotStyle::default()
                 },
-                kind: PlotKind::ExprCartesian {
+                PlotKind::ExprCartesian {
                     expression: expr,
                     parameters: parsed.parameters,
                 },
-            }
+            )
         }
         SelectedPlotType::SphericalSurface => {
             let expr = expr_fields[0].trim().to_string();
             let parsed = parse_expr_with_vars(&expr, &["theta", "phi"])
                 .map_err(|e| format!("Parse error: {e}"))?;
-            PlotEntry {
-                plot_id: 0,
-                parent_plot_id: None,
-                relationship: crate::plot::entry::PlotRelationship::Primary,
-                name: format!("r(theta,phi) = {expr}"),
-                visible: true,
-                domain: Domain::default(),
-                resolution: default_res,
-                style: PlotStyle {
+            plot_entry(
+                format!("r(theta,phi) = {expr}"),
+                Domain::default(),
+                default_res,
+                PlotStyle {
                     colour_mode: ColourMode::Colormap {
                         colormap: ColormapSource::Builtin(BuiltinColourmap::Viridis),
                         scalar_range: None,
@@ -306,25 +287,21 @@ pub(crate) fn build_plot_entry_from_inputs(
                     two_sided: true,
                     ..PlotStyle::default()
                 },
-                kind: PlotKind::ExprSpherical {
+                PlotKind::ExprSpherical {
                     expression: expr,
                     parameters: parsed.parameters,
                 },
-            }
+            )
         }
         SelectedPlotType::CylindricalSurface => {
             let expr = expr_fields[0].trim().to_string();
             let parsed = parse_expr_with_vars(&expr, &["theta", "z"])
                 .map_err(|e| format!("Parse error: {e}"))?;
-            PlotEntry {
-                plot_id: 0,
-                parent_plot_id: None,
-                relationship: crate::plot::entry::PlotRelationship::Primary,
-                name: format!("r(theta,z) = {expr}"),
-                visible: true,
-                domain: default_domain,
-                resolution: default_res,
-                style: PlotStyle {
+            plot_entry(
+                format!("r(theta,z) = {expr}"),
+                default_domain,
+                default_res,
+                PlotStyle {
                     colour_mode: ColourMode::Colormap {
                         colormap: ColormapSource::Builtin(BuiltinColourmap::Viridis),
                         scalar_range: None,
@@ -332,25 +309,21 @@ pub(crate) fn build_plot_entry_from_inputs(
                     two_sided: true,
                     ..PlotStyle::default()
                 },
-                kind: PlotKind::ExprCylindrical {
+                PlotKind::ExprCylindrical {
                     expression: expr,
                     parameters: parsed.parameters,
                 },
-            }
+            )
         }
         SelectedPlotType::PolarSurface => {
             let expr = expr_fields[0].trim().to_string();
             let parsed =
                 parse_expr_with_vars(&expr, &["theta"]).map_err(|e| format!("Parse error: {e}"))?;
-            PlotEntry {
-                plot_id: 0,
-                parent_plot_id: None,
-                relationship: crate::plot::entry::PlotRelationship::Primary,
-                name: format!("r(theta) = {expr}"),
-                visible: true,
-                domain: Domain::default(),
-                resolution: default_res,
-                style: PlotStyle {
+            plot_entry(
+                format!("r(theta) = {expr}"),
+                Domain::default(),
+                default_res,
+                PlotStyle {
                     colour_mode: ColourMode::Colormap {
                         colormap: ColormapSource::Builtin(BuiltinColourmap::Viridis),
                         scalar_range: None,
@@ -358,11 +331,11 @@ pub(crate) fn build_plot_entry_from_inputs(
                     two_sided: true,
                     ..PlotStyle::default()
                 },
-                kind: PlotKind::ExprPolar {
+                PlotKind::ExprPolar {
                     expression: expr,
                     parameters: parsed.parameters,
                 },
-            }
+            )
         }
         SelectedPlotType::ParametricSurface => {
             let ex = expr_fields[0].trim();
@@ -385,15 +358,11 @@ pub(crate) fn build_plot_entry_from_inputs(
                 }
             }
             let expression = format!("{}|{}|{}", ex, ey, ez);
-            PlotEntry {
-                plot_id: 0,
-                parent_plot_id: None,
-                relationship: crate::plot::entry::PlotRelationship::Primary,
-                name: format!("parametric({ex}, {ey}, {ez})"),
-                visible: true,
-                domain: Domain::default(),
-                resolution: default_res,
-                style: PlotStyle {
+            plot_entry(
+                format!("parametric({ex}, {ey}, {ez})"),
+                Domain::default(),
+                default_res,
+                PlotStyle {
                     colour_mode: ColourMode::Colormap {
                         colormap: ColormapSource::Builtin(BuiltinColourmap::Viridis),
                         scalar_range: None,
@@ -401,23 +370,19 @@ pub(crate) fn build_plot_entry_from_inputs(
                     two_sided: true,
                     ..PlotStyle::default()
                 },
-                kind: PlotKind::ExprParametricSurface {
+                PlotKind::ExprParametricSurface {
                     expression,
                     parameters: params,
                 },
-            }
+            )
         }
         SelectedPlotType::DataGridSurface => {
             table_import.validate().map_err(|errs| errs[0].display())?;
-            PlotEntry {
-                plot_id: 0,
-                parent_plot_id: None,
-                relationship: crate::plot::entry::PlotRelationship::Primary,
-                name: "Imported Surface Grid".to_string(),
-                visible: true,
-                domain: Domain::default(),
-                resolution: Resolution::default(),
-                style: PlotStyle {
+            plot_entry(
+                "Imported Surface Grid",
+                Domain::default(),
+                Resolution::default(),
+                PlotStyle {
                     colour_mode: ColourMode::Colormap {
                         colormap: ColormapSource::Builtin(BuiltinColourmap::Viridis),
                         scalar_range: None,
@@ -425,10 +390,10 @@ pub(crate) fn build_plot_entry_from_inputs(
                     two_sided: true,
                     ..PlotStyle::default()
                 },
-                kind: PlotKind::ImportedTable {
+                PlotKind::ImportedTable {
                     definition: table_import.clone(),
                 },
-            }
+            )
         }
         SelectedPlotType::ParametricCurve => {
             let ex = expr_fields[0].trim();
@@ -451,57 +416,45 @@ pub(crate) fn build_plot_entry_from_inputs(
                 }
             }
             let expression = format!("({ex}, {ey}, {ez})");
-            PlotEntry {
-                plot_id: 0,
-                parent_plot_id: None,
-                relationship: crate::plot::entry::PlotRelationship::Primary,
-                name: format!("({ex}, {ey}, {ez})"),
-                visible: true,
-                domain: Domain::default(),
-                resolution: Resolution { u: 200, v: 2 },
-                style: PlotStyle {
+            plot_entry(
+                format!("({ex}, {ey}, {ez})"),
+                Domain::default(),
+                Resolution { u: 200, v: 2 },
+                PlotStyle {
                     colour_mode: ColourMode::Solid([1.0, 0.85, 0.2, 1.0]),
                     line_width: 2.0,
                     ..PlotStyle::default()
                 },
-                kind: PlotKind::ExprCurve {
+                PlotKind::ExprCurve {
                     expression,
                     parameters: params,
                     t_range: (0.0, std::f64::consts::TAU),
                 },
-            }
+            )
         }
         SelectedPlotType::CurvePoints => {
             table_import.validate().map_err(|errs| errs[0].display())?;
-            PlotEntry {
-                plot_id: 0,
-                parent_plot_id: None,
-                relationship: crate::plot::entry::PlotRelationship::Primary,
-                name: "Imported Curve".to_string(),
-                visible: true,
-                domain: Domain::default(),
-                resolution: Resolution::default(),
-                style: PlotStyle {
+            plot_entry(
+                "Imported Curve",
+                Domain::default(),
+                Resolution::default(),
+                PlotStyle {
                     colour_mode: ColourMode::Solid([1.0, 0.85, 0.2, 1.0]),
                     line_width: 2.0,
                     ..PlotStyle::default()
                 },
-                kind: PlotKind::ImportedTable {
+                PlotKind::ImportedTable {
                     definition: table_import.clone(),
                 },
-            }
+            )
         }
         SelectedPlotType::Scatter => {
             table_import.validate().map_err(|errs| errs[0].display())?;
-            PlotEntry {
-                plot_id: 0,
-                parent_plot_id: None,
-                relationship: crate::plot::entry::PlotRelationship::Primary,
-                name: "Imported Scatter".to_string(),
-                visible: true,
-                domain: Domain::default(),
-                resolution: Resolution::default(),
-                style: PlotStyle {
+            plot_entry(
+                "Imported Scatter",
+                Domain::default(),
+                Resolution::default(),
+                PlotStyle {
                     colour_mode: ColourMode::ByAttribute {
                         name: "scalar".to_string(),
                         kind: AttributeKind::Vertex,
@@ -509,22 +462,18 @@ pub(crate) fn build_plot_entry_from_inputs(
                     point_size: 6.0,
                     ..PlotStyle::default()
                 },
-                kind: PlotKind::ImportedTable {
+                PlotKind::ImportedTable {
                     definition: table_import.clone(),
                 },
-            }
+            )
         }
         SelectedPlotType::TableVectorField => {
             table_import.validate().map_err(|errs| errs[0].display())?;
-            PlotEntry {
-                plot_id: 0,
-                parent_plot_id: None,
-                relationship: crate::plot::entry::PlotRelationship::Primary,
-                name: "Imported Vector Field".to_string(),
-                visible: true,
-                domain: default_domain,
-                resolution: Resolution::default(),
-                style: PlotStyle {
+            plot_entry(
+                "Imported Vector Field",
+                default_domain,
+                Resolution::default(),
+                PlotStyle {
                     colour_mode: ColourMode::Colormap {
                         colormap: ColormapSource::Builtin(BuiltinColourmap::RdBu),
                         scalar_range: None,
@@ -533,10 +482,10 @@ pub(crate) fn build_plot_entry_from_inputs(
                     shading: ShadingMode::Unlit,
                     ..PlotStyle::default()
                 },
-                kind: PlotKind::ImportedTable {
+                PlotKind::ImportedTable {
                     definition: table_import.clone(),
                 },
-            }
+            )
         }
         SelectedPlotType::VectorField => {
             let ex = expr_fields[0].trim();
@@ -558,15 +507,11 @@ pub(crate) fn build_plot_entry_from_inputs(
                     params.push((name.clone(), *val));
                 }
             }
-            PlotEntry {
-                plot_id: 0,
-                parent_plot_id: None,
-                relationship: crate::plot::entry::PlotRelationship::Primary,
-                name: format!("VF ({ex},{ey},{ez})"),
-                visible: true,
-                domain: default_domain,
-                resolution: Resolution { u: 5, v: 5 },
-                style: PlotStyle {
+            plot_entry(
+                format!("VF ({ex},{ey},{ez})"),
+                default_domain,
+                Resolution { u: 5, v: 5 },
+                PlotStyle {
                     colour_mode: ColourMode::Colormap {
                         colormap: ColormapSource::Builtin(BuiltinColourmap::RdBu),
                         scalar_range: None,
@@ -575,25 +520,21 @@ pub(crate) fn build_plot_entry_from_inputs(
                     shading: ShadingMode::Unlit,
                     ..PlotStyle::default()
                 },
-                kind: PlotKind::ExprVectorField {
+                PlotKind::ExprVectorField {
                     expression: format!("{}|{}|{}", ex, ey, ez),
                     parameters: params,
                 },
-            }
+            )
         }
         SelectedPlotType::Volume => {
             let expr = expr_fields[0].trim().to_string();
             let parsed = parse_expr_with_vars(&expr, &["x", "y", "z"])
                 .map_err(|e| format!("Parse error: {e}"))?;
-            PlotEntry {
-                plot_id: 0,
-                parent_plot_id: None,
-                relationship: crate::plot::entry::PlotRelationship::Primary,
-                name: format!("volume f(x,y,z) = {expr}"),
-                visible: true,
-                domain: default_domain,
-                resolution: Resolution::default(),
-                style: PlotStyle {
+            plot_entry(
+                format!("volume f(x,y,z) = {expr}"),
+                default_domain,
+                Resolution::default(),
+                PlotStyle {
                     opacity: 0.3,
                     transfer_function: Some(TransferFunction {
                         opacity_scale: 0.4,
@@ -601,12 +542,12 @@ pub(crate) fn build_plot_entry_from_inputs(
                     }),
                     ..PlotStyle::default()
                 },
-                kind: PlotKind::ExprVolume {
+                PlotKind::ExprVolume {
                     expression: expr,
                     parameters: parsed.parameters,
                     vol_resolution: [64, 64, 64],
                 },
-            }
+            )
         }
         SelectedPlotType::Isosurface => {
             let expr = expr_fields[0].trim().to_string();
@@ -623,23 +564,19 @@ pub(crate) fn build_plot_entry_from_inputs(
                 .enumerate()
                 .map(|(i, _)| DEFAULT_ISO_PALETTE[i % DEFAULT_ISO_PALETTE.len()])
                 .collect();
-            PlotEntry {
-                plot_id: 0,
-                parent_plot_id: None,
-                relationship: crate::plot::entry::PlotRelationship::Primary,
-                name: format!("isosurface f(x,y,z) = {expr}"),
-                visible: true,
-                domain: default_domain,
-                resolution: Resolution::default(),
-                style: PlotStyle::default(),
-                kind: PlotKind::ExprIsosurface {
+            plot_entry(
+                format!("isosurface f(x,y,z) = {expr}"),
+                default_domain,
+                Resolution::default(),
+                PlotStyle::default(),
+                PlotKind::ExprIsosurface {
                     expression: expr,
                     parameters: parsed.parameters,
                     isovalues,
                     iso_colours,
                     vol_resolution: [64, 64, 64],
                 },
-            }
+            )
         }
         SelectedPlotType::Streamlines => {
             let ex = expr_fields[0].trim();
@@ -661,15 +598,11 @@ pub(crate) fn build_plot_entry_from_inputs(
                     params.push((name.clone(), *val));
                 }
             }
-            PlotEntry {
-                plot_id: 0,
-                parent_plot_id: None,
-                relationship: crate::plot::entry::PlotRelationship::Primary,
-                name: format!("streamlines ({ex},{ey},{ez})"),
-                visible: true,
-                domain: default_domain,
-                resolution: Resolution::default(),
-                style: PlotStyle {
+            plot_entry(
+                format!("streamlines ({ex},{ey},{ez})"),
+                default_domain,
+                Resolution::default(),
+                PlotStyle {
                     colour_mode: ColourMode::Colormap {
                         colormap: ColormapSource::Builtin(BuiltinColourmap::Plasma),
                         scalar_range: None,
@@ -677,14 +610,14 @@ pub(crate) fn build_plot_entry_from_inputs(
                     tube_radius: Some(0.06),
                     ..PlotStyle::default()
                 },
-                kind: PlotKind::ExprStreamlines {
+                PlotKind::ExprStreamlines {
                     expression: format!("{}|{}|{}", ex, ey, ez),
                     parameters: params,
                     seed_mode: SeedMode::default(),
                     step_size: 0.05,
                     max_steps: 500,
                 },
-            }
+            )
         }
     };
 

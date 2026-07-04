@@ -1,7 +1,7 @@
 use eframe::egui;
 use poincare_lib::{
     AnalysisKind, AnalysisOutput, AnalysisRequest, AnalysisTarget, CurveInterpolation,
-    CurveInterpolationKind, SampleGroupsKind, available_analyses, run_analysis,
+    CurveInterpolationKind, SampleGroupsKind, StyleCapabilities, available_analyses, run_analysis,
     run_curve_surface_frame_analysis, run_curve_surface_measurement_analysis,
     run_surface_mesh_analysis, sample_curve_points, sample_groups,
 };
@@ -21,7 +21,7 @@ use crate::plot::analysis::{
     PointAnnotation, intersect_surface_meshes, make_arrow_annotation, make_point_annotations,
 };
 use crate::plot::entry::PlotEntry;
-use crate::plot::kind::{PlotKind, PlotKindExt, StyleCaps, evenly_spaced_isovalues};
+use crate::plot::kind::{PlotKind, PlotKindExt, evenly_spaced_isovalues};
 use crate::plot::table::TableDataSet;
 use crate::ui::domain_editor::{edit_domain, edit_resolution};
 use crate::ui::expr_params::show_expression_params;
@@ -109,7 +109,7 @@ impl App {
                         ui.horizontal_top(|ui| {
                             ui.vertical(|ui| {
                                 selected_dirty |=
-                                    edit_domain(ui, &mut plot.domain, plot.kind.domain_labels());
+                                    edit_domain(ui, &mut plot.domain, plot.kind.domain_editor());
                                 ui.add_space(8.0);
                                 let resolution_label = if plot.kind.uses_seed_resolution() {
                                     "Seed Resolution"
@@ -161,7 +161,7 @@ impl App {
                             selected_dirty |= edit_plot_style_basic(
                                 ui,
                                 contour_style,
-                                StyleCaps {
+                                StyleCapabilities {
                                     mesh: false,
                                     line: true,
                                     point: false,

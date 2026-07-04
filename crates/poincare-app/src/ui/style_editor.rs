@@ -1,18 +1,16 @@
 use eframe::egui;
 use poincare_lib::{
     ColormapSource, ColourMode, GlyphType, MatcapSource, ParamVisSettings, PlotStyle, ShadingMode,
-    SurfaceFaceQuantity, SurfaceLicSettings, SurfaceLicVectorField,
+    StyleCapabilities, SurfaceFaceQuantity, SurfaceLicSettings, SurfaceLicVectorField,
 };
 use viewport_lib::{AttributeKind, BuiltinColourmap, BuiltinMatcap, ParamVisMode};
-
-use crate::plot::kind::StyleCaps;
 
 const LIC_SHOWCASE_BASE_COLOUR: [f32; 4] = [0.35, 0.55, 0.75, 1.0];
 
 pub(crate) fn edit_plot_style_basic(
     ui: &mut egui::Ui,
     style: &mut PlotStyle,
-    caps: StyleCaps,
+    caps: StyleCapabilities,
 ) -> bool {
     let mut changed = false;
     changed |= edit_colour_mode(ui, &mut style.colour_mode, caps);
@@ -58,7 +56,7 @@ pub(crate) fn edit_plot_style_basic(
 pub(crate) fn edit_plot_surface_settings(
     ui: &mut egui::Ui,
     style: &mut PlotStyle,
-    caps: StyleCaps,
+    caps: StyleCapabilities,
 ) -> bool {
     if !caps.mesh {
         ui.label(
@@ -125,7 +123,7 @@ pub(crate) fn edit_plot_surface_settings(
 pub(crate) fn edit_colour_mode(
     ui: &mut egui::Ui,
     colour_mode: &mut ColourMode,
-    caps: StyleCaps,
+    caps: StyleCapabilities,
 ) -> bool {
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum Mode {
@@ -429,11 +427,11 @@ fn edit_surface_quantity(ui: &mut egui::Ui, style: &mut PlotStyle) -> bool {
     changed
 }
 
-fn default_attribute_name(caps: StyleCaps) -> &'static str {
+fn default_attribute_name(caps: StyleCapabilities) -> &'static str {
     if caps.glyph { "magnitude" } else { "z" }
 }
 
-fn attribute_options(caps: StyleCaps) -> &'static [&'static str] {
+fn attribute_options(caps: StyleCapabilities) -> &'static [&'static str] {
     if caps.mesh {
         &[
             "x",

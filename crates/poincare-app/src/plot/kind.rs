@@ -1,7 +1,4 @@
-use poincare_lib::{
-    CurveInterpolation, DomainEditorMetadata, PlotMetadata,
-    StyleCapabilities as LibStyleCapabilities,
-};
+use poincare_lib::{CurveInterpolation, DomainEditorMetadata, PlotMetadata, StyleCapabilities};
 
 /// Default palette for isosurface per-level colours.
 pub(crate) const DEFAULT_ISO_PALETTE: [[f32; 4]; 6] = [
@@ -15,65 +12,9 @@ pub(crate) const DEFAULT_ISO_PALETTE: [[f32; 4]; 6] = [
 
 pub(crate) use poincare_lib::{PlotDefinition as PlotKind, SeedMode};
 
-#[derive(Clone, Copy)]
-pub(crate) struct StyleCaps {
-    pub(crate) mesh: bool,
-    pub(crate) line: bool,
-    pub(crate) point: bool,
-    pub(crate) glyph: bool,
-}
-
-/// Which axes the domain panel should display for a given plot type.
-#[derive(Clone, PartialEq, Eq)]
-pub(crate) enum DomainLabels {
-    None,
-    Xy,
-    Xyz,
-    Uv,
-    ThetaPhi,
-    ThetaZ,
-    Theta,
-    T,
-    SingleVar(String),
-}
-
-impl From<LibStyleCapabilities> for StyleCaps {
-    fn from(value: LibStyleCapabilities) -> Self {
-        Self {
-            mesh: value.mesh,
-            line: value.line,
-            point: value.point,
-            glyph: value.glyph,
-        }
-    }
-}
-
-impl From<DomainEditorMetadata> for DomainLabels {
-    fn from(value: DomainEditorMetadata) -> Self {
-        match value {
-            DomainEditorMetadata::Fixed => Self::None,
-            DomainEditorMetadata::One { primary } => match primary.as_str() {
-                "theta" => Self::Theta,
-                "T" => Self::T,
-                _ => Self::SingleVar(primary),
-            },
-            DomainEditorMetadata::Two { primary, secondary } => {
-                match (primary.as_str(), secondary.as_str()) {
-                    ("X", "Y") => Self::Xy,
-                    ("theta", "phi") => Self::ThetaPhi,
-                    ("theta", "z") => Self::ThetaZ,
-                    ("U", "V") => Self::Uv,
-                    _ => Self::None,
-                }
-            }
-            DomainEditorMetadata::Three { .. } => Self::Xyz,
-        }
-    }
-}
-
 pub(crate) trait PlotKindExt {
-    fn style_caps(&self) -> StyleCaps;
-    fn domain_labels(&self) -> DomainLabels;
+    fn style_caps(&self) -> StyleCapabilities;
+    fn domain_editor(&self) -> DomainEditorMetadata;
     fn uses_resolution(&self) -> bool;
     fn uses_seed_resolution(&self) -> bool;
     fn supports_surface_intersection(&self) -> bool;
@@ -81,18 +22,18 @@ pub(crate) trait PlotKindExt {
 }
 
 impl PlotKindExt for PlotKind {
-    fn style_caps(&self) -> StyleCaps {
+    fn style_caps(&self) -> StyleCapabilities {
         fn metadata(kind: &PlotKind) -> PlotMetadata {
             PlotKind::metadata(kind)
         }
-        metadata(self).style_caps.into()
+        metadata(self).style_caps
     }
 
-    fn domain_labels(&self) -> DomainLabels {
+    fn domain_editor(&self) -> DomainEditorMetadata {
         fn metadata(kind: &PlotKind) -> PlotMetadata {
             PlotKind::metadata(kind)
         }
-        metadata(self).domain_editor.into()
+        metadata(self).domain_editor
     }
 
     fn uses_resolution(&self) -> bool {

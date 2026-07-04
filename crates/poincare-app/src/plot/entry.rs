@@ -1,4 +1,4 @@
-use poincare_lib::{Domain, GraphSpec, PlotSpec, PlotStyle, Resolution};
+use poincare_lib::{Domain, PlotSpec, PlotStyle, Resolution};
 
 use crate::plot::kind::PlotKind;
 
@@ -12,6 +12,9 @@ pub(crate) enum PlotRelationship {
 
 #[derive(Clone)]
 pub(crate) struct PlotEntry {
+    // App-owned wrapper state around the lib-owned plot definition fields.
+    // `plot_id`, `parent_plot_id`, and `relationship` are UI/workflow metadata;
+    // the graph semantics round-trip through `PlotSpec`.
     pub(crate) plot_id: PlotId,
     pub(crate) parent_plot_id: Option<PlotId>,
     pub(crate) relationship: PlotRelationship,
@@ -24,6 +27,35 @@ pub(crate) struct PlotEntry {
 }
 
 impl PlotEntry {
+    pub(crate) fn new(name: impl Into<String>, kind: PlotKind) -> Self {
+        Self {
+            plot_id: 0,
+            parent_plot_id: None,
+            relationship: PlotRelationship::Primary,
+            name: name.into(),
+            visible: true,
+            domain: Domain::default(),
+            resolution: Resolution::default(),
+            style: PlotStyle::default(),
+            kind,
+        }
+    }
+
+    pub(crate) fn with_domain(mut self, domain: Domain) -> Self {
+        self.domain = domain;
+        self
+    }
+
+    pub(crate) fn with_resolution(mut self, resolution: Resolution) -> Self {
+        self.resolution = resolution;
+        self
+    }
+
+    pub(crate) fn with_style(mut self, style: PlotStyle) -> Self {
+        self.style = style;
+        self
+    }
+
     pub(crate) fn from_plot_spec(spec: PlotSpec) -> Self {
         Self {
             plot_id: 0,
@@ -53,15 +85,5 @@ impl PlotEntry {
             style: self.style.clone(),
             definition: self.kind.clone(),
         }
-    }
-}
-
-pub(crate) fn build_graph_spec(
-    entries: &[PlotEntry],
-    axis_config: poincare_lib::AxisConfig,
-) -> GraphSpec {
-    GraphSpec {
-        axis_config,
-        plots: entries.iter().map(PlotEntry::to_plot_spec).collect(),
     }
 }
