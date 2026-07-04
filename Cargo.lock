@@ -2485,6 +2485,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "poincare-evaluator"
+version = "0.1.0"
+dependencies = [
+ "poincare-lib",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "poincare-lang"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "poincare-lib"
 version = "0.7.0"
 dependencies = [
@@ -2511,6 +2528,28 @@ dependencies = [
  "viewport-lib",
  "wgpu",
  "winit",
+]
+
+[[package]]
+name = "poincare-notebook-app"
+version = "0.1.0"
+dependencies = [
+ "eframe",
+ "egui",
+ "poincare-evaluator",
+ "poincare-notebook-lib",
+ "rfd",
+ "serde_json",
+]
+
+[[package]]
+name = "poincare-notebook-lib"
+version = "0.1.0"
+dependencies = [
+ "poincare-evaluator",
+ "poincare-lib",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

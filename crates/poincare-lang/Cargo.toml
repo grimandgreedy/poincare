@@ -1,0 +1,17 @@
+[package]
+name = "poincare-lang"
+version = "0.1.0"
+edition = "2024"
+description = "Lexer, parser, and AST for the Poincare notebook language"
+license = "MIT"
+repository = "https://github.com/grimandgreedy/poincare"
+homepage = "https://github.com/grimandgreedy/poincare"
+documentation = "https://docs.rs/poincare-lang"
+keywords = ["math", "notebook", "language", "parser"]
+categories = ["mathematics", "science", "parser-implementations"]
+
+[dependencies]
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = "1"
