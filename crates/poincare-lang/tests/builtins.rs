@@ -2,7 +2,6 @@
 //! attachments, and analysis.
 
 use std::collections::HashMap;
-use std::rc::Rc;
 
 use poincare_lang::{Host, Interpreter, RunOutcome, Value, parse};
 
@@ -51,8 +50,7 @@ fn run_with_host(src: &str, files: &[(&str, &str)]) -> RunOutcome {
         files: files.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
     };
     let mut interp = Interpreter::new();
-    interp.set_host(Rc::new(host));
-    interp.run(&parsed.program)
+    interp.run_with_host(&parsed.program, &host)
 }
 
 // --- expanded math ---

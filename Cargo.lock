@@ -2494,6 +2494,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "poincare-evaluator-poincare"
+version = "0.1.0"
+dependencies = [
+ "poincare-evaluator",
+ "poincare-lang",
+ "poincare-lib",
+]
+
+[[package]]
 name = "poincare-lang"
 version = "0.1.0"
 dependencies = [
@@ -2536,7 +2545,9 @@ version = "0.1.0"
 dependencies = [
  "eframe",
  "egui",
+ "grimdock",
  "poincare-evaluator",
+ "poincare-lib",
  "poincare-notebook-lib",
  "rfd",
  "serde_json",

@@ -113,6 +113,14 @@ impl Value {
         }
     }
 
+    /// The parameter names of a closure value, if this is a function.
+    pub fn closure_params(&self) -> Option<Vec<String>> {
+        match self {
+            Value::Closure(c) => Some(c.params.clone()),
+            _ => None,
+        }
+    }
+
     /// A human-readable rendering, used by `print` and value previews.
     pub fn display(&self) -> String {
         match self {
@@ -198,6 +206,17 @@ impl Environment {
             .rev()
             .find_map(|scope| scope.borrow().get(name).cloned())
     }
+
+    /// Bindings in the global (session) scope, name-sorted.
+    fn globals(&self) -> Vec<(String, Value)> {
+        let mut vars: Vec<(String, Value)> = self.scopes[0]
+            .borrow()
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        vars.sort_by(|a, b| a.0.cmp(&b.0));
+        vars
+    }
 }
 
 /// Limits that keep evaluation bounded.
@@ -219,7 +238,9 @@ impl Default for Limits {
 /// The result of running one cell.
 #[derive(Clone, Debug)]
 pub struct RunOutcome {
-    /// The value of the last expression statement (for auto-display).
+    /// The value of the last expression statement, if not unit.
+    pub value: Option<Value>,
+    /// Display rendering of `value` (for quick previews).
     pub value_display: Option<String>,
     /// Text written by `print`, one entry per call.
     pub output: Vec<String>,
@@ -231,12 +252,33 @@ pub struct RunOutcome {
 pub struct Interpreter {
     env: Environment,
     limits: Limits,
+    cancel: Arc<AtomicBool>,
+}
+
+/// A host that has no attachments; used when a cell runs without one.
+struct NoHost;
+
+impl Host for NoHost {
+    fn attachment_text(&self, _name_or_id: &str) -> Result<String, String> {
+        Err("no attachment host is available".to_string())
+    }
+    fn attachment_bytes(&self, _name_or_id: &str) -> Result<Vec<u8>, String> {
+        Err("no attachment host is available".to_string())
+    }
+}
+
+/// Per-run execution state, holding the borrowed host for the duration of one
+/// cell run plus the mutable output/counters. The session environment shares
+/// scopes with the interpreter's, so top-level bindings persist after the run.
+struct Run<'a> {
+    session: Environment,
+    host: &'a dyn Host,
     output: Vec<String>,
     emitted: Vec<Value>,
-    host: Option<Rc<dyn Host>>,
+    limits: Limits,
     loop_iterations: u64,
     call_depth: usize,
-    cancel: Arc<AtomicBool>,
+    cancel: &'a AtomicBool,
 }
 
 impl Default for Interpreter {
@@ -254,18 +296,8 @@ impl Interpreter {
         Self {
             env: Environment::new(),
             limits,
-            output: Vec::new(),
-            emitted: Vec::new(),
-            host: None,
-            loop_iterations: 0,
-            call_depth: 0,
             cancel: Arc::new(AtomicBool::new(false)),
         }
-    }
-
-    /// Install the host that resolves attachments.
-    pub fn set_host(&mut self, host: Rc<dyn Host>) {
-        self.host = Some(host);
     }
 
     /// A handle a host can set to request cancellation of a running cell.
@@ -273,21 +305,45 @@ impl Interpreter {
         Arc::clone(&self.cancel)
     }
 
-    /// Run a parsed program against the persistent session environment.
-    pub fn run(&mut self, program: &Program) -> RunOutcome {
-        let core = ir::lower(program);
-        self.output.clear();
-        self.emitted.clear();
-        self.loop_iterations = 0;
-        self.call_depth = 0;
-        self.cancel.store(false, Ordering::Relaxed);
+    /// Session variables: bindings in the global scope, name-sorted. Used to
+    /// build a session snapshot for the notebook variables panel.
+    pub fn variables(&self) -> Vec<(String, Value)> {
+        self.env.globals()
+    }
 
+    /// Run a cell against the persistent session, with no attachment host.
+    pub fn run(&mut self, program: &Program) -> RunOutcome {
+        self.run_with_host(program, &NoHost)
+    }
+
+    /// Run a cell against the persistent session, resolving attachments through
+    /// `host`.
+    pub fn run_with_host(&mut self, program: &Program, host: &dyn Host) -> RunOutcome {
+        let core = ir::lower(program);
+        self.cancel.store(false, Ordering::Relaxed);
+        let mut run = Run {
+            session: self.env.clone(),
+            host,
+            output: Vec::new(),
+            emitted: Vec::new(),
+            limits: self.limits,
+            loop_iterations: 0,
+            call_depth: 0,
+            cancel: &self.cancel,
+        };
+        run.exec(&core)
+    }
+}
+
+impl Run<'_> {
+    fn exec(&mut self, program: &ir::CoreProgram) -> RunOutcome {
         let mut last: Option<Value> = None;
-        for stmt in &core.stmts {
+        for stmt in &program.stmts {
             match self.exec_stmt(stmt) {
                 Ok(value) => last = value,
                 Err(error) => {
                     return RunOutcome {
+                        value: None,
                         value_display: last.map(|v| v.display()),
                         output: std::mem::take(&mut self.output),
                         emitted: std::mem::take(&mut self.emitted),
@@ -296,10 +352,10 @@ impl Interpreter {
                 }
             }
         }
+        let final_value = last.filter(|v| !matches!(v, Value::Unit));
         RunOutcome {
-            value_display: last
-                .filter(|v| !matches!(v, Value::Unit))
-                .map(|v| v.display()),
+            value_display: final_value.as_ref().map(|v| v.display()),
+            value: final_value,
             output: std::mem::take(&mut self.output),
             emitted: std::mem::take(&mut self.emitted),
             error: None,
@@ -309,13 +365,13 @@ impl Interpreter {
     fn exec_stmt(&mut self, stmt: &CoreStmt) -> Result<Option<Value>, RuntimeError> {
         match stmt {
             CoreStmt::Bind { name, value, .. } => {
-                let env = self.env.clone();
+                let env = self.session.clone();
                 let v = self.eval(value, &env)?;
-                self.env.define(name.clone(), v);
+                self.session.define(name.clone(), v);
                 Ok(None)
             }
             CoreStmt::Expr(core) => {
-                let env = self.env.clone();
+                let env = self.session.clone();
                 let v = self.eval(core, &env)?;
                 Ok(Some(v))
             }
@@ -833,12 +889,10 @@ impl Interpreter {
     fn text_source(&self, value: &Value, span: Span) -> Result<String, RuntimeError> {
         match value {
             Value::Str(s) => Ok(s.to_string()),
-            Value::Attachment(id) => match &self.host {
-                Some(host) => host
-                    .attachment_text(id)
-                    .map_err(|e| RuntimeError::new(e, span)),
-                None => Err(RuntimeError::new("no attachment host is available", span)),
-            },
+            Value::Attachment(id) => self
+                .host
+                .attachment_text(id)
+                .map_err(|e| RuntimeError::new(e, span)),
             other => Err(RuntimeError::new(
                 format!("expected text or an attachment, found a {}", other.kind()),
                 span,
@@ -848,12 +902,10 @@ impl Interpreter {
 
     fn attachment_bytes(&self, value: &Value, span: Span) -> Result<Vec<u8>, RuntimeError> {
         match value {
-            Value::Attachment(id) => match &self.host {
-                Some(host) => host
-                    .attachment_bytes(id)
-                    .map_err(|e| RuntimeError::new(e, span)),
-                None => Err(RuntimeError::new("no attachment host is available", span)),
-            },
+            Value::Attachment(id) => self
+                .host
+                .attachment_bytes(id)
+                .map_err(|e| RuntimeError::new(e, span)),
             other => Err(RuntimeError::new(
                 format!("`bytes` expected an attachment, found a {}", other.kind()),
                 span,

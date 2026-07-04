@@ -1,0 +1,16 @@
+[package]
+name = "poincare-evaluator-poincare"
+version = "0.1.0"
+edition = "2024"
+description = "Poincare-language backend for the Poincare notebook evaluator API"
+license = "MIT"
+repository = "https://github.com/grimandgreedy/poincare"
+homepage = "https://github.com/grimandgreedy/poincare"
+documentation = "https://docs.rs/poincare-evaluator-poincare"
+keywords = ["math", "notebook", "evaluator", "language"]
+categories = ["mathematics", "science"]
+
+[dependencies]
+poincare-evaluator = { workspace = true }
+poincare-lang = { workspace = true }
+poincare-lib = { workspace = true }

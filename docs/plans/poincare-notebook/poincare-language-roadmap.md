@@ -15,7 +15,7 @@ The language should start practical and constrained, but it should be designed a
 | 3 | Name resolution, scopes, and runtime environment | Complete | Large | High |
 | 4 | Tree-walking interpreter | Complete | Large | High |
 | 5 | Poincare graph/table/math builtins | Complete | Large | High |
-| 6 | Evaluator integration | Planned | Medium | High |
+| 6 | Evaluator integration | Complete | Medium | High |
 | 7 | Symbolic-capable `MathExpr` expansion | Planned | Large | Medium |
 | 8 | Bytecode or IR optimization path | Planned | Large | Low |
 | 9 | Optimized numeric kernels | Planned | Large | Medium |
@@ -805,6 +805,19 @@ Deliverables:
 Notes:
 - `poincare-lang` should not depend on notebook document types.
 - `poincare-evaluator-poincare` is the adapter layer.
+
+Implemented (new `poincare-evaluator-poincare` crate):
+- `PoincareEvaluator` implements `poincare_evaluator::Evaluator`, driving the `poincare-lang` interpreter with a persistent session across `evaluate_cell` calls (shared state).
+- Each cell is parsed and resolved (against the current session's variable names) before running, so parse and undefined-name errors surface as evaluator diagnostics with source spans; runtime errors surface too, and prior `print` output is preserved on failure.
+- Value conversion (`convert` module) from language values into `EvalValue`: unit/bool/number/string/bytes/list/attachment, tables into `TableValue`, and language `Plot`/`Graph` into `poincare_lib::PlotSpec`/`GraphSpec`. This adapter is where `poincare-lib` is depended on; `poincare-lang` stays decoupled (see Phase 5).
+- Output assembly: `print` lines become `Text` (stdout) outputs, `emit`ted values and the final expression value become typed outputs.
+- Session snapshot: `variables()` on the interpreter feeds `VariableSummary`s (kind, preview, source cell, updated-at run) for the variables panel; `restart` resets the session; run-count tracked.
+- Runtime host bridge: an evaluator `RuntimeHost` is adapted to the language `Host` (resolve-by-name then fetch), so `csv(attachment(...))` works end to end.
+- 8 integration tests: define-in-cell-1/use-in-cell-2, print→text, emit→graph, CSV attachment→table (with session variable), undefined-name diagnostic, runtime-error-with-prior-output, and restart.
+
+Deferred:
+- Graph translation is minimal: every language plot maps to a `poincare-lib` `ExprCartesian` plot with a best-effort constant expression plus any range/resolution fields. Faithful expression-domain plotting needs lazy/symbolic plot arguments (the `surface(z = f(x, y))` domain variables `x`/`y` cannot be eagerly evaluated today) and real `PlotDefinition` selection; both are follow-up work.
+- Wiring the adapter into `poincare-notebook-app` in place of its `ScratchEvaluator` (a UI-roadmap task).
 
 ## Phase 7: Symbolic-Capable `MathExpr` Expansion
 

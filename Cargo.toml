@@ -3,6 +3,7 @@ members = [
     "crates/poincare-lib",
     "crates/poincare-evaluator",
     "crates/poincare-lang",
+    "crates/poincare-evaluator-poincare",
     "crates/poincare-notebook-lib",
     "crates/poincare-notebook-app",
     "crates/poincare-app",
@@ -15,6 +16,7 @@ resolver = "3"
 poincare-lib = { path = "crates/poincare-lib", version = "0.7.0" }
 poincare-evaluator = { path = "crates/poincare-evaluator", version = "0.1.0" }
 poincare-lang = { path = "crates/poincare-lang", version = "0.1.0" }
+poincare-evaluator-poincare = { path = "crates/poincare-evaluator-poincare", version = "0.1.0" }
 poincare-notebook-lib = { path = "crates/poincare-notebook-lib", version = "0.1.0" }
 viewport-lib = { path = "../viewport-lib", version = "0.18.2" }
 wgpu = { version = "27.0", features = ["metal", "vulkan"] }
