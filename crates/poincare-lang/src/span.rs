@@ -76,7 +76,9 @@ impl<'a> SourceMap<'a> {
             Err(i) => i - 1,
         };
         let line_start = self.line_starts[line_idx];
-        let column = self.src[line_start as usize..clamped as usize].chars().count() as u32;
+        let column = self.src[line_start as usize..clamped as usize]
+            .chars()
+            .count() as u32;
         Location {
             line: line_idx as u32 + 1,
             column: column + 1,

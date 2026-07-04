@@ -119,7 +119,8 @@ impl Parser {
     }
 
     fn error<T>(&mut self, message: impl Into<String>) -> PResult<T> {
-        self.diags.push(Diagnostic::error(message.into(), self.span()));
+        self.diags
+            .push(Diagnostic::error(message.into(), self.span()));
         Err(())
     }
 
@@ -199,16 +200,14 @@ impl Parser {
                 let w = *w;
                 self.error(format!("`{w}` is reserved for a future language version"))
             }
-            TokenKind::Ident(_) => {
-                match self.nth_kind(1) {
-                    TokenKind::Colon => self.parse_signature().map(Stmt::Signature),
-                    TokenKind::Eq => self.parse_binding().map(Stmt::Binding),
-                    TokenKind::LParen if self.is_func_def_ahead() => {
-                        self.parse_expr_func_def().map(Stmt::Func)
-                    }
-                    _ => self.parse_expr().map(Stmt::Expr),
+            TokenKind::Ident(_) => match self.nth_kind(1) {
+                TokenKind::Colon => self.parse_signature().map(Stmt::Signature),
+                TokenKind::Eq => self.parse_binding().map(Stmt::Binding),
+                TokenKind::LParen if self.is_func_def_ahead() => {
+                    self.parse_expr_func_def().map(Stmt::Func)
                 }
-            }
+                _ => self.parse_expr().map(Stmt::Expr),
+            },
             _ => self.parse_expr().map(Stmt::Expr),
         }
     }
@@ -379,8 +378,10 @@ impl Parser {
             while !self.at(&TokenKind::RBrace) && !self.at_eof() {
                 fields.push(self.parse_field()?);
                 if !self.at(&TokenKind::RBrace) {
-                    if !matches!(self.kind(), TokenKind::Newline | TokenKind::Semicolon | TokenKind::Comma)
-                    {
+                    if !matches!(
+                        self.kind(),
+                        TokenKind::Newline | TokenKind::Semicolon | TokenKind::Comma
+                    ) {
                         return self.error(format!(
                             "expected field separator in plot block, found {}",
                             self.kind().describe()
@@ -408,7 +409,10 @@ impl Parser {
     }
 
     fn skip_commas(&mut self) {
-        while matches!(self.kind(), TokenKind::Comma | TokenKind::Newline | TokenKind::Semicolon) {
+        while matches!(
+            self.kind(),
+            TokenKind::Comma | TokenKind::Newline | TokenKind::Semicolon
+        ) {
             self.advance();
         }
     }
@@ -449,8 +453,7 @@ impl Parser {
                 break;
             }
             let stmt = self.parse_stmt()?;
-            let had_sep =
-                matches!(self.kind(), TokenKind::Newline | TokenKind::Semicolon);
+            let had_sep = matches!(self.kind(), TokenKind::Newline | TokenKind::Semicolon);
             self.skip_separators();
             if self.at(&TokenKind::RBrace) || self.at_eof() {
                 // Last item: an expression with no following statement is the
@@ -500,10 +503,10 @@ impl Parser {
             // Non-associative operators (comparisons, range) may not chain.
             if op.non_assoc
                 && let Some(next) = InfixOp::from_kind(self.kind())
-                    && next.class == op.class {
-                        return self
-                            .error("chained comparisons/ranges are not allowed; parenthesize");
-                    }
+                && next.class == op.class
+            {
+                return self.error("chained comparisons/ranges are not allowed; parenthesize");
+            }
         }
         Ok(lhs)
     }

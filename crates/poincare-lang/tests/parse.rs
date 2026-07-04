@@ -62,8 +62,18 @@ fn precedence_pow_over_unary() {
     let p = parse_ok("-x^2");
     let e = only_expr(&p);
     match e {
-        Expr::Unary { op: UnaryOp::Neg, expr, .. } => {
-            assert!(matches!(&**expr, Expr::Binary { op: BinaryOp::Pow, .. }));
+        Expr::Unary {
+            op: UnaryOp::Neg,
+            expr,
+            ..
+        } => {
+            assert!(matches!(
+                &**expr,
+                Expr::Binary {
+                    op: BinaryOp::Pow,
+                    ..
+                }
+            ));
         }
         other => panic!("expected unary neg over pow, got {other:?}"),
     }
@@ -75,8 +85,18 @@ fn precedence_arithmetic() {
     let p = parse_ok("1 + 2 * 3");
     let e = only_expr(&p);
     match e {
-        Expr::Binary { op: BinaryOp::Add, rhs, .. } => {
-            assert!(matches!(&**rhs, Expr::Binary { op: BinaryOp::Mul, .. }));
+        Expr::Binary {
+            op: BinaryOp::Add,
+            rhs,
+            ..
+        } => {
+            assert!(matches!(
+                &**rhs,
+                Expr::Binary {
+                    op: BinaryOp::Mul,
+                    ..
+                }
+            ));
         }
         other => panic!("expected add over mul, got {other:?}"),
     }
@@ -88,8 +108,18 @@ fn pow_is_right_associative() {
     let p = parse_ok("2^3^2");
     let e = only_expr(&p);
     match e {
-        Expr::Binary { op: BinaryOp::Pow, rhs, .. } => {
-            assert!(matches!(&**rhs, Expr::Binary { op: BinaryOp::Pow, .. }));
+        Expr::Binary {
+            op: BinaryOp::Pow,
+            rhs,
+            ..
+        } => {
+            assert!(matches!(
+                &**rhs,
+                Expr::Binary {
+                    op: BinaryOp::Pow,
+                    ..
+                }
+            ));
         }
         other => panic!("expected right-assoc pow, got {other:?}"),
     }
@@ -171,7 +201,13 @@ fn signature_drives_types() {
         Stmt::Signature(s) => {
             assert_eq!(s.name.sym.as_str(), "f");
             assert_eq!(s.types.len(), 2);
-            assert!(matches!(&s.types[0], Expr::Binary { op: BinaryOp::Pow, .. }));
+            assert!(matches!(
+                &s.types[0],
+                Expr::Binary {
+                    op: BinaryOp::Pow,
+                    ..
+                }
+            ));
             assert!(matches!(&s.types[1], Expr::Ident(_)));
         }
         other => panic!("expected signature, got {other:?}"),
@@ -287,7 +323,10 @@ fn named_call_arguments() {
 
 #[test]
 fn lambda_forms() {
-    assert!(matches!(only_expr(&parse_ok("x => x^2")), Expr::Lambda { .. }));
+    assert!(matches!(
+        only_expr(&parse_ok("x => x^2")),
+        Expr::Lambda { .. }
+    ));
     let p = parse_ok("g = (x, y) => x + y");
     match &p.stmts[0] {
         Stmt::Binding(b) => match &b.value {
@@ -335,7 +374,13 @@ fn line_continuation_after_operator() {
     // A binary operator at end of line continues onto the next line.
     let p = parse_ok("total = 1 +\n  2");
     match &p.stmts[0] {
-        Stmt::Binding(b) => assert!(matches!(&b.value, Expr::Binary { op: BinaryOp::Add, .. })),
+        Stmt::Binding(b) => assert!(matches!(
+            &b.value,
+            Expr::Binary {
+                op: BinaryOp::Add,
+                ..
+            }
+        )),
         _ => panic!(),
     }
 }

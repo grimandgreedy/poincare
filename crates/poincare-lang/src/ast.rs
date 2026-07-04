@@ -183,25 +183,73 @@ pub enum UnaryOp {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Expr {
     /// Integer literal, raw text preserved losslessly.
-    Int { raw: String, span: Span },
+    Int {
+        raw: String,
+        span: Span,
+    },
     /// Float literal, raw text preserved losslessly.
-    Float { raw: String, span: Span },
-    Str { value: String, span: Span },
-    Bool { value: bool, span: Span },
+    Float {
+        raw: String,
+        span: Span,
+    },
+    Str {
+        value: String,
+        span: Span,
+    },
+    Bool {
+        value: bool,
+        span: Span,
+    },
     Ident(Ident),
-    List { items: Vec<Expr>, span: Span },
-    Range { lo: Box<Expr>, hi: Box<Expr>, span: Span },
-    Unary { op: UnaryOp, expr: Box<Expr>, span: Span },
-    Binary { op: BinaryOp, lhs: Box<Expr>, rhs: Box<Expr>, span: Span },
+    List {
+        items: Vec<Expr>,
+        span: Span,
+    },
+    Range {
+        lo: Box<Expr>,
+        hi: Box<Expr>,
+        span: Span,
+    },
+    Unary {
+        op: UnaryOp,
+        expr: Box<Expr>,
+        span: Span,
+    },
+    Binary {
+        op: BinaryOp,
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+        span: Span,
+    },
     /// `g . f` / `g ∘ f`
-    Compose { lhs: Box<Expr>, rhs: Box<Expr>, span: Span },
+    Compose {
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+        span: Span,
+    },
     /// `x |> f`
-    Pipe { lhs: Box<Expr>, rhs: Box<Expr>, span: Span },
-    Call { callee: Box<Expr>, args: Vec<Arg>, span: Span },
-    Index { base: Box<Expr>, index: Box<Expr>, span: Span },
+    Pipe {
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+        span: Span,
+    },
+    Call {
+        callee: Box<Expr>,
+        args: Vec<Arg>,
+        span: Span,
+    },
+    Index {
+        base: Box<Expr>,
+        index: Box<Expr>,
+        span: Span,
+    },
     If(IfExpr),
     Block(Block),
-    Lambda { params: Vec<Ident>, body: Box<Expr>, span: Span },
+    Lambda {
+        params: Vec<Ident>,
+        body: Box<Expr>,
+        span: Span,
+    },
 }
 
 impl Expr {

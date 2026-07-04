@@ -12,7 +12,7 @@ The language should start practical and constrained, but it should be designed a
 | --- | --- | --- | --- | --- |
 | 1 | Language scope, syntax, and value model | Complete | Medium | High |
 | 2 | Lexer, parser, AST, and diagnostics | Complete | Large | High |
-| 3 | Name resolution, scopes, and runtime environment | Planned | Large | High |
+| 3 | Name resolution, scopes, and runtime environment | Complete | Large | High |
 | 4 | Tree-walking interpreter | Planned | Large | High |
 | 5 | Poincare graph/table/math builtins | Planned | Large | High |
 | 6 | Evaluator integration | Planned | Medium | High |
@@ -691,6 +691,15 @@ Deliverables:
 Notes:
 - V1 can be dynamically typed, but it should still produce clear diagnostics where value kinds are obviously wrong.
 - Execution-order staleness in the notebook relies on this environment being reconstructable from cell order.
+
+Implemented (in `poincare-lang`):
+- `resolver` module: a static name-resolution pass over the parsed AST producing `ResolveResult { diagnostics, cell_defs }`.
+- Scope model: a cell resolves against a `SessionScope` (names from earlier cells) plus builtins plus its own top-level definitions. Top-level definitions are hoisted so forward references and mutual recursion resolve; use-before-definition of a value is left to run time. Nested blocks, function/lambda parameters, and loop variables are ordinary ordered lexical scopes. Inside a `plot` statement, field/`over` domain names are in scope for the plot's expressions. Signature type positions are a separate namespace and are not resolved as runtime names.
+- Diagnostics: undefined name (error), duplicate parameter (error), definition shadowing a builtin (warning), signature without a matching definition (warning).
+- Cell/session persistence: `resolve` returns the cell's top-level `cell_defs`; `SessionScope::extend_from_defs` grows session state cell to cell, so run-all reconstructs state top to bottom.
+- `builtins` module: registry of builtin names grouped by the frozen categories (math, graph, table, analysis, attachment, output).
+- `env` module: the runtime environment model — a generic lexical scope chain `Env<V>` (define/get/assign/enter_scope/exit_scope) ready for the Phase 4 interpreter to instantiate with runtime values.
+- 24 tests (17 resolver + 7 environment) in `crates/poincare-lang/tests/`.
 
 ## Phase 4: Tree-Walking Interpreter
 

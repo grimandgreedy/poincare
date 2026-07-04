@@ -107,7 +107,10 @@ impl Lexer {
     fn handle_newline(&mut self) {
         let suppress = self.group_depth > 0
             || matches!(self.tokens.last(), Some(t) if t.kind.is_continuation())
-            || matches!(self.tokens.last().map(|t| &t.kind), None | Some(TokenKind::Newline));
+            || matches!(
+                self.tokens.last().map(|t| &t.kind),
+                None | Some(TokenKind::Newline)
+            );
         if !suppress {
             let off = self.offset();
             self.tokens.push(Token {
@@ -214,8 +217,10 @@ impl Lexer {
             None => {
                 self.pos += 1;
                 let span = Span::new(self.offs[start], self.offset());
-                self.diags
-                    .push(Diagnostic::error(format!("unexpected character `{c}`"), span));
+                self.diags.push(Diagnostic::error(
+                    format!("unexpected character `{c}`"),
+                    span,
+                ));
             }
         }
     }
@@ -226,8 +231,7 @@ impl Lexer {
         let mut is_float = false;
 
         // Fractional part: `.` followed by a digit (not `..` range).
-        if self.peek_or_nul() == '.'
-            && self.peek_at(1).map(|c| c.is_ascii_digit()).unwrap_or(false)
+        if self.peek_or_nul() == '.' && self.peek_at(1).map(|c| c.is_ascii_digit()).unwrap_or(false)
         {
             is_float = true;
             self.pos += 1; // '.'
