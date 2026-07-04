@@ -1,5 +1,6 @@
 mod app;
 mod cells;
+mod evaluator;
 mod persistence;
 
 use app::NotebookApp;
