@@ -1,6 +1,8 @@
 [workspace]
 members = [
     "crates/poincare-lib",
+    "crates/poincare-evaluator",
+    "crates/poincare-notebook-lib",
     "crates/poincare-app",
     "crates/poincare-dvd",
     "crates/poincare-mobile",
@@ -9,6 +11,8 @@ resolver = "3"
 
 [workspace.dependencies]
 poincare-lib = { path = "crates/poincare-lib", version = "0.7.0" }
+poincare-evaluator = { path = "crates/poincare-evaluator", version = "0.1.0" }
+poincare-notebook-lib = { path = "crates/poincare-notebook-lib", version = "0.1.0" }
 viewport-lib = { path = "../viewport-lib", version = "0.18.2" }
 wgpu = { version = "27.0", features = ["metal", "vulkan"] }
 glam = { version = "=0.30.10", features = ["bytemuck"] }
