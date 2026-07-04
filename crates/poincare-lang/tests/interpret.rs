@@ -15,13 +15,21 @@ fn run(src: &str) -> RunOutcome {
 
 fn value_of(src: &str) -> String {
     let outcome = run(src);
-    assert!(outcome.error.is_none(), "runtime error: {:?}", outcome.error);
+    assert!(
+        outcome.error.is_none(),
+        "runtime error: {:?}",
+        outcome.error
+    );
     outcome.value_display.unwrap_or_else(|| "()".to_string())
 }
 
 fn output_of(src: &str) -> Vec<String> {
     let outcome = run(src);
-    assert!(outcome.error.is_none(), "runtime error: {:?}", outcome.error);
+    assert!(
+        outcome.error.is_none(),
+        "runtime error: {:?}",
+        outcome.error
+    );
     outcome.output
 }
 

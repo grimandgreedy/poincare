@@ -23,7 +23,11 @@ pub struct CoreProgram {
 #[derive(Clone, Debug)]
 pub enum CoreStmt {
     /// Bind or rebind a name in the current scope.
-    Bind { name: String, value: Core, span: Span },
+    Bind {
+        name: String,
+        value: Core,
+        span: Span,
+    },
     /// Evaluate an expression for its value/effect.
     Expr(Core),
 }
@@ -37,23 +41,82 @@ pub struct CoreArg {
 
 #[derive(Clone, Debug)]
 pub enum Core {
-    Unit { span: Span },
-    Num { value: f64, span: Span },
-    Bool { value: bool, span: Span },
-    Str { value: String, span: Span },
-    Var { name: String, span: Span },
-    List { items: Vec<Core>, span: Span },
-    Range { lo: Box<Core>, hi: Box<Core>, span: Span },
-    Unary { op: UnaryOp, expr: Box<Core>, span: Span },
-    Binary { op: BinaryOp, lhs: Box<Core>, rhs: Box<Core>, span: Span },
-    Lambda { params: Vec<String>, body: Box<Core>, span: Span },
-    Apply { func: Box<Core>, args: Vec<CoreArg>, span: Span },
-    Index { base: Box<Core>, index: Box<Core>, span: Span },
-    If { cond: Box<Core>, then: Box<Core>, els: Box<Core>, span: Span },
-    Block { stmts: Vec<CoreStmt>, tail: Option<Box<Core>>, span: Span },
-    For { var: String, iter: Box<Core>, body: Box<Core>, span: Span },
+    Unit {
+        span: Span,
+    },
+    Num {
+        value: f64,
+        span: Span,
+    },
+    Bool {
+        value: bool,
+        span: Span,
+    },
+    Str {
+        value: String,
+        span: Span,
+    },
+    Var {
+        name: String,
+        span: Span,
+    },
+    List {
+        items: Vec<Core>,
+        span: Span,
+    },
+    Range {
+        lo: Box<Core>,
+        hi: Box<Core>,
+        span: Span,
+    },
+    Unary {
+        op: UnaryOp,
+        expr: Box<Core>,
+        span: Span,
+    },
+    Binary {
+        op: BinaryOp,
+        lhs: Box<Core>,
+        rhs: Box<Core>,
+        span: Span,
+    },
+    Lambda {
+        params: Vec<String>,
+        body: Box<Core>,
+        span: Span,
+    },
+    Apply {
+        func: Box<Core>,
+        args: Vec<CoreArg>,
+        span: Span,
+    },
+    Index {
+        base: Box<Core>,
+        index: Box<Core>,
+        span: Span,
+    },
+    If {
+        cond: Box<Core>,
+        then: Box<Core>,
+        els: Box<Core>,
+        span: Span,
+    },
+    Block {
+        stmts: Vec<CoreStmt>,
+        tail: Option<Box<Core>>,
+        span: Span,
+    },
+    For {
+        var: String,
+        iter: Box<Core>,
+        body: Box<Core>,
+        span: Span,
+    },
     /// A construct not yet executable (currently `plot`).
-    Todo { what: &'static str, span: Span },
+    Todo {
+        what: &'static str,
+        span: Span,
+    },
 }
 
 impl Core {
@@ -83,7 +146,11 @@ impl Core {
 pub fn lower(program: &ast::Program) -> CoreProgram {
     let mut lowerer = Lowerer { fresh: 0 };
     CoreProgram {
-        stmts: program.stmts.iter().filter_map(|s| lowerer.stmt(s)).collect(),
+        stmts: program
+            .stmts
+            .iter()
+            .filter_map(|s| lowerer.stmt(s))
+            .collect(),
     }
 }
 
@@ -243,9 +310,7 @@ impl Lowerer {
         let els = match if_expr.els.as_deref() {
             Some(ElseBranch::Block(b)) => self.block(b),
             Some(ElseBranch::If(nested)) => self.lower_if(nested),
-            None => Core::Unit {
-                span: if_expr.span,
-            },
+            None => Core::Unit { span: if_expr.span },
         };
         Core::If {
             cond: Box::new(self.expr(&if_expr.cond)),

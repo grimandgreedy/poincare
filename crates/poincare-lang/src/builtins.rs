@@ -4,8 +4,11 @@
 //! builtin call. The actual builtin implementations arrive in language Phase 5.
 
 pub const MATH: &[&str] = &[
-    "sin", "cos", "tan", "exp", "log", "sqrt", "abs", "min", "max", "floor", "ceil", "pi", "e",
+    "sin", "cos", "tan", "asin", "acos", "atan", "atan2", "exp", "log", "log2", "log10", "sqrt",
+    "pow", "abs", "sign", "round", "trunc", "floor", "ceil", "min", "max", "pi", "e",
 ];
+
+pub const LIST: &[&str] = &["len", "sum", "mean", "prod", "map", "filter"];
 
 pub const GRAPH: &[&str] = &[
     "graph",
@@ -26,7 +29,7 @@ pub const ATTACHMENT: &[&str] = &["attachment", "bytes", "text", "csv", "csv_mat
 
 pub const OUTPUT: &[&str] = &["print", "emit"];
 
-const GROUPS: &[&[&str]] = &[MATH, GRAPH, TABLE, ANALYSIS, ATTACHMENT, OUTPUT];
+const GROUPS: &[&[&str]] = &[MATH, LIST, GRAPH, TABLE, ANALYSIS, ATTACHMENT, OUTPUT];
 
 /// Whether `name` is a known builtin.
 pub fn is_builtin(name: &str) -> bool {

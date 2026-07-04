@@ -13,8 +13,8 @@ The language should start practical and constrained, but it should be designed a
 | 1 | Language scope, syntax, and value model | Complete | Medium | High |
 | 2 | Lexer, parser, AST, and diagnostics | Complete | Large | High |
 | 3 | Name resolution, scopes, and runtime environment | Complete | Large | High |
-| 4 | Tree-walking interpreter | Planned | Large | High |
-| 5 | Poincare graph/table/math builtins | Planned | Large | High |
+| 4 | Tree-walking interpreter | Complete | Large | High |
+| 5 | Poincare graph/table/math builtins | Complete | Large | High |
 | 6 | Evaluator integration | Planned | Medium | High |
 | 7 | Symbolic-capable `MathExpr` expansion | Planned | Large | Medium |
 | 8 | Bytecode or IR optimization path | Planned | Large | Low |
@@ -721,6 +721,15 @@ Notes:
 - This is the first real execution engine.
 - Keep it simple. The interpreter only needs to be fast enough for notebook orchestration, not dense numeric sampling.
 
+Implemented (in `poincare-lang`):
+- `ir` module: an untyped core IR plus a lowering pass from the surface AST, so the interpreter runs the core, not the AST (core-IR-as-semantic-target). Lowering desugars expression/block functions into `Lambda` bindings, `x |> f` into `f(x)`, `g . f` into `(v) => g(f(v))` with a fresh variable, `if`/`else` chains into nested `If`, drops signatures, and lowers `plot` to a `Todo` placeholder pending graph builtins.
+- `interpreter` module: a tree-walking interpreter over the core. Runtime `Value` (unit, number, bool, string, list, range, closure, builtin), a shared reference-counted `Environment` so closures capture their defining scope (top-level functions can mutually recurse), and a persistent session environment so a definition in one `run` is visible to the next (notebook session semantics).
+- Execution: expressions, bindings, expression/block functions with closures and recursion, positional and named call arguments, `if`, `for` over lists and ranges, blocks with tail values, lists and indexing, `print` output stream, and a value preview for the final expression.
+- Builtins in this phase: `print` plus pure math (`sin`, `cos`, `tan`, `exp`, `log`, `sqrt`, `abs`, `floor`, `ceil`, `min`, `max`) and the constants `pi`/`e`. Graph/table/analysis/attachment builtins and `plot` execution return a clear "not yet" runtime error, deferred to Phase 5.
+- Runtime diagnostics: type errors (obviously-wrong value kinds), arity/argument errors, non-callable values, index-out-of-bounds; runtime errors stop the cell while preserving prior `print` output.
+- Bounded execution: a loop-iteration limit, a call-depth limit (guards infinite recursion), and a cancellation flag hook (`cancel_handle`).
+- 26 interpreter tests covering normal execution and runtime errors, bringing `poincare-lang` to 81 tests total.
+
 ## Phase 5: Poincare Graph/Table/Math Builtins
 
 Goal: make the language useful for actual Poincare notebook work.
@@ -760,6 +769,21 @@ Notes:
 - Builtins should return normal values, not mutate hidden UI state.
 - Concise notebook syntax can emit values automatically, but the runtime model should remain value-oriented.
 - General filesystem I/O should remain deferred until the notebook security/trust model is mature.
+
+Implemented (in `poincare-lang`):
+- Structured runtime values: `Table`, `Plot`, `Graph`, `Attachment`, `Bytes` added to `Value`. These are language-native values, kept decoupled from `poincare-lib`; the Phase 6 adapter translates `Plot`/`Graph`/`Table` into `poincare_lib::GraphSpec`/`PlotSpec` and evaluator table values.
+- Math builtins: `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `log`, `log2`, `log10`, `sqrt`, `pow`, `abs`, `sign`, `round`, `trunc`, `floor`, `ceil`, `min`, `max`, plus the constants `pi`/`e`.
+- List/data and higher-order builtins: `len`, `sum`, `mean`, `prod`, `map`, `filter` (the last two call closures, demonstrating first-class functions in builtins).
+- Graph/plot builtins: `graph`, `add_plot`, `surface`, `curve`, `scatter`, `vector_field`, `volume`, `isosurface`, returning `Plot`/`Graph` values (named fields captured); value-oriented, no hidden UI state.
+- Table builtins: `column`, `columns`, `rows`, `array2d`, plus `csv`/`csv_matrix` parsing.
+- Attachment/data loading via a `Host` trait (`attachment`, `text`, `bytes`, `csv`, `csv_matrix`); attachments resolve only through the host, never the filesystem. `csv` also accepts a literal CSV string for testing.
+- Analysis: numeric `derivative(f, x)` (central difference, uses closures); `gradient`/`fit` return a clear "not implemented yet" error, deferred pending `poincare-lib` analysis integration.
+- Output builtin `emit(...)` collects structured values into `RunOutcome.emitted`, distinct from the `print` text stream.
+- 18 builtin tests (with an in-memory host), bringing `poincare-lang` to 99 tests total.
+
+Deferred:
+- Real `poincare-lib` analysis dispatch (`gradient`, `fit`, and surface/curve analysis) belongs at the evaluator-adapter boundary where `poincare-lib` is available.
+- Filtering/sorting table helpers.
 
 ## Phase 6: Evaluator Integration
 

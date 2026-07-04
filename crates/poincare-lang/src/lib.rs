@@ -10,6 +10,7 @@ pub mod ast;
 pub mod builtins;
 pub mod diagnostic;
 pub mod env;
+pub mod host;
 pub mod interpreter;
 pub mod ir;
 pub mod lexer;
@@ -21,7 +22,10 @@ pub mod token;
 pub use ast::{Program, Stmt};
 pub use diagnostic::{Diagnostic, Severity};
 pub use env::Env;
-pub use interpreter::{Interpreter, Limits, RunOutcome, RuntimeError, Value};
+pub use host::Host;
+pub use interpreter::{
+    Graph, Interpreter, Limits, Plot, RunOutcome, RuntimeError, Table, Value,
+};
 pub use lexer::lex;
 pub use parser::{ParseResult, parse};
 pub use resolver::{ResolveResult, SessionScope, resolve};

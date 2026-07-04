@@ -15,8 +15,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::ast::{BinaryOp, Program, UnaryOp};
 use crate::builtins;
+use crate::host::Host;
 use crate::ir::{self, Core, CoreArg, CoreStmt};
 use crate::span::Span;
+
+/// A call argument paired with an optional name.
+type CallArg = (Option<String>, Value);
 
 /// A runtime error with the span of the offending construct.
 #[derive(Clone, Debug, PartialEq)]
@@ -37,23 +41,57 @@ impl RuntimeError {
 type EvalResult = Result<Value, RuntimeError>;
 
 /// A runtime value.
-#[derive(Clone)]
+///
+/// Graph/plot/table values are language-native structured values, not
+/// `poincare-lib` types; the Phase 6 evaluator adapter translates them into
+/// `poincare_lib::GraphSpec`/`PlotSpec` and evaluator table values, keeping
+/// this crate decoupled from the graphing library.
+#[derive(Clone, Debug)]
 pub enum Value {
     Unit,
     Num(f64),
     Bool(bool),
     Str(Rc<str>),
+    Bytes(Rc<Vec<u8>>),
     List(Rc<Vec<Value>>),
     /// An inclusive numeric range `lo..hi`.
     Range(f64, f64),
+    Table(Rc<Table>),
+    Plot(Rc<Plot>),
+    Graph(Rc<Graph>),
+    /// A handle to a notebook attachment, resolved through the host.
+    Attachment(Rc<str>),
     Closure(Rc<Closure>),
     Builtin(&'static str),
 }
 
+#[derive(Debug)]
 pub struct Closure {
     params: Vec<String>,
     body: Core,
     env: Environment,
+}
+
+/// A tabular value: named columns over rows of cells.
+#[derive(Clone, Debug)]
+pub struct Table {
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<Value>>,
+}
+
+/// A single plot: its kind (`surface`, `curve`, ...) plus the fields it was
+/// built from. Interpreted into a `poincare-lib` plot by the evaluator adapter.
+#[derive(Clone, Debug)]
+pub struct Plot {
+    pub kind: String,
+    pub fields: Vec<(String, Value)>,
+    pub positional: Vec<Value>,
+}
+
+/// A graph: an ordered collection of plots.
+#[derive(Clone, Debug)]
+pub struct Graph {
+    pub plots: Vec<Plot>,
 }
 
 impl Value {
@@ -63,8 +101,13 @@ impl Value {
             Value::Num(_) => "number",
             Value::Bool(_) => "bool",
             Value::Str(_) => "string",
+            Value::Bytes(_) => "bytes",
             Value::List(_) => "list",
             Value::Range(_, _) => "range",
+            Value::Table(_) => "table",
+            Value::Plot(_) => "plot",
+            Value::Graph(_) => "graph",
+            Value::Attachment(_) => "attachment",
             Value::Closure(_) => "function",
             Value::Builtin(_) => "builtin",
         }
@@ -82,6 +125,13 @@ impl Value {
                 format!("[{}]", inner.join(", "))
             }
             Value::Range(lo, hi) => format!("{lo}..{hi}"),
+            Value::Bytes(b) => format!("<bytes {}>", b.len()),
+            Value::Table(t) => {
+                format!("<table {} columns x {} rows>", t.columns.len(), t.rows.len())
+            }
+            Value::Plot(p) => format!("<plot {}>", p.kind),
+            Value::Graph(g) => format!("<graph {} plots>", g.plots.len()),
+            Value::Attachment(name) => format!("<attachment {name}>"),
             Value::Closure(_) => "<function>".to_string(),
             Value::Builtin(name) => format!("<builtin {name}>"),
         }
@@ -109,7 +159,7 @@ type Scope = Rc<RefCell<HashMap<String, Value>>>;
 /// The runtime realization of the scope-chain model: scopes are shared so
 /// closures capturing an environment see later mutations to it (needed for
 /// mutual recursion between top-level definitions).
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Environment {
     scopes: Vec<Scope>,
 }
@@ -173,6 +223,8 @@ pub struct RunOutcome {
     pub value_display: Option<String>,
     /// Text written by `print`, one entry per call.
     pub output: Vec<String>,
+    /// Structured values emitted via `emit` (graphs, plots, tables).
+    pub emitted: Vec<Value>,
     pub error: Option<RuntimeError>,
 }
 
@@ -180,6 +232,8 @@ pub struct Interpreter {
     env: Environment,
     limits: Limits,
     output: Vec<String>,
+    emitted: Vec<Value>,
+    host: Option<Rc<dyn Host>>,
     loop_iterations: u64,
     call_depth: usize,
     cancel: Arc<AtomicBool>,
@@ -201,10 +255,17 @@ impl Interpreter {
             env: Environment::new(),
             limits,
             output: Vec::new(),
+            emitted: Vec::new(),
+            host: None,
             loop_iterations: 0,
             call_depth: 0,
             cancel: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// Install the host that resolves attachments.
+    pub fn set_host(&mut self, host: Rc<dyn Host>) {
+        self.host = Some(host);
     }
 
     /// A handle a host can set to request cancellation of a running cell.
@@ -216,6 +277,7 @@ impl Interpreter {
     pub fn run(&mut self, program: &Program) -> RunOutcome {
         let core = ir::lower(program);
         self.output.clear();
+        self.emitted.clear();
         self.loop_iterations = 0;
         self.call_depth = 0;
         self.cancel.store(false, Ordering::Relaxed);
@@ -228,14 +290,18 @@ impl Interpreter {
                     return RunOutcome {
                         value_display: last.map(|v| v.display()),
                         output: std::mem::take(&mut self.output),
+                        emitted: std::mem::take(&mut self.emitted),
                         error: Some(error),
                     };
                 }
             }
         }
         RunOutcome {
-            value_display: last.filter(|v| !matches!(v, Value::Unit)).map(|v| v.display()),
+            value_display: last
+                .filter(|v| !matches!(v, Value::Unit))
+                .map(|v| v.display()),
             output: std::mem::take(&mut self.output),
+            emitted: std::mem::take(&mut self.emitted),
             error: None,
         }
     }
@@ -400,18 +466,15 @@ impl Interpreter {
         env: &Environment,
     ) -> EvalResult {
         let callee = self.eval(func, env)?;
-        let mut arg_values: Vec<(Option<&str>, Value)> = Vec::with_capacity(args.len());
+        let mut arg_values: Vec<CallArg> = Vec::with_capacity(args.len());
         for arg in args {
             let value = self.eval(&arg.value, env)?;
-            arg_values.push((arg.name.as_deref(), value));
+            arg_values.push((arg.name.clone(), value));
         }
 
         match callee {
             Value::Closure(closure) => self.call_closure(&closure, arg_values, span),
-            Value::Builtin(name) => {
-                let positional: Vec<Value> = arg_values.into_iter().map(|(_, v)| v).collect();
-                self.call_builtin(name, positional, span)
-            }
+            Value::Builtin(name) => self.call_builtin(name, arg_values, span),
             other => Err(RuntimeError::new(
                 format!("a {} is not callable", other.kind()),
                 span,
@@ -419,17 +482,26 @@ impl Interpreter {
         }
     }
 
-    fn call_closure(
-        &mut self,
-        closure: &Closure,
-        args: Vec<(Option<&str>, Value)>,
-        span: Span,
-    ) -> EvalResult {
+    /// Apply a callable value to positional arguments (used by higher-order
+    /// builtins like `map`).
+    fn apply_callable(&mut self, callable: &Value, args: Vec<Value>, span: Span) -> EvalResult {
+        let named: Vec<CallArg> = args.into_iter().map(|v| (None, v)).collect();
+        match callable {
+            Value::Closure(closure) => self.call_closure(closure, named, span),
+            Value::Builtin(name) => self.call_builtin(name, named, span),
+            other => Err(RuntimeError::new(
+                format!("a {} is not callable", other.kind()),
+                span,
+            )),
+        }
+    }
+
+    fn call_closure(&mut self, closure: &Closure, args: Vec<CallArg>, span: Span) -> EvalResult {
         let mut slots: Vec<Option<Value>> = vec![None; closure.params.len()];
         let mut next_positional = 0;
         for (name, value) in args {
             match name {
-                Some(name) => match closure.params.iter().position(|p| p == name) {
+                Some(name) => match closure.params.iter().position(|p| *p == name) {
                     Some(idx) => slots[idx] = Some(value),
                     None => {
                         return Err(RuntimeError::new(
@@ -477,45 +549,313 @@ impl Interpreter {
         result
     }
 
-    fn call_builtin(&mut self, name: &str, args: Vec<Value>, span: Span) -> EvalResult {
+    fn call_builtin(&mut self, name: &str, args: Vec<CallArg>, span: Span) -> EvalResult {
         match name {
+            // --- output ---
             "print" => {
-                let text: Vec<String> = args.iter().map(Value::display).collect();
+                let text: Vec<String> = positional(args).iter().map(Value::display).collect();
                 self.output.push(text.join(" "));
                 Ok(Value::Unit)
             }
-            "sin" | "cos" | "tan" | "exp" | "log" | "sqrt" | "abs" | "floor" | "ceil" => {
-                let x = single_number_arg(name, &args, span)?;
+            "emit" => {
+                let values = positional(args);
+                if values.is_empty() {
+                    return Err(RuntimeError::new("`emit` needs a value", span));
+                }
+                for v in values {
+                    self.emitted.push(v);
+                }
+                Ok(Value::Unit)
+            }
+
+            // --- unary math ---
+            "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "exp" | "log" | "log2"
+            | "log10" | "sqrt" | "abs" | "sign" | "round" | "trunc" | "floor" | "ceil" => {
+                let x = single_number_arg(name, &positional(args), span)?;
                 let r = match name {
                     "sin" => x.sin(),
                     "cos" => x.cos(),
                     "tan" => x.tan(),
+                    "asin" => x.asin(),
+                    "acos" => x.acos(),
+                    "atan" => x.atan(),
                     "exp" => x.exp(),
                     "log" => x.ln(),
+                    "log2" => x.log2(),
+                    "log10" => x.log10(),
                     "sqrt" => x.sqrt(),
                     "abs" => x.abs(),
+                    "sign" => x.signum(),
+                    "round" => x.round(),
+                    "trunc" => x.trunc(),
                     "floor" => x.floor(),
                     "ceil" => x.ceil(),
                     _ => unreachable!(),
                 };
                 Ok(Value::Num(r))
             }
+            "atan2" | "pow" => {
+                let a = positional(args);
+                if a.len() != 2 {
+                    return Err(RuntimeError::new(
+                        format!("`{name}` takes exactly two arguments"),
+                        span,
+                    ));
+                }
+                let x = number(&a[0], span)?;
+                let y = number(&a[1], span)?;
+                Ok(Value::Num(if name == "atan2" {
+                    x.atan2(y)
+                } else {
+                    x.powf(y)
+                }))
+            }
             "min" | "max" => {
-                if args.is_empty() {
+                let a = positional(args);
+                if a.is_empty() {
                     return Err(RuntimeError::new(
                         format!("`{name}` needs at least one argument"),
                         span,
                     ));
                 }
-                let mut acc = number(&args[0], span)?;
-                for arg in &args[1..] {
+                let mut acc = number(&a[0], span)?;
+                for arg in &a[1..] {
                     let v = number(arg, span)?;
                     acc = if name == "min" { acc.min(v) } else { acc.max(v) };
                 }
                 Ok(Value::Num(acc))
             }
+
+            // --- list / data ---
+            "len" => {
+                let a = single_arg(name, positional(args), span)?;
+                let n = match &a {
+                    Value::List(items) => items.len(),
+                    Value::Str(s) => s.chars().count(),
+                    Value::Table(t) => t.rows.len(),
+                    other => {
+                        return Err(RuntimeError::new(
+                            format!("cannot take the length of a {}", other.kind()),
+                            span,
+                        ));
+                    }
+                };
+                Ok(Value::Num(n as f64))
+            }
+            "sum" | "mean" | "prod" => {
+                let a = single_arg(name, positional(args), span)?;
+                let items = expect_list(&a, span)?;
+                let nums: Result<Vec<f64>, RuntimeError> =
+                    items.iter().map(|v| number(v, span)).collect();
+                let nums = nums?;
+                match name {
+                    "sum" => Ok(Value::Num(nums.iter().sum())),
+                    "prod" => Ok(Value::Num(nums.iter().product())),
+                    "mean" => {
+                        if nums.is_empty() {
+                            return Err(RuntimeError::new("`mean` of an empty list", span));
+                        }
+                        Ok(Value::Num(nums.iter().sum::<f64>() / nums.len() as f64))
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            "map" | "filter" => {
+                let a = positional(args);
+                if a.len() != 2 {
+                    return Err(RuntimeError::new(
+                        format!("`{name}` takes a list and a function"),
+                        span,
+                    ));
+                }
+                let items = expect_list(&a[0], span)?.to_vec();
+                let func = a[1].clone();
+                let mut out = Vec::new();
+                for item in items {
+                    let result = self.apply_callable(&func, vec![item.clone()], span)?;
+                    if name == "map" {
+                        out.push(result);
+                    } else if bool_value(&result, span)? {
+                        out.push(item);
+                    }
+                }
+                Ok(Value::List(Rc::new(out)))
+            }
+
+            // --- graphs and plots ---
+            "graph" => Ok(Value::Graph(Rc::new(Graph { plots: Vec::new() }))),
+            "surface" | "curve" | "scatter" | "vector_field" | "volume" | "isosurface" => {
+                let mut fields = Vec::new();
+                let mut plot_positional = Vec::new();
+                for (arg_name, value) in args {
+                    match arg_name {
+                        Some(n) => fields.push((n, value)),
+                        None => plot_positional.push(value),
+                    }
+                }
+                Ok(Value::Plot(Rc::new(Plot {
+                    kind: name.to_string(),
+                    fields,
+                    positional: plot_positional,
+                })))
+            }
+            "add_plot" => {
+                let a = positional(args);
+                if a.len() != 2 {
+                    return Err(RuntimeError::new("`add_plot` takes a graph and a plot", span));
+                }
+                let graph = match &a[0] {
+                    Value::Graph(g) => g,
+                    other => {
+                        return Err(RuntimeError::new(
+                            format!("`add_plot` expected a graph, found a {}", other.kind()),
+                            span,
+                        ));
+                    }
+                };
+                let plot = match &a[1] {
+                    Value::Plot(p) => (**p).clone(),
+                    other => {
+                        return Err(RuntimeError::new(
+                            format!("`add_plot` expected a plot, found a {}", other.kind()),
+                            span,
+                        ));
+                    }
+                };
+                let mut plots = graph.plots.clone();
+                plots.push(plot);
+                Ok(Value::Graph(Rc::new(Graph { plots })))
+            }
+
+            // --- tables ---
+            "column" => {
+                let a = positional(args);
+                if a.len() != 2 {
+                    return Err(RuntimeError::new("`column` takes a table and a name", span));
+                }
+                let table = expect_table(&a[0], span)?;
+                let col_name = expect_string(&a[1], span)?;
+                let idx = table
+                    .columns
+                    .iter()
+                    .position(|c| c == &col_name)
+                    .ok_or_else(|| RuntimeError::new(format!("no column named `{col_name}`"), span))?;
+                let cells = table
+                    .rows
+                    .iter()
+                    .map(|row| row.get(idx).cloned().unwrap_or(Value::Unit))
+                    .collect();
+                Ok(Value::List(Rc::new(cells)))
+            }
+            "columns" => {
+                let value = single_arg(name, positional(args), span)?;
+                let table = expect_table(&value, span)?;
+                let names = table
+                    .columns
+                    .iter()
+                    .map(|c| Value::Str(Rc::from(c.as_str())))
+                    .collect();
+                Ok(Value::List(Rc::new(names)))
+            }
+            "rows" => {
+                let value = single_arg(name, positional(args), span)?;
+                let table = expect_table(&value, span)?;
+                let rows = table
+                    .rows
+                    .iter()
+                    .map(|row| Value::List(Rc::new(row.clone())))
+                    .collect();
+                Ok(Value::List(Rc::new(rows)))
+            }
+            "array2d" => {
+                let value = single_arg(name, positional(args), span)?;
+                let table = expect_table(&value, span)?;
+                let mut matrix = Vec::with_capacity(table.rows.len());
+                for row in &table.rows {
+                    let nums: Result<Vec<Value>, RuntimeError> =
+                        row.iter().map(|c| number(c, span).map(Value::Num)).collect();
+                    matrix.push(Value::List(Rc::new(nums?)));
+                }
+                Ok(Value::List(Rc::new(matrix)))
+            }
+
+            // --- attachments and data loading ---
+            "attachment" => {
+                let name_value = single_arg(name, positional(args), span)?;
+                let id = expect_string(&name_value, span)?;
+                Ok(Value::Attachment(Rc::from(id.as_str())))
+            }
+            "text" => {
+                let a = single_arg(name, positional(args), span)?;
+                Ok(Value::Str(Rc::from(self.text_source(&a, span)?.as_str())))
+            }
+            "bytes" => {
+                let a = single_arg(name, positional(args), span)?;
+                let bytes = self.attachment_bytes(&a, span)?;
+                Ok(Value::Bytes(Rc::new(bytes)))
+            }
+            "csv" => {
+                let a = single_arg(name, positional(args), span)?;
+                let text = self.text_source(&a, span)?;
+                Ok(Value::Table(Rc::new(parse_csv(&text))))
+            }
+            "csv_matrix" => {
+                let a = single_arg(name, positional(args), span)?;
+                let text = self.text_source(&a, span)?;
+                parse_csv_matrix(&text, span)
+            }
+
+            // --- analysis ---
+            "derivative" => {
+                let a = positional(args);
+                if a.len() != 2 {
+                    return Err(RuntimeError::new(
+                        "`derivative` takes a function and a point",
+                        span,
+                    ));
+                }
+                let func = a[0].clone();
+                let x = number(&a[1], span)?;
+                let h = 1e-6;
+                let hi = self.apply_callable(&func, vec![Value::Num(x + h)], span)?;
+                let lo = self.apply_callable(&func, vec![Value::Num(x - h)], span)?;
+                let d = (number(&hi, span)? - number(&lo, span)?) / (2.0 * h);
+                Ok(Value::Num(d))
+            }
+
             other => Err(RuntimeError::new(
                 format!("builtin `{other}` is not implemented yet (coming in a later phase)"),
+                span,
+            )),
+        }
+    }
+
+    fn text_source(&self, value: &Value, span: Span) -> Result<String, RuntimeError> {
+        match value {
+            Value::Str(s) => Ok(s.to_string()),
+            Value::Attachment(id) => match &self.host {
+                Some(host) => host
+                    .attachment_text(id)
+                    .map_err(|e| RuntimeError::new(e, span)),
+                None => Err(RuntimeError::new("no attachment host is available", span)),
+            },
+            other => Err(RuntimeError::new(
+                format!("expected text or an attachment, found a {}", other.kind()),
+                span,
+            )),
+        }
+    }
+
+    fn attachment_bytes(&self, value: &Value, span: Span) -> Result<Vec<u8>, RuntimeError> {
+        match value {
+            Value::Attachment(id) => match &self.host {
+                Some(host) => host
+                    .attachment_bytes(id)
+                    .map_err(|e| RuntimeError::new(e, span)),
+                None => Err(RuntimeError::new("no attachment host is available", span)),
+            },
+            other => Err(RuntimeError::new(
+                format!("`bytes` expected an attachment, found a {}", other.kind()),
                 span,
             )),
         }
@@ -677,4 +1017,109 @@ fn single_number_arg(name: &str, args: &[Value], span: Span) -> Result<f64, Runt
         ));
     }
     number(&args[0], span)
+}
+
+/// Discard argument names, keeping values in order.
+fn positional(args: Vec<CallArg>) -> Vec<Value> {
+    args.into_iter().map(|(_, v)| v).collect()
+}
+
+/// Require exactly one positional argument.
+fn single_arg(name: &str, mut args: Vec<Value>, span: Span) -> Result<Value, RuntimeError> {
+    if args.len() != 1 {
+        return Err(RuntimeError::new(
+            format!("`{name}` takes exactly one argument, got {}", args.len()),
+            span,
+        ));
+    }
+    Ok(args.pop().unwrap())
+}
+
+fn bool_value(value: &Value, span: Span) -> Result<bool, RuntimeError> {
+    match value {
+        Value::Bool(b) => Ok(*b),
+        other => Err(RuntimeError::new(
+            format!("expected a bool, found a {}", other.kind()),
+            span,
+        )),
+    }
+}
+
+fn expect_list(value: &Value, span: Span) -> Result<&[Value], RuntimeError> {
+    match value {
+        Value::List(items) => Ok(items),
+        other => Err(RuntimeError::new(
+            format!("expected a list, found a {}", other.kind()),
+            span,
+        )),
+    }
+}
+
+fn expect_string(value: &Value, span: Span) -> Result<String, RuntimeError> {
+    match value {
+        Value::Str(s) => Ok(s.to_string()),
+        other => Err(RuntimeError::new(
+            format!("expected a string, found a {}", other.kind()),
+            span,
+        )),
+    }
+}
+
+fn expect_table(value: &Value, span: Span) -> Result<&Table, RuntimeError> {
+    match value {
+        Value::Table(t) => Ok(t),
+        other => Err(RuntimeError::new(
+            format!("expected a table, found a {}", other.kind()),
+            span,
+        )),
+    }
+}
+
+/// Parse CSV text into a table. The first non-empty line is the header. Cells
+/// that parse as numbers become numbers; the rest stay strings. No quoting.
+fn parse_csv(text: &str) -> Table {
+    let mut lines = text.lines().filter(|l| !l.trim().is_empty());
+    let columns: Vec<String> = match lines.next() {
+        Some(header) => header.split(',').map(|s| s.trim().to_string()).collect(),
+        None => Vec::new(),
+    };
+    let rows = lines
+        .map(|line| {
+            line.split(',')
+                .map(|cell| {
+                    let cell = cell.trim();
+                    match cell.parse::<f64>() {
+                        Ok(n) => Value::Num(n),
+                        Err(_) => Value::Str(Rc::from(cell)),
+                    }
+                })
+                .collect()
+        })
+        .collect();
+    Table { columns, rows }
+}
+
+/// Parse CSV text as a numeric matrix (no header): a list of lists of numbers.
+fn parse_csv_matrix(text: &str, span: Span) -> EvalResult {
+    let mut matrix = Vec::new();
+    for (line_idx, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let mut row = Vec::new();
+        for cell in line.split(',') {
+            let cell = cell.trim();
+            match cell.parse::<f64>() {
+                Ok(n) => row.push(Value::Num(n)),
+                Err(_) => {
+                    return Err(RuntimeError::new(
+                        format!("non-numeric cell `{cell}` on line {}", line_idx + 1),
+                        span,
+                    ));
+                }
+            }
+        }
+        matrix.push(Value::List(Rc::new(row)));
+    }
+    Ok(Value::List(Rc::new(matrix)))
 }
