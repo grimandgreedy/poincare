@@ -1,0 +1,302 @@
+use eframe::egui;
+use poincare_notebook_lib::{
+    DiagnosticSeverity, ExecutionState, NotebookBlock, NotebookBlockKind, NotebookOutputKind,
+    TextFormat,
+};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CellAction {
+    InsertMarkdownAbove,
+    InsertMarkdownBelow,
+    InsertCodeAbove,
+    InsertCodeBelow,
+    Delete,
+    Duplicate,
+    MoveUp,
+    MoveDown,
+    ToggleCollapsed,
+    ToggleOutputs,
+    ConvertToMarkdown,
+    ConvertToCode,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct CellUiResponse {
+    pub action: Option<CellAction>,
+    pub edited: bool,
+    pub clicked: bool,
+}
+
+pub fn show_cell(ui: &mut egui::Ui, block: &mut NotebookBlock, selected: bool) -> CellUiResponse {
+    let mut response = CellUiResponse::default();
+    let frame = egui::Frame::default()
+        .fill(if selected {
+            ui.visuals().selection.bg_fill.gamma_multiply(0.18)
+        } else {
+            ui.visuals().panel_fill
+        })
+        .stroke(egui::Stroke::new(
+            1.0,
+            if selected {
+                ui.visuals().selection.stroke.color
+            } else {
+                ui.visuals().widgets.noninteractive.bg_stroke.color
+            },
+        ))
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::same(10));
+
+    let inner = frame.show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.label(cell_kind_label(block));
+            ui.separator();
+            ui.label(block.id.0.as_str());
+            ui.separator();
+            ui.label(cell_status_label(block));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                cell_menu(ui, &mut response);
+                if ui
+                    .small_button(if block.state.collapsed {
+                        "Expand"
+                    } else {
+                        "Collapse"
+                    })
+                    .clicked()
+                {
+                    response.action = Some(CellAction::ToggleCollapsed);
+                }
+            });
+        });
+
+        if !block.state.collapsed {
+            ui.add_space(6.0);
+            match &mut block.kind {
+                NotebookBlockKind::Text(cell) => {
+                    let editor = egui::TextEdit::multiline(&mut cell.source)
+                        .font(egui::TextStyle::Monospace)
+                        .desired_width(f32::INFINITY)
+                        .desired_rows(3)
+                        .hint_text("Markdown text");
+                    if ui.add(editor).changed() {
+                        response.edited = true;
+                    }
+                }
+                NotebookBlockKind::Executable(cell) => {
+                    let editor = egui::TextEdit::multiline(&mut cell.source)
+                        .font(egui::TextStyle::Monospace)
+                        .desired_width(f32::INFINITY)
+                        .desired_rows(4)
+                        .hint_text("Poincare code");
+                    if ui.add(editor).changed() {
+                        response.edited = true;
+                    }
+                }
+                NotebookBlockKind::Graph(_) => {
+                    ui.label("Graph block");
+                }
+                NotebookBlockKind::Table(table) => {
+                    ui.label(table.title.as_deref().unwrap_or("Table"));
+                    egui::Grid::new(format!("table-{}", block.id.0))
+                        .striped(true)
+                        .show(ui, |ui| {
+                            for column in &table.columns {
+                                ui.strong(column);
+                            }
+                            ui.end_row();
+                            for row in table.rows.iter().take(12) {
+                                for value in row {
+                                    ui.label(value);
+                                }
+                                ui.end_row();
+                            }
+                        });
+                }
+                NotebookBlockKind::Diagnostic(diagnostics) => {
+                    for diagnostic in &diagnostics.diagnostics {
+                        ui.colored_label(
+                            diagnostic_color(ui, diagnostic.severity),
+                            diagnostic.message.as_str(),
+                        );
+                    }
+                }
+            }
+
+            if !block.outputs.is_empty() {
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.label("Outputs");
+                    if ui
+                        .small_button(if block.state.outputs_collapsed {
+                            "Show"
+                        } else {
+                            "Hide"
+                        })
+                        .clicked()
+                    {
+                        response.action = Some(CellAction::ToggleOutputs);
+                    }
+                });
+                if !block.state.outputs_collapsed {
+                    show_outputs(ui, block);
+                }
+            }
+        }
+    });
+    if inner.response.clicked() {
+        response.clicked = true;
+    }
+
+    response
+}
+
+fn cell_menu(ui: &mut egui::Ui, response: &mut CellUiResponse) {
+    ui.menu_button("Cell", |ui| {
+        if ui.button("Insert Markdown Above").clicked() {
+            response.action = Some(CellAction::InsertMarkdownAbove);
+            ui.close();
+        }
+        if ui.button("Insert Code Above").clicked() {
+            response.action = Some(CellAction::InsertCodeAbove);
+            ui.close();
+        }
+        if ui.button("Insert Markdown Below").clicked() {
+            response.action = Some(CellAction::InsertMarkdownBelow);
+            ui.close();
+        }
+        if ui.button("Insert Code Below").clicked() {
+            response.action = Some(CellAction::InsertCodeBelow);
+            ui.close();
+        }
+        ui.separator();
+        if ui.button("Move Up").clicked() {
+            response.action = Some(CellAction::MoveUp);
+            ui.close();
+        }
+        if ui.button("Move Down").clicked() {
+            response.action = Some(CellAction::MoveDown);
+            ui.close();
+        }
+        if ui.button("Duplicate").clicked() {
+            response.action = Some(CellAction::Duplicate);
+            ui.close();
+        }
+        if ui.button("Delete").clicked() {
+            response.action = Some(CellAction::Delete);
+            ui.close();
+        }
+        ui.separator();
+        if ui.button("Convert to Markdown").clicked() {
+            response.action = Some(CellAction::ConvertToMarkdown);
+            ui.close();
+        }
+        if ui.button("Convert to Code").clicked() {
+            response.action = Some(CellAction::ConvertToCode);
+            ui.close();
+        }
+    });
+}
+
+fn show_outputs(ui: &mut egui::Ui, block: &NotebookBlock) {
+    for output in &block.outputs {
+        let stale = !output.stale.is_empty();
+        egui::Frame::default()
+            .fill(ui.visuals().extreme_bg_color)
+            .stroke(egui::Stroke::new(
+                1.0,
+                ui.visuals().widgets.noninteractive.bg_stroke.color,
+            ))
+            .corner_radius(egui::CornerRadius::same(4))
+            .inner_margin(egui::Margin::same(8))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(output_kind_label(&output.kind));
+                    if stale {
+                        ui.colored_label(ui.visuals().warn_fg_color, "stale");
+                    }
+                });
+                match &output.kind {
+                    NotebookOutputKind::Text(text) => {
+                        ui.monospace(text.text.as_str());
+                    }
+                    NotebookOutputKind::Value(value) => {
+                        ui.monospace(value.preview.as_str());
+                    }
+                    NotebookOutputKind::Table(table) => {
+                        ui.label(table.title.as_deref().unwrap_or("Table"));
+                        ui.label(format!(
+                            "{} rows x {} columns",
+                            table.rows.len(),
+                            table.columns.len()
+                        ));
+                    }
+                    NotebookOutputKind::Graph(graph) => {
+                        ui.label(format!("Graph output {}", graph.graph_id.0));
+                    }
+                    NotebookOutputKind::Image(image) => {
+                        ui.label(format!("Image {}", image.path.0));
+                    }
+                    NotebookOutputKind::Diagnostic(diagnostic) => {
+                        ui.colored_label(
+                            diagnostic_color(ui, diagnostic.severity),
+                            diagnostic.message.as_str(),
+                        );
+                    }
+                    NotebookOutputKind::Analysis(analysis) => {
+                        ui.label(analysis.title.as_str());
+                    }
+                    NotebookOutputKind::Attachment(attachment) => {
+                        ui.label(format!("Attachment {}", attachment.id.0));
+                    }
+                }
+            });
+        ui.add_space(4.0);
+    }
+}
+
+fn cell_kind_label(block: &NotebookBlock) -> &'static str {
+    match &block.kind {
+        NotebookBlockKind::Text(cell) => match cell.format {
+            TextFormat::Markdown => "Markdown",
+            TextFormat::PlainText => "Text",
+        },
+        NotebookBlockKind::Executable(_) => "Input",
+        NotebookBlockKind::Graph(_) => "Graph",
+        NotebookBlockKind::Table(_) => "Table",
+        NotebookBlockKind::Diagnostic(_) => "Diagnostic",
+    }
+}
+
+fn cell_status_label(block: &NotebookBlock) -> String {
+    match &block.kind {
+        NotebookBlockKind::Executable(cell) => match &cell.execution {
+            ExecutionState::Idle => "idle".to_string(),
+            ExecutionState::Queued => "queued".to_string(),
+            ExecutionState::Running => "running".to_string(),
+            ExecutionState::Complete { run_count } => format!("run {run_count}"),
+            ExecutionState::Failed { run_count } => format!("failed {run_count}"),
+            ExecutionState::Stale { reasons } => format!("stale {}", reasons.len()),
+        },
+        _ => "document".to_string(),
+    }
+}
+
+fn output_kind_label(kind: &NotebookOutputKind) -> &'static str {
+    match kind {
+        NotebookOutputKind::Text(_) => "Text",
+        NotebookOutputKind::Value(_) => "Value",
+        NotebookOutputKind::Table(_) => "Table",
+        NotebookOutputKind::Graph(_) => "Graph",
+        NotebookOutputKind::Image(_) => "Image",
+        NotebookOutputKind::Diagnostic(_) => "Diagnostic",
+        NotebookOutputKind::Analysis(_) => "Analysis",
+        NotebookOutputKind::Attachment(_) => "Attachment",
+    }
+}
+
+fn diagnostic_color(ui: &egui::Ui, severity: DiagnosticSeverity) -> egui::Color32 {
+    match severity {
+        DiagnosticSeverity::Info => ui.visuals().text_color(),
+        DiagnosticSeverity::Warning => ui.visuals().warn_fg_color,
+        DiagnosticSeverity::Error => ui.visuals().error_fg_color,
+    }
+}
