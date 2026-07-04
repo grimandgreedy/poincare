@@ -3,9 +3,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     EvaluatorSession, ExecutableCell, ExecutionState, NotebookBlock, NotebookBlockKind,
-    NotebookCellId, NotebookDocument, RuntimeDeleteVariableResult, RuntimeInspectionSnapshot,
-    RuntimeOutputCompletion, RuntimeOutputLimits, RuntimeSessionSnapshot, StaleReason,
-    delete_variable_status, notebook_outputs_from_eval_response,
+    NotebookCellId, NotebookDocument, RuntimeDeleteVariableResult, RuntimeExecutionPolicy,
+    RuntimeFailure, RuntimeInspectionSnapshot, RuntimeOutputCompletion, RuntimeOutputLimits,
+    RuntimePartialExecution, RuntimeSessionSnapshot, RuntimeStopReason, StaleReason,
+    classify_eval_response, delete_variable_status, notebook_outputs_from_eval_response,
+    partial_execution_for_response, stop_reason_for_failure,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -21,6 +23,8 @@ pub struct RuntimeCellRun {
     pub cell_id: NotebookCellId,
     pub status: ExecutionState,
     pub output_completion: RuntimeOutputCompletion,
+    pub failure: Option<RuntimeFailure>,
+    pub partial_execution: Option<RuntimePartialExecution>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -28,12 +32,15 @@ pub struct RuntimeRunReport {
     pub command: RuntimeRunCommand,
     pub cells: Vec<RuntimeCellRun>,
     pub stopped_at: Option<NotebookCellId>,
+    pub stop_reason: Option<RuntimeStopReason>,
+    pub policy: RuntimeExecutionPolicy,
     pub snapshot: RuntimeSessionSnapshot,
 }
 
 pub struct NotebookRuntime {
     session: EvaluatorSession,
     output_limits: RuntimeOutputLimits,
+    policy: RuntimeExecutionPolicy,
 }
 
 impl NotebookRuntime {
@@ -41,6 +48,7 @@ impl NotebookRuntime {
         Self {
             session,
             output_limits: RuntimeOutputLimits::default(),
+            policy: RuntimeExecutionPolicy::default(),
         }
     }
 
@@ -59,6 +67,15 @@ impl NotebookRuntime {
 
     pub fn output_limits(&self) -> &RuntimeOutputLimits {
         &self.output_limits
+    }
+
+    pub fn with_execution_policy(mut self, policy: RuntimeExecutionPolicy) -> Self {
+        self.policy = policy;
+        self
+    }
+
+    pub fn execution_policy(&self) -> RuntimeExecutionPolicy {
+        self.policy
     }
 
     pub fn inspect_session(&self) -> RuntimeInspectionSnapshot {
@@ -83,13 +100,19 @@ impl NotebookRuntime {
         let mut cells = Vec::new();
         let stopped_at = match self.run_cell(document, cell_id, host) {
             Some(cell_run) => {
-                let failed = is_failed(&cell_run.status);
+                let failed = cell_run.failure.is_some();
                 let stopped_at = failed.then(|| cell_run.cell_id.clone());
                 cells.push(cell_run);
                 stopped_at
             }
             None => None,
         };
+        let stop_reason = cells.last().and_then(|cell_run| {
+            cell_run
+                .failure
+                .clone()
+                .map(|failure| stop_reason_for_failure(cell_run.cell_id.clone(), failure))
+        });
 
         RuntimeRunReport {
             command: RuntimeRunCommand::RunCurrentCell {
@@ -97,6 +120,8 @@ impl NotebookRuntime {
             },
             cells,
             stopped_at,
+            stop_reason,
+            policy: self.policy,
             snapshot: self.session.snapshot(),
         }
     }
@@ -167,17 +192,21 @@ impl NotebookRuntime {
     ) -> RuntimeRunReport {
         let mut cells = Vec::new();
         let mut stopped_at = None;
+        let mut stop_reason = None;
 
         for cell_id in cell_ids {
             let Some(cell_run) = self.run_cell(document, &cell_id, host) else {
                 continue;
             };
-            let failed = is_failed(&cell_run.status);
+            let failure = cell_run.failure.clone();
+            let failed = failure.is_some();
             if failed {
                 stopped_at = Some(cell_run.cell_id.clone());
+                stop_reason = failure
+                    .map(|failure| stop_reason_for_failure(cell_run.cell_id.clone(), failure));
             }
             cells.push(cell_run);
-            if failed {
+            if failed && self.policy.stop_on_first_error {
                 break;
             }
         }
@@ -186,6 +215,8 @@ impl NotebookRuntime {
             command,
             cells,
             stopped_at,
+            stop_reason,
+            policy: self.policy,
             snapshot: self.session.snapshot(),
         }
     }
@@ -211,6 +242,10 @@ impl NotebookRuntime {
         let evaluation = self.session.evaluate_cell(cell_id.clone(), source, host);
         let output_batch =
             notebook_outputs_from_eval_response(cell_id, &evaluation.response, &self.output_limits);
+        let partial_output_count = evaluation.response.outputs.len();
+        let failure = classify_eval_response(&evaluation.response);
+        let partial_execution =
+            partial_execution_for_response(&evaluation.response, partial_output_count, self.policy);
 
         let status =
             execution_state_from_status(evaluation.response.status, evaluation.snapshot.run_count);
@@ -225,6 +260,8 @@ impl NotebookRuntime {
             cell_id: cell_id.clone(),
             status,
             output_completion: output_batch.completion,
+            failure,
+            partial_execution,
         })
     }
 }
@@ -245,10 +282,6 @@ fn execution_state_from_status(status: evaluator::EvalStatus, run_count: u64) ->
         | evaluator::EvalStatus::Cancelled
         | evaluator::EvalStatus::ResourceLimitExceeded => ExecutionState::Failed { run_count },
     }
-}
-
-fn is_failed(state: &ExecutionState) -> bool {
-    matches!(state, ExecutionState::Failed { .. })
 }
 
 fn mark_block_stale(block: &mut NotebookBlock, reason: StaleReason) {
@@ -448,6 +481,20 @@ mod tests {
         assert_eq!(report.cells.len(), 2);
         assert_eq!(report.stopped_at, Some(NotebookCellId::new("cell-2")));
         assert!(matches!(
+            report.stop_reason,
+            Some(RuntimeStopReason::FailedCell { ref cell_id, ref failure })
+                if *cell_id == NotebookCellId::new("cell-2")
+                    && failure.class == crate::RuntimeErrorClass::Runtime
+        ));
+        assert_eq!(
+            report.cells[1]
+                .partial_execution
+                .as_ref()
+                .expect("partial execution")
+                .outputs_before_failure,
+            1
+        );
+        assert!(matches!(
             document.blocks[1].kind,
             NotebookBlockKind::Executable(ExecutableCell {
                 execution: ExecutionState::Failed { run_count: 2 },
@@ -462,6 +509,28 @@ mod tests {
             })
         ));
         assert_eq!(document.blocks[1].outputs.len(), 2);
+    }
+
+    #[test]
+    fn execution_policy_can_continue_after_failed_cell() {
+        let mut runtime = runtime().with_execution_policy(RuntimeExecutionPolicy {
+            stop_on_first_error: false,
+            transactional_cell_execution: false,
+        });
+        let host = EmptyRuntimeHost;
+        let mut document = document_with_sources(&["a := 1", "fail", "b := 2"]);
+
+        let report = runtime.run_all(&mut document, &host);
+
+        assert_eq!(report.cells.len(), 3);
+        assert_eq!(report.stopped_at, Some(NotebookCellId::new("cell-2")));
+        assert!(matches!(
+            document.blocks[2].kind,
+            NotebookBlockKind::Executable(ExecutableCell {
+                execution: ExecutionState::Complete { run_count: 3 },
+                ..
+            })
+        ));
     }
 
     #[test]

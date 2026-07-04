@@ -7,10 +7,12 @@
 use poincare_lib::{GraphSpec, PlotSpec};
 use serde::{Deserialize, Serialize};
 
+pub mod errors;
 pub mod inspection;
 pub mod outputs;
 pub mod runner;
 pub mod runtime;
+pub use errors::*;
 pub use inspection::*;
 pub use outputs::*;
 pub use runner::*;
