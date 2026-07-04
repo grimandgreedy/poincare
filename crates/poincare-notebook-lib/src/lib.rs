@@ -7,6 +7,9 @@
 use poincare_lib::{GraphSpec, PlotSpec};
 use serde::{Deserialize, Serialize};
 
+pub mod runtime;
+pub use runtime::*;
+
 pub const NOTEBOOK_SCHEMA_VERSION: u32 = 1;
 pub const BUNDLE_SCHEMA_VERSION: u32 = 1;
 
@@ -256,6 +259,7 @@ pub enum ValueKind {
     Graph,
     Analysis,
     Image,
+    Diagnostic,
     Unknown,
 }
 

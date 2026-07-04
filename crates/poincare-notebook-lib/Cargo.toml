@@ -11,6 +11,7 @@ keywords = ["math", "notebook", "visualization", "visualisation"]
 categories = ["mathematics", "science"]
 
 [dependencies]
+poincare-evaluator = { workspace = true }
 poincare-lib = { workspace = true }
 serde = { workspace = true }
 
