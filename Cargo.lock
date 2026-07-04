@@ -2547,6 +2547,7 @@ dependencies = [
  "egui",
  "grimdock",
  "poincare-evaluator",
+ "poincare-evaluator-poincare",
  "poincare-lib",
  "poincare-notebook-lib",
  "rfd",

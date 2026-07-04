@@ -1,14 +1,19 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use eframe::egui;
+use grimdock::{PanelStyle, PanelTree};
 use poincare_notebook_lib::{
-    EvaluatorSession, ExecutionState, NotebookBlock, NotebookBlockKind, NotebookCellId,
-    NotebookDocument, NotebookId, NotebookRuntime, RuntimeDeleteVariableStatus, RuntimeSessionId,
-    TextCell, TextFormat,
+    EvaluatorSession, ExecutionState, GraphBlockId, GraphViewState, NotebookBlock,
+    NotebookBlockKind, NotebookCellId, NotebookDocument, NotebookId, NotebookOutputKind,
+    NotebookRuntime, RuntimeBindingSummary, RuntimeDeleteVariableStatus, RuntimeSessionId,
+    RuntimeSessionStatus, TextCell, TextFormat,
 };
 
-use crate::cells::{self, CellAction};
-use crate::evaluator::{EmptyNotebookHost, ScratchEvaluator};
+use crate::cells::{self, CellAction, GraphOutputAction};
+use crate::dock::{self, DockTab};
+use crate::evaluator::EmptyNotebookHost;
+use poincare_evaluator_poincare::PoincareEvaluator;
 use crate::persistence;
 
 pub struct NotebookApp {
@@ -23,7 +28,36 @@ pub struct NotebookApp {
     last_run_summary: Option<String>,
     undo_stack: Vec<NotebookDocument>,
     redo_stack: Vec<NotebookDocument>,
-    show_side_panel: bool,
+    pub(crate) show_side_panel: bool,
+    active_graph: Option<GraphBlockId>,
+    graph_ui_states: BTreeMap<String, GraphOutputUiState>,
+    pub(crate) panel_tree: Option<PanelTree<DockTab>>,
+    pub(crate) panel_style: PanelStyle,
+    pub(crate) pending_focus_tab: Option<DockTab>,
+}
+
+#[derive(Clone, Debug)]
+struct GraphOutputUiState {
+    view: GraphViewState,
+    preview_revision: u64,
+    active_revision: u64,
+}
+
+#[derive(Clone, Debug)]
+enum SessionPanelAction {
+    JumpToSource(NotebookCellId),
+    InsertReference(String),
+    DeleteVariable(String),
+}
+
+impl Default for GraphOutputUiState {
+    fn default() -> Self {
+        Self {
+            view: GraphViewState::default(),
+            preview_revision: 0,
+            active_revision: 0,
+        }
+    }
 }
 
 impl NotebookApp {
@@ -52,6 +86,11 @@ impl NotebookApp {
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             show_side_panel: true,
+            active_graph: None,
+            graph_ui_states: BTreeMap::new(),
+            panel_tree: Some(dock::build_panel_tree(true)),
+            panel_style: dock::default_panel_style(),
+            pending_focus_tab: None,
         }
     }
 
@@ -67,6 +106,9 @@ impl NotebookApp {
         self.dirty = false;
         self.last_error = None;
         self.last_run_summary = None;
+        self.active_graph = None;
+        self.graph_ui_states.clear();
+        self.pending_focus_tab = Some(DockTab::Notebook);
     }
 
     fn open_document(&mut self) {
@@ -88,6 +130,9 @@ impl NotebookApp {
                 self.dirty = false;
                 self.last_error = None;
                 self.last_run_summary = None;
+                self.active_graph = None;
+                self.graph_ui_states.clear();
+                self.pending_focus_tab = Some(DockTab::Notebook);
             }
             Err(err) => self.last_error = Some(err),
         }
@@ -140,6 +185,7 @@ impl NotebookApp {
             self.redo_stack.push(self.document.clone());
             self.document = previous;
             self.selected_cell = self.document.blocks.first().map(|block| block.id.clone());
+            self.prune_graph_state();
             self.dirty = true;
         }
     }
@@ -149,6 +195,7 @@ impl NotebookApp {
             self.undo_stack.push(self.document.clone());
             self.document = next;
             self.selected_cell = self.document.blocks.first().map(|block| block.id.clone());
+            self.prune_graph_state();
             self.dirty = true;
         }
     }
@@ -235,6 +282,7 @@ impl NotebookApp {
                     });
             }),
         }
+        self.prune_graph_state();
     }
 
     fn mark_cell_edited(&mut self, previous: NotebookDocument) {
@@ -253,6 +301,7 @@ impl NotebookApp {
         self.dirty = true;
         self.last_error = None;
         self.last_run_summary = Some(format_run_summary("ran cell", report.cells.len()));
+        self.prune_graph_state();
     }
 
     fn run_current_cell_and_advance(&mut self) {
@@ -268,6 +317,7 @@ impl NotebookApp {
         self.dirty = true;
         self.last_error = None;
         self.last_run_summary = Some(format_run_summary("ran cell", report.cells.len()));
+        self.prune_graph_state();
     }
 
     fn run_all(&mut self) {
@@ -278,6 +328,7 @@ impl NotebookApp {
             .as_ref()
             .map(|cell_id| format!("run stopped at {}", cell_id.0));
         self.last_run_summary = Some(format_run_summary("ran", report.cells.len()));
+        self.prune_graph_state();
     }
 
     fn restart_and_run_all(&mut self) {
@@ -290,6 +341,7 @@ impl NotebookApp {
             .as_ref()
             .map(|cell_id| format!("run stopped at {}", cell_id.0));
         self.last_run_summary = Some(format_run_summary("restart and run", report.cells.len()));
+        self.prune_graph_state();
     }
 
     fn clear_current_outputs(&mut self) {
@@ -307,6 +359,7 @@ impl NotebookApp {
                     block.outputs.clear();
                 }
             });
+            self.prune_graph_state();
         }
     }
 
@@ -316,6 +369,152 @@ impl NotebookApp {
                 block.outputs.clear();
             }
         });
+        self.prune_graph_state();
+    }
+
+    fn handle_session_panel_action(&mut self, action: SessionPanelAction) {
+        match action {
+            SessionPanelAction::JumpToSource(cell_id) => self.jump_to_cell(cell_id),
+            SessionPanelAction::InsertReference(name) => {
+                self.insert_reference_into_selected_cell(&name)
+            }
+            SessionPanelAction::DeleteVariable(name) => self.delete_runtime_variable(&name),
+        }
+    }
+
+    fn jump_to_cell(&mut self, cell_id: NotebookCellId) {
+        if self.document.blocks.iter().any(|block| block.id == cell_id) {
+            self.selected_cell = Some(cell_id.clone());
+            self.pending_focus_tab = Some(DockTab::Notebook);
+            self.last_error = None;
+            self.last_run_summary = Some(format!("selected {}", cell_id.0));
+        } else {
+            self.last_error = Some(format!("source cell {} is not in this notebook", cell_id.0));
+        }
+    }
+
+    fn insert_reference_into_selected_cell(&mut self, name: &str) {
+        let Some(cell_id) = self.selected_cell.clone() else {
+            self.last_error = Some("select a cell before inserting a reference".to_string());
+            return;
+        };
+        let Some(index) = self
+            .document
+            .blocks
+            .iter()
+            .position(|block| block.id == cell_id)
+        else {
+            self.last_error = Some(format!(
+                "selected cell {} is not in this notebook",
+                cell_id.0
+            ));
+            return;
+        };
+
+        let previous = self.document.clone();
+        let executable_source = match &mut self.document.blocks[index].kind {
+            NotebookBlockKind::Executable(cell) => {
+                append_reference(&mut cell.source, name);
+                Some(cell.source.clone())
+            }
+            NotebookBlockKind::Text(cell) => {
+                append_reference(&mut cell.source, name);
+                None
+            }
+            _ => {
+                self.last_error = Some("select a text or executable cell first".to_string());
+                return;
+            }
+        };
+
+        if let Some(source) = executable_source {
+            self.runtime
+                .mark_cell_source_edited(&mut self.document, &cell_id, source);
+        }
+        self.record_undo_document(previous);
+        self.dirty = true;
+        self.last_error = None;
+        self.last_run_summary = Some(format!("inserted reference {name}"));
+        self.pending_focus_tab = Some(DockTab::Notebook);
+    }
+
+    fn delete_runtime_variable(&mut self, name: &str) {
+        let result = self.runtime.delete_variable(name);
+        self.last_error = match result.status {
+            RuntimeDeleteVariableStatus::Deleted => None,
+            RuntimeDeleteVariableStatus::Unsupported => {
+                Some("evaluator does not support deleting variables".to_string())
+            }
+            RuntimeDeleteVariableStatus::Failed { message } => Some(message),
+        };
+        if self.last_error.is_none() {
+            self.last_run_summary = Some(format!("deleted variable {name}"));
+        }
+    }
+
+    fn handle_graph_action(&mut self, action: GraphOutputAction) {
+        match action {
+            GraphOutputAction::Activate { graph_id } => {
+                if self.active_graph.as_ref() != Some(&graph_id) {
+                    if let Some(active_graph) = self.active_graph.clone() {
+                        self.commit_graph_state(&active_graph);
+                    }
+                    self.graph_state_mut(&graph_id).active_revision += 1;
+                    self.active_graph = Some(graph_id.clone());
+                }
+                self.last_error = None;
+                self.last_run_summary = Some(format!("activated graph {}", graph_id.0));
+            }
+            GraphOutputAction::Deactivate { graph_id } => {
+                if self.active_graph.as_ref() == Some(&graph_id) {
+                    self.commit_graph_state(&graph_id);
+                    self.active_graph = None;
+                    self.last_run_summary = Some(format!("committed graph view {}", graph_id.0));
+                }
+            }
+            GraphOutputAction::ResetView { graph_id } => {
+                let state = self.graph_state_mut(&graph_id);
+                state.view = GraphViewState::default();
+                state.preview_revision += 1;
+                self.last_error = None;
+                self.last_run_summary = Some(format!("reset graph view {}", graph_id.0));
+            }
+            GraphOutputAction::OpenInPoincare { graph_id } => {
+                self.last_error = None;
+                self.last_run_summary = Some(format!(
+                    "open in poincare-app is not wired yet for {}",
+                    graph_id.0
+                ));
+            }
+            GraphOutputAction::RefreshPreview { graph_id } => {
+                self.graph_state_mut(&graph_id).preview_revision += 1;
+                self.last_error = None;
+                self.last_run_summary = Some(format!("refreshed graph preview {}", graph_id.0));
+            }
+        }
+    }
+
+    fn graph_state_mut(&mut self, graph_id: &GraphBlockId) -> &mut GraphOutputUiState {
+        self.graph_ui_states.entry(graph_id.0.clone()).or_default()
+    }
+
+    fn commit_graph_state(&mut self, graph_id: &GraphBlockId) {
+        let state = self.graph_state_mut(graph_id);
+        state.preview_revision += 1;
+    }
+
+    fn prune_graph_state(&mut self) {
+        let graph_ids = document_graph_ids(&self.document);
+        self.graph_ui_states
+            .retain(|graph_id, _| graph_ids.contains(graph_id));
+        if self
+            .active_graph
+            .as_ref()
+            .map(|graph_id| !graph_ids.contains(&graph_id.0))
+            .unwrap_or(false)
+        {
+            self.active_graph = None;
+        }
     }
 
     fn selected_executable_cell_id(&self) -> Option<NotebookCellId> {
@@ -342,10 +541,11 @@ impl NotebookApp {
 }
 
 impl eframe::App for NotebookApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.show_top_bar(ctx);
-        self.show_side_panel(ctx);
-        self.show_document(ctx);
+        egui::CentralPanel::default().show(ctx, |ui| {
+            self.dock_ui(ui, frame);
+        });
     }
 }
 
@@ -411,140 +611,139 @@ impl NotebookApp {
                     }
                 });
                 ui.separator();
-                ui.checkbox(&mut self.show_side_panel, "Variables");
+                if ui.checkbox(&mut self.show_side_panel, "Session").clicked()
+                    && self.show_side_panel
+                {
+                    self.pending_focus_tab = Some(DockTab::Session);
+                }
                 ui.separator();
                 ui.label(document_title(self));
             });
         });
     }
 
-    fn show_side_panel(&mut self, ctx: &egui::Context) {
-        if !self.show_side_panel {
-            return;
+    pub(crate) fn show_session_panel_ui(&mut self, ui: &mut egui::Ui) {
+        let mut pending_action = None;
+        ui.heading("Session");
+        let inspection = self.runtime.inspect_session();
+        ui.label(format!("run count {}", inspection.run_count));
+        ui.label(session_status_label(inspection.status));
+        if let Some(summary) = &self.last_run_summary {
+            ui.label(summary);
         }
-
-        egui::SidePanel::right("session-panel")
-            .resizable(true)
-            .default_width(240.0)
-            .show(ctx, |ui| {
-                ui.heading("Session");
-                let inspection = self.runtime.inspect_session();
-                ui.label(format!("run count {}", inspection.run_count));
-                ui.label(format!("{:?}", inspection.status));
-                if let Some(summary) = &self.last_run_summary {
-                    ui.label(summary);
-                }
-                ui.separator();
-                ui.heading("Variables");
-                if inspection.variables.is_empty() && inspection.functions.is_empty() {
-                    ui.label("No variables");
-                }
-                for variable in &inspection.variables {
-                    ui.horizontal(|ui| {
-                        ui.monospace(variable.name.as_str());
-                        ui.label(format!("{:?}", variable.value_kind));
-                    });
-                    ui.label(variable.preview.as_str());
-                    if let Some(source_cell) = &variable.source_cell {
-                        ui.small(format!("from {}", source_cell.0));
-                    }
-                    if ui.small_button("Delete").clicked() {
-                        let result = self.runtime.delete_variable(&variable.name);
-                        self.last_error = match result.status {
-                            RuntimeDeleteVariableStatus::Deleted => None,
-                            RuntimeDeleteVariableStatus::Unsupported => {
-                                Some("evaluator does not support deleting variables".to_string())
-                            }
-                            RuntimeDeleteVariableStatus::Failed { message } => Some(message),
-                        };
-                    }
-                    ui.separator();
-                }
-                if !inspection.functions.is_empty() {
-                    ui.heading("Functions");
-                    for function in &inspection.functions {
-                        ui.monospace(function.name.as_str());
-                        ui.label(function.preview.as_str());
-                    }
-                }
-                ui.separator();
-                ui.heading("Document");
-                ui.label(format!("{} cells", self.document.blocks.len()));
-                if let Some(path) = &self.path {
-                    ui.label(path.display().to_string());
-                }
-                if let Some(error) = &self.last_error {
-                    ui.separator();
-                    ui.colored_label(ui.visuals().error_fg_color, error);
-                }
-            });
+        if inspection.run_count == 0 {
+            ui.small("Run a cell to populate the session.");
+        } else if inspection.status == RuntimeSessionStatus::Restarted {
+            ui.small("Session restarted; rerun cells to rebuild variables.");
+        }
+        ui.separator();
+        ui.heading("Variables");
+        if inspection.variables.is_empty() && inspection.functions.is_empty() {
+            ui.label(empty_session_label(inspection.status, inspection.run_count));
+        }
+        show_binding_section(ui, &inspection.variables, true, &mut pending_action);
+        if !inspection.functions.is_empty() {
+            ui.heading("Functions");
+            show_binding_section(ui, &inspection.functions, false, &mut pending_action);
+        }
+        ui.separator();
+        ui.heading("Graphs");
+        if let Some(active_graph) = &self.active_graph {
+            ui.label(format!("active {}", active_graph.0));
+            if let Some(state) = self.graph_ui_states.get(&active_graph.0) {
+                ui.small(format!("preview revision {}", state.preview_revision));
+                ui.small(format!(
+                    "azimuth {:.1}, elevation {:.1}",
+                    state.view.azimuth, state.view.elevation
+                ));
+            }
+        } else {
+            ui.label("No active graph");
+        }
+        ui.separator();
+        ui.heading("Document");
+        ui.label(format!("{} cells", self.document.blocks.len()));
+        if let Some(path) = &self.path {
+            ui.label(path.display().to_string());
+        }
+        if let Some(error) = &self.last_error {
+            ui.separator();
+            ui.colored_label(ui.visuals().error_fg_color, error);
+        }
+        if let Some(action) = pending_action {
+            self.handle_session_panel_action(action);
+        }
     }
 
-    fn show_document(&mut self, ctx: &egui::Context) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.vertical(|ui| {
-                ui.horizontal(|ui| {
-                    ui.heading(self.document.title.as_str());
-                    if self.dirty {
-                        ui.label("unsaved");
-                    }
-                });
-                ui.add_space(6.0);
-
-                let mut pending_action = None;
-                let mut edited_snapshot = None;
-                egui::ScrollArea::vertical()
-                    .id_salt("notebook-scroll")
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        for (index, block) in self.document.blocks.iter_mut().enumerate() {
-                            let previous_block = block.clone();
-                            let selected = self
-                                .selected_cell
-                                .as_ref()
-                                .map(|cell_id| *cell_id == block.id)
-                                .unwrap_or(false);
-                            let cell_response = cells::show_cell(ui, block, selected);
-                            if cell_response.clicked {
-                                self.selected_cell = Some(block.id.clone());
-                            }
-                            if cell_response.edited {
-                                edited_snapshot = Some((index, previous_block));
-                            }
-                            if let Some(action) = cell_response.action {
-                                pending_action = Some((index, action));
-                            }
-                            ui.add_space(8.0);
-                        }
-                    });
-
-                if let Some((index, previous_block)) = edited_snapshot {
-                    let mut previous = self.document.clone();
-                    if let Some(block) = previous.blocks.get_mut(index) {
-                        *block = previous_block;
-                    }
-                    self.selected_cell = self
-                        .document
-                        .blocks
-                        .get(index)
-                        .map(|block| block.id.clone());
-                    if let Some(block) = self.document.blocks.get(index) {
-                        if let NotebookBlockKind::Executable(cell) = &block.kind {
-                            let cell_id = block.id.clone();
-                            let source = cell.source.clone();
-                            self.runtime.mark_cell_source_edited(
-                                &mut self.document,
-                                &cell_id,
-                                source,
-                            );
-                        }
-                    }
-                    self.mark_cell_edited(previous);
-                }
-                if let Some((index, action)) = pending_action {
-                    self.handle_cell_action(index, action);
+    pub(crate) fn show_document_ui(&mut self, ui: &mut egui::Ui) {
+        ui.vertical(|ui| {
+            ui.horizontal(|ui| {
+                ui.heading(self.document.title.as_str());
+                if self.dirty {
+                    ui.label("unsaved");
                 }
             });
+            ui.add_space(6.0);
+
+            let mut pending_action = None;
+            let mut pending_graph_action = None;
+            let mut edited_snapshot = None;
+            let active_graph = self.active_graph.clone();
+            egui::ScrollArea::vertical()
+                .id_salt("notebook-scroll")
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    for (index, block) in self.document.blocks.iter_mut().enumerate() {
+                        let previous_block = block.clone();
+                        let selected = self
+                            .selected_cell
+                            .as_ref()
+                            .map(|cell_id| *cell_id == block.id)
+                            .unwrap_or(false);
+                        let cell_response =
+                            cells::show_cell(ui, block, selected, active_graph.as_ref());
+                        if cell_response.clicked {
+                            self.selected_cell = Some(block.id.clone());
+                        }
+                        if cell_response.edited {
+                            edited_snapshot = Some((index, previous_block));
+                        }
+                        if let Some(action) = cell_response.action {
+                            pending_action = Some((index, action));
+                        }
+                        if let Some(action) = cell_response.graph_action {
+                            pending_graph_action = Some(action);
+                        }
+                        ui.add_space(8.0);
+                    }
+                });
+
+            if let Some((index, previous_block)) = edited_snapshot {
+                let mut previous = self.document.clone();
+                if let Some(block) = previous.blocks.get_mut(index) {
+                    *block = previous_block;
+                }
+                self.selected_cell = self
+                    .document
+                    .blocks
+                    .get(index)
+                    .map(|block| block.id.clone());
+                if let Some(block) = self.document.blocks.get(index) {
+                    if let NotebookBlockKind::Executable(cell) = &block.kind {
+                        let cell_id = block.id.clone();
+                        let source = cell.source.clone();
+                        self.runtime
+                            .mark_cell_source_edited(&mut self.document, &cell_id, source);
+                    }
+                }
+                self.mark_cell_edited(previous);
+            }
+            if let Some((index, action)) = pending_action {
+                self.handle_cell_action(index, action);
+            }
+            if let Some(action) = pending_graph_action {
+                self.handle_graph_action(action);
+            }
         });
     }
 }
@@ -554,6 +753,95 @@ fn block_source(block: &NotebookBlock) -> String {
         NotebookBlockKind::Text(cell) => cell.source.clone(),
         NotebookBlockKind::Executable(cell) => cell.source.clone(),
         _ => String::new(),
+    }
+}
+
+fn append_reference(source: &mut String, name: &str) {
+    if !source.is_empty()
+        && !source.ends_with(char::is_whitespace)
+        && !source.ends_with(['(', '[', '{', ',', '='])
+    {
+        source.push(' ');
+    }
+    source.push_str(name);
+}
+
+fn show_binding_section(
+    ui: &mut egui::Ui,
+    bindings: &[RuntimeBindingSummary],
+    allow_delete: bool,
+    pending_action: &mut Option<SessionPanelAction>,
+) {
+    for binding in bindings {
+        egui::Frame::default()
+            .fill(ui.visuals().extreme_bg_color)
+            .stroke(egui::Stroke::new(
+                1.0,
+                ui.visuals().widgets.noninteractive.bg_stroke.color,
+            ))
+            .corner_radius(egui::CornerRadius::same(4))
+            .inner_margin(egui::Margin::same(8))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.monospace(binding.name.as_str());
+                    ui.label(format!("{:?}", binding.value_kind));
+                    if binding.stale {
+                        ui.colored_label(ui.visuals().warn_fg_color, "stale");
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if allow_delete && ui.small_button("Delete").clicked() {
+                            *pending_action =
+                                Some(SessionPanelAction::DeleteVariable(binding.name.clone()));
+                        }
+                        if ui.small_button("Insert").clicked() {
+                            *pending_action =
+                                Some(SessionPanelAction::InsertReference(binding.name.clone()));
+                        }
+                        if let Some(source_cell) = &binding.source_cell {
+                            if ui.small_button("Jump").clicked() {
+                                *pending_action =
+                                    Some(SessionPanelAction::JumpToSource(source_cell.clone()));
+                            }
+                        }
+                    });
+                });
+                ui.label(binding.preview.as_str());
+                ui.horizontal_wrapped(|ui| {
+                    if let Some(source_cell) = &binding.source_cell {
+                        ui.small(format!("from {}", source_cell.0));
+                    } else {
+                        ui.small("no source cell");
+                    }
+                    if let Some(run_count) = binding.updated_at_run {
+                        ui.small(format!("run {run_count}"));
+                    }
+                    if let Some(size_hint) = &binding.size_hint {
+                        ui.small(size_hint.as_str());
+                    }
+                });
+            });
+        ui.add_space(6.0);
+    }
+}
+
+fn session_status_label(status: RuntimeSessionStatus) -> &'static str {
+    match status {
+        RuntimeSessionStatus::Idle => "idle",
+        RuntimeSessionStatus::Running => "running",
+        RuntimeSessionStatus::Restarted => "restarted",
+        RuntimeSessionStatus::Failed => "failed",
+        RuntimeSessionStatus::Cancelled => "cancelled",
+        RuntimeSessionStatus::ResourceLimitExceeded => "resource limit exceeded",
+    }
+}
+
+fn empty_session_label(status: RuntimeSessionStatus, run_count: u64) -> &'static str {
+    if run_count == 0 {
+        "No variables yet"
+    } else if status == RuntimeSessionStatus::Restarted {
+        "No variables after restart"
+    } else {
+        "No variables"
     }
 }
 
@@ -579,6 +867,18 @@ fn next_cell_counter(document: &NotebookDocument) -> u64 {
         + 1
 }
 
+fn document_graph_ids(document: &NotebookDocument) -> BTreeSet<String> {
+    document
+        .blocks
+        .iter()
+        .flat_map(|block| block.outputs.iter())
+        .filter_map(|output| match &output.kind {
+            NotebookOutputKind::Graph(graph) => Some(graph.graph_id.0.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
 fn document_title(app: &NotebookApp) -> String {
     let mut title = app.document.title.clone();
     if app.dirty {
@@ -591,7 +891,7 @@ fn scratch_runtime(document: &NotebookDocument) -> NotebookRuntime {
     NotebookRuntime::new(EvaluatorSession::new(
         RuntimeSessionId::new(format!("session-{}", document.id.0)),
         document.id.clone(),
-        Box::new(ScratchEvaluator::new()),
+        Box::new(PoincareEvaluator::new()),
     ))
 }
 
