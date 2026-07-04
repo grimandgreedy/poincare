@@ -290,6 +290,16 @@ impl EvaluatorSession {
         }
     }
 
+    pub fn delete_variable(&mut self, name: &str) -> RuntimeEvaluation {
+        let response = self.evaluator.delete_variable(name);
+        self.apply_response_snapshot(&response);
+
+        RuntimeEvaluation {
+            response,
+            snapshot: self.snapshot(),
+        }
+    }
+
     fn apply_response_snapshot(&mut self, response: &evaluator::EvalResponse) {
         self.environment.revision.0 += 1;
         let snapshot = response

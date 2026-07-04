@@ -59,6 +59,15 @@ pub trait Evaluator {
             session: Some(self.session_snapshot()),
         }
     }
+
+    fn delete_variable(&mut self, name: &str) -> EvalResponse {
+        EvalResponse::failed(vec![EvalDiagnostic {
+            severity: EvalDiagnosticSeverity::Error,
+            message: format!("deleting variable `{name}` is not supported by this evaluator"),
+            span: None,
+            code: Some("UNSUPPORTED_DELETE_VARIABLE".to_string()),
+        }])
+    }
 }
 
 pub trait EvaluatorFactory {
@@ -100,6 +109,7 @@ pub struct EvaluatorFeatures {
     pub supports_graph_outputs: bool,
     pub supports_table_outputs: bool,
     pub supports_symbolic_expr: bool,
+    pub supports_variable_delete: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -240,6 +250,7 @@ pub enum EvalValue {
     Bool(bool),
     Number(NumberValue),
     String(String),
+    Text(TextValue),
     List(Vec<EvalValue>),
     Function(FunctionValue),
     Expr(MathExpr),
@@ -252,6 +263,19 @@ pub enum EvalValue {
     Analysis(AnalysisValue),
     Image(ImageRef),
     Diagnostic(EvalDiagnostic),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextValue {
+    pub stream: EvalTextStream,
+    pub text: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EvalTextStream {
+    Stdout,
+    Stderr,
+    Display,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

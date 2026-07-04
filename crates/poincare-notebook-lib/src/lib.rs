@@ -7,7 +7,13 @@
 use poincare_lib::{GraphSpec, PlotSpec};
 use serde::{Deserialize, Serialize};
 
+pub mod inspection;
+pub mod outputs;
+pub mod runner;
 pub mod runtime;
+pub use inspection::*;
+pub use outputs::*;
+pub use runner::*;
 pub use runtime::*;
 
 pub const NOTEBOOK_SCHEMA_VERSION: u32 = 1;
