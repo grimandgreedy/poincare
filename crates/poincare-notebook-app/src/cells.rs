@@ -198,8 +198,18 @@ pub fn show_cell(
             }
         }
     });
-    if inner.response.clicked() {
-        response.clicked = true;
+    // Selecting a cell must not steal clicks from the buttons/menus/editor
+    // inside it, so we read the raw pointer state rather than registering a
+    // competing full-frame click widget (which egui's hit-test would let win
+    // ties against the inner widgets). A primary click landing anywhere in the
+    // cell rect — header, padding, or the input box — selects the cell.
+    let cell_rect = inner.response.rect;
+    if ui.input(|i| i.pointer.primary_clicked()) {
+        if let Some(pos) = ui.ctx().pointer_interact_pos() {
+            if cell_rect.contains(pos) {
+                response.clicked = true;
+            }
+        }
     }
 
     response

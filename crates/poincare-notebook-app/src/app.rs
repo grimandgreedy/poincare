@@ -392,10 +392,16 @@ impl NotebookApp {
             let (delete, select_next, select_prev, focus, escape) = if editing {
                 (false, false, false, false, false)
             } else {
+                // In command mode (no editor focused), Vim-style j/k navigate
+                // cells alongside the arrow keys.
+                let select_next = i.consume_key(Modifiers::NONE, Key::ArrowDown)
+                    | i.consume_key(Modifiers::NONE, Key::J);
+                let select_prev = i.consume_key(Modifiers::NONE, Key::ArrowUp)
+                    | i.consume_key(Modifiers::NONE, Key::K);
                 (
                     i.consume_key(cmd, Key::Backspace),
-                    i.consume_key(Modifiers::NONE, Key::ArrowDown),
-                    i.consume_key(Modifiers::NONE, Key::ArrowUp),
+                    select_next,
+                    select_prev,
                     i.consume_key(Modifiers::NONE, Key::Enter),
                     i.consume_key(Modifiers::NONE, Key::Escape),
                 )
