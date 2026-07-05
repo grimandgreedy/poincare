@@ -4,8 +4,16 @@ use poincare_notebook_lib::{
     NotebookBlockKind, NotebookOutputKind, TextFormat,
 };
 
+/// The egui id of a cell's source editor, shared by the cell renderer and the
+/// notebook's command-mode focus handling.
+pub fn source_editor_id(cell_id: &str) -> egui::Id {
+    egui::Id::new(("cell-source", cell_id))
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CellAction {
+    Run,
+    RunAndAdvance,
     InsertMarkdownAbove,
     InsertMarkdownBelow,
     InsertCodeAbove,
@@ -89,22 +97,54 @@ pub fn show_cell(
             match &mut block.kind {
                 NotebookBlockKind::Text(cell) => {
                     let editor = egui::TextEdit::multiline(&mut cell.source)
+                        .id(source_editor_id(block.id.0.as_str()))
                         .font(egui::TextStyle::Monospace)
                         .desired_width(f32::INFINITY)
                         .desired_rows(3)
                         .hint_text("Markdown text");
-                    if ui.add(editor).changed() {
+                    let editor_response = ui.add(editor);
+                    if editor_response.changed() {
                         response.edited = true;
+                    }
+                    // Esc leaves edit mode (see the notebook's command-mode keys).
+                    if editor_response.has_focus()
+                        && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+                    {
+                        ui.memory_mut(|m| m.surrender_focus(source_editor_id(block.id.0.as_str())));
                     }
                 }
                 NotebookBlockKind::Executable(cell) => {
+                    let editor_id = source_editor_id(block.id.0.as_str());
+                    let focused = ui.memory(|m| m.has_focus(editor_id));
+                    // Keys are consumed before the editor sees them (only while
+                    // focused) so Enter runs the cell instead of inserting a
+                    // newline, and Esc leaves edit mode.
+                    let run = focused
+                        && ui.input_mut(|i| {
+                            i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter)
+                        });
+                    let run_advance = focused
+                        && ui.input_mut(|i| {
+                            i.consume_key(egui::Modifiers::SHIFT, egui::Key::Enter)
+                        });
+                    let blur = focused
+                        && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
                     let editor = egui::TextEdit::multiline(&mut cell.source)
+                        .id(editor_id)
                         .font(egui::TextStyle::Monospace)
                         .desired_width(f32::INFINITY)
                         .desired_rows(4)
                         .hint_text("Poincare code");
                     if ui.add(editor).changed() {
                         response.edited = true;
+                    }
+                    if run {
+                        response.action = Some(CellAction::Run);
+                    } else if run_advance {
+                        response.action = Some(CellAction::RunAndAdvance);
+                    }
+                    if blur {
+                        ui.memory_mut(|m| m.surrender_focus(editor_id));
                     }
                 }
                 NotebookBlockKind::Graph(_) => {

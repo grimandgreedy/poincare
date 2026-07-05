@@ -215,6 +215,18 @@ impl NotebookApp {
 
     fn handle_cell_action(&mut self, index: usize, action: CellAction) {
         match action {
+            CellAction::Run => {
+                if let Some(block) = self.document.blocks.get(index) {
+                    self.selected_cell = Some(block.id.clone());
+                }
+                self.run_current_cell();
+            }
+            CellAction::RunAndAdvance => {
+                if let Some(block) = self.document.blocks.get(index) {
+                    self.selected_cell = Some(block.id.clone());
+                }
+                self.run_current_cell_and_advance();
+            }
             CellAction::InsertMarkdownAbove => self.mutate_document(|this| {
                 let block = NotebookBlock::markdown(this.next_cell_id(), "");
                 this.insert_block(index, block);
@@ -320,6 +332,122 @@ impl NotebookApp {
         self.last_error = None;
         self.last_run_summary = Some(format_run_summary("ran cell", report.cells.len()));
         self.prune_graph_state();
+    }
+
+    /// Keyboard shortcuts and the command/edit-mode navigation.
+    ///
+    /// Edit mode is "a cell editor has focus" (`wants_keyboard_input`); command
+    /// mode is everything else. Single-key navigation (arrows, Enter, Esc) only
+    /// fires in command mode so it never interferes with typing. Modifier
+    /// shortcuts fire in either mode. Keys are consumed so widgets don't also
+    /// react to them.
+    fn handle_notebook_keys(&mut self, ctx: &egui::Context) {
+        use egui::{Key, Modifiers};
+        let cmd = Modifiers::COMMAND;
+        let cmd_shift = Modifiers { shift: true, ..Modifiers::COMMAND };
+        let cmd_alt = Modifiers { alt: true, ..Modifiers::COMMAND };
+        let editing = ctx.wants_keyboard_input();
+
+        let (
+            save,
+            run_all,
+            restart,
+            insert_below,
+            insert_above,
+            delete,
+            select_next,
+            select_prev,
+            focus,
+            escape,
+        ) = ctx.input_mut(|i| {
+            let save = i.consume_key(cmd, Key::S);
+            let run_all = i.consume_key(cmd_shift, Key::Enter);
+            let restart = i.consume_key(cmd_alt, Key::Enter);
+            let insert_below = i.consume_key(cmd_alt, Key::ArrowDown);
+            let insert_above = i.consume_key(cmd_alt, Key::ArrowUp);
+            let (delete, select_next, select_prev, focus, escape) = if editing {
+                (false, false, false, false, false)
+            } else {
+                (
+                    i.consume_key(cmd, Key::Backspace),
+                    i.consume_key(Modifiers::NONE, Key::ArrowDown),
+                    i.consume_key(Modifiers::NONE, Key::ArrowUp),
+                    i.consume_key(Modifiers::NONE, Key::Enter),
+                    i.consume_key(Modifiers::NONE, Key::Escape),
+                )
+            };
+            (
+                save,
+                run_all,
+                restart,
+                insert_below,
+                insert_above,
+                delete,
+                select_next,
+                select_prev,
+                focus,
+                escape,
+            )
+        });
+
+        if save {
+            self.save_document();
+        }
+        if run_all {
+            self.run_all();
+        }
+        if restart {
+            self.restart_and_run_all();
+        }
+        if let Some(index) = self.selected_block_index() {
+            if insert_below {
+                self.handle_cell_action(index, CellAction::InsertCodeBelow);
+            }
+            if insert_above {
+                self.handle_cell_action(index, CellAction::InsertCodeAbove);
+            }
+            if delete {
+                self.handle_cell_action(index, CellAction::Delete);
+            }
+        }
+        if select_next {
+            self.select_adjacent_cell(1);
+        }
+        if select_prev {
+            self.select_adjacent_cell(-1);
+        }
+        if focus {
+            self.focus_selected_editor(ctx);
+        }
+        if escape {
+            if let Some(graph_id) = self.active_graph.clone() {
+                self.handle_graph_action(GraphOutputAction::Deactivate { graph_id });
+            }
+        }
+    }
+
+    fn selected_block_index(&self) -> Option<usize> {
+        let selected = self.selected_cell.as_ref()?;
+        self.document.blocks.iter().position(|b| &b.id == selected)
+    }
+
+    /// Move the selection by `delta` cells (command-mode arrow navigation).
+    fn select_adjacent_cell(&mut self, delta: isize) {
+        let count = self.document.blocks.len();
+        if count == 0 {
+            return;
+        }
+        let current = self.selected_block_index().map(|i| i as isize).unwrap_or(0);
+        let next = (current + delta).clamp(0, count as isize - 1) as usize;
+        self.selected_cell = Some(self.document.blocks[next].id.clone());
+    }
+
+    /// Move focus into the selected cell's editor (command mode -> edit mode).
+    fn focus_selected_editor(&self, ctx: &egui::Context) {
+        if let Some(cell_id) = &self.selected_cell {
+            let id = cells::source_editor_id(&cell_id.0);
+            ctx.memory_mut(|m| m.request_focus(id));
+        }
     }
 
     fn run_all(&mut self) {
@@ -551,6 +679,7 @@ impl eframe::App for NotebookApp {
         self.graphs
             .sync(frame, &graph_specs, active_id.as_deref());
 
+        self.handle_notebook_keys(ctx);
         self.show_top_bar(ctx);
         egui::CentralPanel::default().show(ctx, |ui| {
             self.dock_ui(ui, frame);
