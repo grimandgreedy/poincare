@@ -1069,6 +1069,77 @@ impl Run<'_> {
                 let d = (number(&hi, span)? - number(&lo, span)?) / (2.0 * h);
                 Ok(Value::Num(d))
             }
+            "gradient" => {
+                let a = positional(args);
+                if a.len() != 2 {
+                    return Err(RuntimeError::new(
+                        "`gradient` takes a function and a point",
+                        span,
+                    ));
+                }
+                let func = a[0].clone();
+                let point = coordinate_vector(&a[1], span)?;
+                if point.is_empty() {
+                    return Err(RuntimeError::new("`gradient` needs at least one coordinate", span));
+                }
+                let h = 1e-6;
+                let mut grad = Vec::with_capacity(point.len());
+                for i in 0..point.len() {
+                    let mut hi = point.clone();
+                    let mut lo = point.clone();
+                    hi[i] += h;
+                    lo[i] -= h;
+                    let hi_args = hi.into_iter().map(Value::Num).collect();
+                    let lo_args = lo.into_iter().map(Value::Num).collect();
+                    let fhi = number(&self.apply_callable(&func, hi_args, span)?, span)?;
+                    let flo = number(&self.apply_callable(&func, lo_args, span)?, span)?;
+                    grad.push(Value::Num((fhi - flo) / (2.0 * h)));
+                }
+                Ok(Value::List(Rc::new(grad)))
+            }
+            "fit" => {
+                let a = positional(args);
+                if a.len() != 3 {
+                    return Err(RuntimeError::new(
+                        "`fit` takes x values, y values, and a polynomial degree",
+                        span,
+                    ));
+                }
+                let xs = coordinate_vector(&a[0], span)?;
+                let ys = coordinate_vector(&a[1], span)?;
+                if xs.len() != ys.len() {
+                    return Err(RuntimeError::new(
+                        format!(
+                            "`fit` needs equal-length x and y values (got {} and {})",
+                            xs.len(),
+                            ys.len()
+                        ),
+                        span,
+                    ));
+                }
+                let degree_num = number(&a[2], span)?;
+                if degree_num < 0.0 || degree_num.fract() != 0.0 {
+                    return Err(RuntimeError::new(
+                        "`fit` degree must be a non-negative integer",
+                        span,
+                    ));
+                }
+                let degree = degree_num as usize;
+                if xs.len() <= degree {
+                    return Err(RuntimeError::new(
+                        format!(
+                            "`fit` needs more than {degree} points for a degree-{degree} fit"
+                        ),
+                        span,
+                    ));
+                }
+                let coeffs = polynomial_least_squares(&xs, &ys, degree).ok_or_else(|| {
+                    RuntimeError::new("`fit` could not solve the system (singular)", span)
+                })?;
+                Ok(Value::List(Rc::new(
+                    coeffs.into_iter().map(Value::Num).collect(),
+                )))
+            }
 
             other => Err(RuntimeError::new(
                 format!("builtin `{other}` is not implemented yet (coming in a later phase)"),
@@ -1276,6 +1347,86 @@ fn single_arg(name: &str, mut args: Vec<Value>, span: Span) -> Result<Value, Run
         ));
     }
     Ok(args.pop().unwrap())
+}
+
+/// Coerce a value into a coordinate/data vector: a single number becomes a
+/// one-element vector; a list must contain only numbers.
+fn coordinate_vector(value: &Value, span: Span) -> Result<Vec<f64>, RuntimeError> {
+    match value {
+        Value::Num(n) => Ok(vec![*n]),
+        Value::List(items) => items.iter().map(|v| number(v, span)).collect(),
+        other => Err(RuntimeError::new(
+            format!(
+                "expected a number or list of numbers, found a {}",
+                other.kind()
+            ),
+            span,
+        )),
+    }
+}
+
+/// Least-squares polynomial fit via the normal equations, returning
+/// coefficients from lowest to highest order (`c0 + c1*x + c2*x^2 + ...`).
+/// Returns `None` if the normal-equation system is singular.
+fn polynomial_least_squares(xs: &[f64], ys: &[f64], degree: usize) -> Option<Vec<f64>> {
+    let n = degree + 1;
+
+    // power_sums[k] = sum over samples of x^k, for k in 0..=2*degree.
+    let mut power_sums = vec![0.0f64; 2 * degree + 1];
+    for &x in xs {
+        let mut p = 1.0;
+        for sum in power_sums.iter_mut() {
+            *sum += p;
+            p *= x;
+        }
+    }
+
+    // Augmented normal-equation matrix: A[j][k] = power_sums[j+k], last column b.
+    let mut matrix = vec![vec![0.0f64; n + 1]; n];
+    for j in 0..n {
+        for k in 0..n {
+            matrix[j][k] = power_sums[j + k];
+        }
+        matrix[j][n] = xs
+            .iter()
+            .zip(ys)
+            .map(|(&x, &y)| y * x.powi(j as i32))
+            .sum();
+    }
+
+    solve_linear_system(matrix, n)
+}
+
+/// Solve an `n`x`(n+1)` augmented linear system by Gauss-Jordan elimination with
+/// partial pivoting. Returns `None` if the matrix is singular.
+fn solve_linear_system(mut matrix: Vec<Vec<f64>>, n: usize) -> Option<Vec<f64>> {
+    for col in 0..n {
+        let mut pivot = col;
+        for row in (col + 1)..n {
+            if matrix[row][col].abs() > matrix[pivot][col].abs() {
+                pivot = row;
+            }
+        }
+        if matrix[pivot][col].abs() < 1e-12 {
+            return None;
+        }
+        matrix.swap(col, pivot);
+
+        let diag = matrix[col][col];
+        for k in col..=n {
+            matrix[col][k] /= diag;
+        }
+        for row in 0..n {
+            if row != col {
+                let factor = matrix[row][col];
+                for k in col..=n {
+                    matrix[row][k] -= factor * matrix[col][k];
+                }
+            }
+        }
+    }
+
+    Some((0..n).map(|i| matrix[i][n]).collect())
 }
 
 fn bool_value(value: &Value, span: Span) -> Result<bool, RuntimeError> {

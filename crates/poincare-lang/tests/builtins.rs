@@ -256,7 +256,40 @@ fn numeric_derivative() {
 }
 
 #[test]
-fn unimplemented_analysis_builtin_errors() {
-    let msg = expect_error("fit([1, 2, 3])");
-    assert!(msg.contains("not implemented yet"), "{msg}");
+fn numeric_gradient() {
+    // grad of x^2 + y^2 at (3, 4) is (6, 8).
+    let src = "f(x, y) = x * x + y * y\nmap(gradient(f, [3, 4]), g => round(g))";
+    assert_eq!(value_of(src), "[6, 8]");
+}
+
+#[test]
+fn gradient_of_single_coordinate_matches_derivative() {
+    let src = "sq(x) = x * x\nmap(gradient(sq, 3), g => round(g))";
+    assert_eq!(value_of(src), "[6]");
+}
+
+#[test]
+fn fit_recovers_a_line() {
+    // y = 2x + 1 through exact points, degree 1 -> [c0, c1] = [1, 2].
+    let src = "map(fit([0, 1, 2, 3], [1, 3, 5, 7], 1), c => round(c))";
+    assert_eq!(value_of(src), "[1, 2]");
+}
+
+#[test]
+fn fit_recovers_a_parabola() {
+    // y = x^2 + x + 1, degree 2 -> [1, 1, 1].
+    let src = "map(fit([1, 2, 3, 4], [3, 7, 13, 21], 2), c => round(c))";
+    assert_eq!(value_of(src), "[1, 1, 1]");
+}
+
+#[test]
+fn fit_rejects_mismatched_lengths() {
+    let msg = expect_error("fit([1, 2, 3], [1, 2], 1)");
+    assert!(msg.contains("equal-length"), "{msg}");
+}
+
+#[test]
+fn fit_needs_enough_points_for_degree() {
+    let msg = expect_error("fit([1, 2], [1, 2], 3)");
+    assert!(msg.contains("more than"), "{msg}");
 }
