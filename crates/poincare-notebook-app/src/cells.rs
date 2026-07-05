@@ -320,40 +320,42 @@ fn show_graph_output(
     });
 
     let width = ui.available_width().clamp(260.0, 720.0);
+    // Keep the box at the render aspect so the GPU image is never stretched.
+    let height = width / crate::graph_viewport::PREVIEW_ASPECT;
     let graph_id = graph.graph_id.0.as_str();
 
-    if is_active && graphs.is_live(graph_id) {
-        // Live, interactive 3D viewport: orbit with drag, zoom with scroll.
-        let (rect, viewport_response) =
-            ui.allocate_exact_size(egui::vec2(width, 320.0), egui::Sense::click_and_drag());
-        graphs.show_live(graph_id, ui, rect, &viewport_response);
-        let painter = ui.painter_at(rect);
-        painter.rect_stroke(
-            rect,
-            egui::CornerRadius::same(6),
-            egui::Stroke::new(1.0, ui.visuals().selection.stroke.color),
-            egui::StrokeKind::Inside,
-        );
-        if viewport_response.hovered() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
-        }
-        return;
-    }
-
-    let (rect, preview_response) =
-        ui.allocate_exact_size(egui::vec2(width, 220.0), egui::Sense::click());
-    if let Some(texture) = graphs.static_texture(graph_id) {
-        // Headless-rendered still image of the 3D scene.
-        let image = egui::Image::new(texture)
-            .maintain_aspect_ratio(true)
-            .fit_to_exact_size(rect.size());
-        image.paint_at(ui, rect);
+    // The active graph orbits on drag/scroll; others just register a click to
+    // activate. Rendering is identical either way — a GPU texture drawn as an
+    // image, which behaves correctly inside the scroll area.
+    let sense = if is_active {
+        egui::Sense::click_and_drag()
     } else {
-        // The GPU image is not ready yet (or the scene is empty): fall back to
-        // the lightweight CPU-sampled thumbnail.
+        egui::Sense::click()
+    };
+    let (rect, viewport_response) = ui.allocate_exact_size(egui::vec2(width, height), sense);
+    graphs.interact(graph_id, ui, &viewport_response, rect, is_active);
+
+    if let Some(texture_id) = graphs.image(graph_id) {
+        egui::Image::new(egui::load::SizedTexture::new(texture_id, rect.size()))
+            .paint_at(ui, rect);
+        if is_active {
+            ui.painter_at(rect).rect_stroke(
+                rect,
+                egui::CornerRadius::same(6),
+                egui::Stroke::new(1.0, ui.visuals().selection.stroke.color),
+                egui::StrokeKind::Inside,
+            );
+        }
+    } else {
+        // GPU image not ready yet (first frame) or the scene failed to build:
+        // fall back to the lightweight CPU-sampled thumbnail.
         paint_graph_preview(ui, rect, graph, is_active);
     }
-    if preview_response.clicked() && !is_active {
+
+    if is_active && viewport_response.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+    }
+    if viewport_response.clicked() && !is_active {
         response.graph_action = Some(GraphOutputAction::Activate {
             graph_id: graph.graph_id.clone(),
         });

@@ -549,7 +549,7 @@ impl eframe::App for NotebookApp {
         let graph_specs = document_graph_specs(&self.document);
         let active_id = self.active_graph.as_ref().map(|id| id.0.clone());
         self.graphs
-            .sync(ctx, frame, &graph_specs, active_id.as_deref());
+            .sync(frame, &graph_specs, active_id.as_deref());
 
         self.show_top_bar(ctx);
         egui::CentralPanel::default().show(ctx, |ui| {
