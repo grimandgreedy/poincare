@@ -1,7 +1,10 @@
 use poincare_evaluator as evaluator;
 use serde::{Deserialize, Serialize};
 
-use crate::{NotebookCellId, NotebookId, RuntimeResourceLimits, ValueKind};
+use crate::{
+    NotebookCellId, NotebookId, RUNTIME_VERSION, ReproducibilityMetadata, RuntimeResourceLimits,
+    ValueKind,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RuntimeSessionId(pub String);
@@ -243,6 +246,18 @@ impl EvaluatorSession {
 
     pub fn environment(&self) -> &RuntimeEnvironment {
         &self.environment
+    }
+
+    /// Reproducibility metadata for the current session: which evaluator and
+    /// runtime version are driving execution and the live run count.
+    pub fn reproducibility(&self) -> ReproducibilityMetadata {
+        ReproducibilityMetadata {
+            evaluator_language_id: self.environment.evaluator.language_id.clone(),
+            evaluator_display_name: self.environment.evaluator.display_name.clone(),
+            evaluator_version: self.environment.evaluator.version.clone(),
+            runtime_version: RUNTIME_VERSION.to_string(),
+            run_count: self.environment.run_count,
+        }
     }
 
     pub fn snapshot(&self) -> RuntimeSessionSnapshot {

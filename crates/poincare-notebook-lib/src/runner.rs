@@ -3,11 +3,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     CancellableRuntimeHost, EvaluatorSession, ExecutableCell, ExecutionState, NotebookBlock,
-    NotebookBlockKind, NotebookCellId, NotebookDocument, RuntimeCancellationToken,
-    RuntimeDeleteVariableResult, RuntimeExecutionPolicy, RuntimeFailure, RuntimeInspectionSnapshot,
-    RuntimeOutputCompletion, RuntimeOutputLimits, RuntimePartialExecution, RuntimeResourceLimits,
-    RuntimeSessionSnapshot, RuntimeStopReason, StaleReason, classify_eval_response,
-    delete_variable_status, notebook_outputs_from_eval_response, partial_execution_for_response,
+    NotebookBlockKind, NotebookCellId, NotebookDocument, OutputReproContext,
+    ReproducibilityMetadata, RuntimeCancellationToken, RuntimeDeleteVariableResult,
+    RuntimeExecutionPolicy, RuntimeFailure, RuntimeInspectionSnapshot, RuntimeOutputCompletion,
+    RuntimeOutputLimits, RuntimePartialExecution, RuntimeResourceLimits, RuntimeSessionSnapshot,
+    RuntimeStopReason, StaleReason, classify_eval_response, delete_variable_status,
+    notebook_outputs_from_eval_response_with, partial_execution_for_response, source_hash,
     stop_reason_for_failure,
 };
 
@@ -15,6 +16,7 @@ use crate::{
 pub enum RuntimeRunCommand {
     RunCurrentCell { cell_id: NotebookCellId },
     RunAll,
+    Restart,
     RestartAndRunAll,
     MarkCellEdited { cell_id: NotebookCellId },
 }
@@ -35,6 +37,7 @@ pub struct RuntimeRunReport {
     pub stopped_at: Option<NotebookCellId>,
     pub stop_reason: Option<RuntimeStopReason>,
     pub policy: RuntimeExecutionPolicy,
+    pub reproducibility: ReproducibilityMetadata,
     pub snapshot: RuntimeSessionSnapshot,
 }
 
@@ -154,6 +157,7 @@ impl NotebookRuntime {
             stopped_at,
             stop_reason,
             policy: self.policy,
+            reproducibility: self.session.reproducibility(),
             snapshot: self.session.snapshot(),
         }
     }
@@ -185,6 +189,28 @@ impl NotebookRuntime {
             host,
             RuntimeRunCommand::RestartAndRunAll,
         )
+    }
+
+    /// Restart the evaluator, clearing live session state without re-running.
+    ///
+    /// Saved outputs remain in the document but are marked disconnected from the
+    /// current session (`StaleReason::EvaluatorRestarted`), and previously run
+    /// executable cells become stale. Use `restart_and_run_all` to also rebuild
+    /// state from source.
+    pub fn restart(&mut self, document: &mut NotebookDocument) -> RuntimeRunReport {
+        self.clear_interrupt();
+        self.session.restart();
+        mark_document_session_disconnected(document);
+
+        RuntimeRunReport {
+            command: RuntimeRunCommand::Restart,
+            cells: Vec::new(),
+            stopped_at: None,
+            stop_reason: None,
+            policy: self.policy,
+            reproducibility: self.session.reproducibility(),
+            snapshot: self.session.snapshot(),
+        }
     }
 
     pub fn mark_cell_source_edited(
@@ -251,6 +277,7 @@ impl NotebookRuntime {
             stopped_at,
             stop_reason,
             policy: self.policy,
+            reproducibility: self.session.reproducibility(),
             snapshot: self.session.snapshot(),
         }
     }
@@ -273,12 +300,21 @@ impl NotebookRuntime {
             _ => return None,
         };
 
+        let cell_source_hash = source_hash(&source);
         let host = CancellableRuntimeHost::new(host, self.cancellation_token.clone());
         let evaluation =
             self.session
                 .evaluate_cell(cell_id.clone(), source, &host, &self.resource_limits);
-        let output_batch =
-            notebook_outputs_from_eval_response(cell_id, &evaluation.response, &self.output_limits);
+        let reproducibility = OutputReproContext {
+            source_hash: cell_source_hash,
+            metadata: self.session.reproducibility(),
+        };
+        let output_batch = notebook_outputs_from_eval_response_with(
+            cell_id,
+            &evaluation.response,
+            &self.output_limits,
+            Some(&reproducibility),
+        );
         let partial_output_count = evaluation.response.outputs.len();
         let failure = classify_eval_response(&evaluation.response);
         let partial_execution =
@@ -318,6 +354,33 @@ fn execution_state_from_status(status: evaluator::EvalStatus, run_count: u64) ->
         evaluator::EvalStatus::Failed
         | evaluator::EvalStatus::Cancelled
         | evaluator::EvalStatus::ResourceLimitExceeded => ExecutionState::Failed { run_count },
+    }
+}
+
+/// Mark every executable cell and saved output as disconnected from the live
+/// session after an evaluator restart. Cells that have run (or are already
+/// stale) gain an `EvaluatorRestarted` reason; untouched idle cells are left
+/// alone. All existing outputs are flagged so the UI can show they no longer
+/// correspond to live session state.
+fn mark_document_session_disconnected(document: &mut NotebookDocument) {
+    for block in document.blocks.iter_mut() {
+        if let NotebookBlockKind::Executable(cell) = &mut block.kind {
+            match &mut cell.execution {
+                ExecutionState::Complete { .. } | ExecutionState::Failed { .. } => {
+                    cell.execution = ExecutionState::Stale {
+                        reasons: vec![StaleReason::EvaluatorRestarted],
+                    };
+                }
+                ExecutionState::Stale { reasons } => {
+                    push_unique_reason(reasons, StaleReason::EvaluatorRestarted);
+                }
+                ExecutionState::Idle | ExecutionState::Queued | ExecutionState::Running => {}
+            }
+        }
+
+        for output in &mut block.outputs {
+            push_unique_reason(&mut output.stale, StaleReason::EvaluatorRestarted);
+        }
     }
 }
 
@@ -677,6 +740,61 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn restart_marks_outputs_and_cells_session_disconnected() {
+        let mut runtime = runtime();
+        let host = EmptyRuntimeHost;
+        let mut document = document_with_sources(&["a := 1"]);
+
+        runtime.run_all(&mut document, &host);
+        assert_eq!(document.blocks[0].outputs.len(), 1);
+
+        let report = runtime.restart(&mut document);
+
+        assert_eq!(report.command, RuntimeRunCommand::Restart);
+        assert_eq!(report.snapshot.run_count, 0);
+        assert_eq!(report.snapshot.bindings.len(), 0);
+        assert!(matches!(
+            document.blocks[0].kind,
+            NotebookBlockKind::Executable(ExecutableCell {
+                execution: ExecutionState::Stale { .. },
+                ..
+            })
+        ));
+        if let NotebookBlockKind::Executable(cell) = &document.blocks[0].kind {
+            assert!(matches!(
+                &cell.execution,
+                ExecutionState::Stale { reasons }
+                    if reasons.contains(&StaleReason::EvaluatorRestarted)
+            ));
+        }
+        assert!(
+            document.blocks[0].outputs[0]
+                .stale
+                .contains(&StaleReason::EvaluatorRestarted)
+        );
+    }
+
+    #[test]
+    fn run_records_source_hash_and_reproducibility_in_provenance() {
+        let mut runtime = runtime();
+        let host = EmptyRuntimeHost;
+        let mut document = document_with_sources(&["a := 1"]);
+
+        let report = runtime.run_all(&mut document, &host);
+
+        let provenance = &document.blocks[0].outputs[0].provenance;
+        assert_eq!(provenance.input_hash, Some(source_hash("a := 1")));
+        assert!(
+            provenance
+                .notes
+                .iter()
+                .any(|note| note.contains("runtime=") && note.contains("evaluator=ordered"))
+        );
+        assert_eq!(report.reproducibility.evaluator_language_id, "ordered");
+        assert_eq!(report.reproducibility.run_count, 1);
     }
 
     #[test]

@@ -5,7 +5,8 @@ use crate::{
     AnalysisReportSnapshot, AnalysisSnapshot, AttachmentId, AttachmentRef, BundlePath,
     DiagnosticSeverity, GraphBlockId, GraphOutput, GraphOwnership, ImageOutput, NotebookCellId,
     NotebookDiagnostic, NotebookOutput, NotebookOutputId, NotebookOutputKind, OutputProvenance,
-    SourcePosition, SourceSpan, TableOutput, TextOutput, TextStream, ValueKind, ValueOutput,
+    OutputReproContext, SourcePosition, SourceSpan, TableOutput, TextOutput, TextStream, ValueKind,
+    ValueOutput,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,7 +45,19 @@ pub fn notebook_outputs_from_eval_response(
     response: &evaluator::EvalResponse,
     limits: &RuntimeOutputLimits,
 ) -> RuntimeOutputBatch {
-    let mut mapper = OutputMapper::new(cell_id.clone(), response, limits);
+    notebook_outputs_from_eval_response_with(cell_id, response, limits, None)
+}
+
+/// Map evaluator outputs to notebook outputs, enriching provenance with
+/// reproducibility metadata (source hash and evaluator/runtime identity) when a
+/// context is supplied.
+pub fn notebook_outputs_from_eval_response_with(
+    cell_id: &NotebookCellId,
+    response: &evaluator::EvalResponse,
+    limits: &RuntimeOutputLimits,
+    reproducibility: Option<&OutputReproContext>,
+) -> RuntimeOutputBatch {
+    let mut mapper = OutputMapper::new(cell_id.clone(), response, limits, reproducibility);
 
     for output in &response.outputs {
         mapper.push_eval_output(output);
@@ -67,6 +80,7 @@ struct OutputMapper<'a> {
     cell_id: NotebookCellId,
     response: &'a evaluator::EvalResponse,
     limits: &'a RuntimeOutputLimits,
+    reproducibility: Option<&'a OutputReproContext>,
     outputs: Vec<NotebookOutput>,
     next_index: usize,
     graph_outputs: usize,
@@ -79,17 +93,41 @@ impl<'a> OutputMapper<'a> {
         cell_id: NotebookCellId,
         response: &'a evaluator::EvalResponse,
         limits: &'a RuntimeOutputLimits,
+        reproducibility: Option<&'a OutputReproContext>,
     ) -> Self {
         Self {
             cell_id,
             response,
             limits,
+            reproducibility,
             outputs: Vec::new(),
             next_index: 0,
             graph_outputs: 0,
             limit_reached: false,
             limit_reason: None,
         }
+    }
+
+    /// Overlay reproducibility metadata onto a provenance record: fill the
+    /// source hash when the evaluator did not supply one, and append an
+    /// evaluator/runtime identity note.
+    fn with_reproducibility(&self, mut provenance: OutputProvenance) -> OutputProvenance {
+        if let Some(reproducibility) = self.reproducibility {
+            if provenance.input_hash.is_none() {
+                provenance.input_hash = Some(reproducibility.source_hash.clone());
+            }
+            let note = reproducibility.metadata.provenance_note();
+            if !provenance.notes.contains(&note) {
+                provenance.notes.push(note);
+            }
+        }
+        provenance
+    }
+
+    /// Base provenance for outputs that do not carry evaluator-supplied
+    /// provenance (diagnostics, limit warnings), enriched with reproducibility.
+    fn base_provenance(&self) -> OutputProvenance {
+        self.with_reproducibility(OutputProvenance::source_cell(self.cell_id.clone()))
     }
 
     fn push_eval_output(&mut self, output: &evaluator::EvalOutput) {
@@ -105,7 +143,8 @@ impl<'a> OutputMapper<'a> {
 
     fn push_diagnostic(&mut self, diagnostic: &evaluator::EvalDiagnostic) {
         let kind = NotebookOutputKind::Diagnostic(notebook_diagnostic(diagnostic));
-        self.push(kind, OutputProvenance::source_cell(self.cell_id.clone()));
+        let provenance = self.base_provenance();
+        self.push(kind, provenance);
     }
 
     fn push(&mut self, kind: NotebookOutputKind, provenance: OutputProvenance) {
@@ -158,7 +197,7 @@ impl<'a> OutputMapper<'a> {
                         span: None,
                         code: Some("OUTPUT_LIMIT".to_string()),
                     }),
-                    OutputProvenance::source_cell(self.cell_id.clone()),
+                    self.base_provenance(),
                 );
             }
         }
@@ -294,7 +333,7 @@ impl<'a> OutputMapper<'a> {
             .as_ref()
             .map(|cell_id| NotebookCellId(cell_id.0.clone()))
             .or_else(|| Some(self.cell_id.clone()));
-        OutputProvenance {
+        self.with_reproducibility(OutputProvenance {
             source_cell,
             produced_at: provenance.produced_at.clone(),
             run_count: provenance.run_count.or_else(|| {
@@ -311,7 +350,7 @@ impl<'a> OutputMapper<'a> {
                 .map(|attachment_id| AttachmentId(attachment_id.0.clone()))
                 .collect(),
             notes: provenance.notes.clone(),
-        }
+        })
     }
 }
 
