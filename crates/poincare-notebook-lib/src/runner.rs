@@ -2,12 +2,13 @@ use poincare_evaluator as evaluator;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    EvaluatorSession, ExecutableCell, ExecutionState, NotebookBlock, NotebookBlockKind,
-    NotebookCellId, NotebookDocument, RuntimeDeleteVariableResult, RuntimeExecutionPolicy,
-    RuntimeFailure, RuntimeInspectionSnapshot, RuntimeOutputCompletion, RuntimeOutputLimits,
-    RuntimePartialExecution, RuntimeSessionSnapshot, RuntimeStopReason, StaleReason,
-    classify_eval_response, delete_variable_status, notebook_outputs_from_eval_response,
-    partial_execution_for_response, stop_reason_for_failure,
+    CancellableRuntimeHost, EvaluatorSession, ExecutableCell, ExecutionState, NotebookBlock,
+    NotebookBlockKind, NotebookCellId, NotebookDocument, RuntimeCancellationToken,
+    RuntimeDeleteVariableResult, RuntimeExecutionPolicy, RuntimeFailure, RuntimeInspectionSnapshot,
+    RuntimeOutputCompletion, RuntimeOutputLimits, RuntimePartialExecution, RuntimeResourceLimits,
+    RuntimeSessionSnapshot, RuntimeStopReason, StaleReason, classify_eval_response,
+    delete_variable_status, notebook_outputs_from_eval_response, partial_execution_for_response,
+    stop_reason_for_failure,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -40,6 +41,8 @@ pub struct RuntimeRunReport {
 pub struct NotebookRuntime {
     session: EvaluatorSession,
     output_limits: RuntimeOutputLimits,
+    resource_limits: RuntimeResourceLimits,
+    cancellation_token: RuntimeCancellationToken,
     policy: RuntimeExecutionPolicy,
 }
 
@@ -47,13 +50,25 @@ impl NotebookRuntime {
     pub fn new(session: EvaluatorSession) -> Self {
         Self {
             session,
-            output_limits: RuntimeOutputLimits::default(),
+            resource_limits: RuntimeResourceLimits::default(),
+            output_limits: RuntimeResourceLimits::default().output_limits(),
+            cancellation_token: RuntimeCancellationToken::new(),
             policy: RuntimeExecutionPolicy::default(),
         }
     }
 
     pub fn with_output_limits(mut self, output_limits: RuntimeOutputLimits) -> Self {
         self.output_limits = output_limits;
+        self.resource_limits.max_output_count = self.output_limits.max_outputs_per_cell;
+        self.resource_limits.max_text_chars = self.output_limits.max_text_chars;
+        self.resource_limits.max_table_rows = self.output_limits.max_table_rows;
+        self.resource_limits.max_graph_outputs = self.output_limits.max_graph_outputs;
+        self
+    }
+
+    pub fn with_resource_limits(mut self, resource_limits: RuntimeResourceLimits) -> Self {
+        self.output_limits = resource_limits.output_limits();
+        self.resource_limits = resource_limits;
         self
     }
 
@@ -67,6 +82,22 @@ impl NotebookRuntime {
 
     pub fn output_limits(&self) -> &RuntimeOutputLimits {
         &self.output_limits
+    }
+
+    pub fn resource_limits(&self) -> &RuntimeResourceLimits {
+        &self.resource_limits
+    }
+
+    pub fn cancellation_token(&self) -> RuntimeCancellationToken {
+        self.cancellation_token.clone()
+    }
+
+    pub fn interrupt(&self) {
+        self.cancellation_token.cancel();
+    }
+
+    pub fn clear_interrupt(&self) {
+        self.cancellation_token.reset();
     }
 
     pub fn with_execution_policy(mut self, policy: RuntimeExecutionPolicy) -> Self {
@@ -97,6 +128,7 @@ impl NotebookRuntime {
         cell_id: &NotebookCellId,
         host: &dyn evaluator::RuntimeHost,
     ) -> RuntimeRunReport {
+        self.clear_interrupt();
         let mut cells = Vec::new();
         let stopped_at = match self.run_cell(document, cell_id, host) {
             Some(cell_run) => {
@@ -131,6 +163,7 @@ impl NotebookRuntime {
         document: &mut NotebookDocument,
         host: &dyn evaluator::RuntimeHost,
     ) -> RuntimeRunReport {
+        self.clear_interrupt();
         self.run_cells_in_order(
             document,
             executable_cell_ids(document),
@@ -144,6 +177,7 @@ impl NotebookRuntime {
         document: &mut NotebookDocument,
         host: &dyn evaluator::RuntimeHost,
     ) -> RuntimeRunReport {
+        self.clear_interrupt();
         self.session.restart();
         self.run_cells_in_order(
             document,
@@ -239,7 +273,10 @@ impl NotebookRuntime {
             _ => return None,
         };
 
-        let evaluation = self.session.evaluate_cell(cell_id.clone(), source, host);
+        let host = CancellableRuntimeHost::new(host, self.cancellation_token.clone());
+        let evaluation =
+            self.session
+                .evaluate_cell(cell_id.clone(), source, &host, &self.resource_limits);
         let output_batch =
             notebook_outputs_from_eval_response(cell_id, &evaluation.response, &self.output_limits);
         let partial_output_count = evaluation.response.outputs.len();
@@ -331,6 +368,22 @@ mod tests {
         }
     }
 
+    struct CancellingRuntimeHost;
+
+    impl RuntimeHost for CancellingRuntimeHost {
+        fn resolve_attachment(&self, _name_or_id: &str) -> Result<AttachmentValue, HostError> {
+            Err(HostError::not_found("no attachments"))
+        }
+
+        fn attachment_bytes(&self, _attachment: &EvalAttachmentId) -> Result<Vec<u8>, HostError> {
+            Err(HostError::not_found("no attachments"))
+        }
+
+        fn should_cancel(&self) -> bool {
+            true
+        }
+    }
+
     struct OrderedEvaluator {
         snapshot: SessionSnapshot,
     }
@@ -351,9 +404,41 @@ mod tests {
             metadata
         }
 
-        fn evaluate_cell(&mut self, request: EvalRequest, _host: &dyn RuntimeHost) -> EvalResponse {
+        fn evaluate_cell(&mut self, request: EvalRequest, host: &dyn RuntimeHost) -> EvalResponse {
             self.snapshot.run_count += 1;
             self.snapshot.status = SessionStatus::Idle;
+
+            if request.source.contains("cancel") && host.should_cancel() {
+                return EvalResponse {
+                    status: EvalStatus::Cancelled,
+                    outputs: Vec::new(),
+                    diagnostics: vec![EvalDiagnostic {
+                        severity: evaluator::EvalDiagnosticSeverity::Error,
+                        message: "cancelled".to_string(),
+                        span: None,
+                        code: Some("CANCELLED".to_string()),
+                    }],
+                    context_delta: None,
+                    session: Some(self.snapshot.clone()),
+                };
+            }
+
+            if request.source.contains("limit")
+                && request.context.resource_limits.max_loop_iterations == Some(1)
+            {
+                return EvalResponse {
+                    status: EvalStatus::ResourceLimitExceeded,
+                    outputs: Vec::new(),
+                    diagnostics: vec![EvalDiagnostic {
+                        severity: evaluator::EvalDiagnosticSeverity::Error,
+                        message: "loop limit exceeded".to_string(),
+                        span: None,
+                        code: Some("LOOP_LIMIT".to_string()),
+                    }],
+                    context_delta: None,
+                    session: Some(self.snapshot.clone()),
+                };
+            }
 
             if request.source.contains("fail") {
                 return EvalResponse {
@@ -530,6 +615,47 @@ mod tests {
                 execution: ExecutionState::Complete { run_count: 3 },
                 ..
             })
+        ));
+    }
+
+    #[test]
+    fn runtime_passes_resource_limits_to_evaluator() {
+        let mut runtime = runtime().with_resource_limits(RuntimeResourceLimits {
+            max_loop_iterations: Some(1),
+            ..RuntimeResourceLimits::default()
+        });
+        let host = EmptyRuntimeHost;
+        let mut document = document_with_sources(&["limit"]);
+
+        let report = runtime.run_all(&mut document, &host);
+
+        assert!(matches!(
+            report.stop_reason,
+            Some(RuntimeStopReason::ResourceLimitExceeded { ref failure, .. })
+                if failure.class == crate::RuntimeErrorClass::ResourceLimitExceeded
+        ));
+        assert!(matches!(
+            report.cells[0].status,
+            ExecutionState::Failed { run_count: 1 }
+        ));
+    }
+
+    #[test]
+    fn runtime_host_cancellation_is_reported_as_cancelled() {
+        let mut runtime = runtime();
+        let host = CancellingRuntimeHost;
+        let mut document = document_with_sources(&["cancel"]);
+
+        let report = runtime.run_all(&mut document, &host);
+
+        assert!(matches!(
+            report.stop_reason,
+            Some(RuntimeStopReason::Cancelled { ref cell_id })
+                if *cell_id == NotebookCellId::new("cell-1")
+        ));
+        assert!(matches!(
+            report.cells[0].failure.as_ref().expect("failure").class,
+            crate::RuntimeErrorClass::Cancelled
         ));
     }
 

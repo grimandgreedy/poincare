@@ -1,7 +1,7 @@
 use poincare_evaluator as evaluator;
 use serde::{Deserialize, Serialize};
 
-use crate::{NotebookCellId, NotebookId, ValueKind};
+use crate::{NotebookCellId, NotebookId, RuntimeResourceLimits, ValueKind};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RuntimeSessionId(pub String);
@@ -163,7 +163,7 @@ impl RuntimeEnvironment {
             .filter(|binding| binding.binding_kind == RuntimeBindingKind::Function)
     }
 
-    fn eval_context(&self) -> evaluator::EvalContext {
+    fn eval_context(&self, resource_limits: &RuntimeResourceLimits) -> evaluator::EvalContext {
         evaluator::EvalContext {
             run_count: self.run_count,
             variables: self
@@ -172,6 +172,7 @@ impl RuntimeEnvironment {
                 .map(RuntimeBindingSummary::to_evaluator)
                 .collect(),
             stale_reasons: Vec::new(),
+            resource_limits: evaluator::EvalResourceLimits::from(resource_limits),
             options: Vec::new(),
         }
     }
@@ -262,13 +263,14 @@ impl EvaluatorSession {
         cell_id: NotebookCellId,
         source: impl Into<String>,
         host: &dyn evaluator::RuntimeHost,
+        resource_limits: &RuntimeResourceLimits,
     ) -> RuntimeEvaluation {
         self.environment.status = RuntimeSessionStatus::Running;
         let request = evaluator::EvalRequest {
             document_id: evaluator::EvalDocumentId(self.environment.document_id.0.clone()),
             cell_id: evaluator::EvalCellId(cell_id.0),
             source: source.into(),
-            context: self.environment.eval_context(),
+            context: self.environment.eval_context(resource_limits),
         };
 
         let response = self.evaluator.evaluate_cell(request, host);
@@ -442,7 +444,12 @@ mod tests {
             Box::new(StatefulEvaluator::new()),
         );
         let host = EmptyRuntimeHost;
-        let result = session.evaluate_cell(NotebookCellId::new("cell-1"), "a := 3", &host);
+        let result = session.evaluate_cell(
+            NotebookCellId::new("cell-1"),
+            "a := 3",
+            &host,
+            &RuntimeResourceLimits::default(),
+        );
 
         assert_eq!(result.response.status, EvalStatus::Complete);
         assert_eq!(result.snapshot.run_count, 1);
@@ -466,9 +473,18 @@ mod tests {
         );
         let host = EmptyRuntimeHost;
 
-        session.evaluate_cell(NotebookCellId::new("cell-1"), "a := 3", &host);
-        let result =
-            session.evaluate_cell(NotebookCellId::new("cell-2"), "define-f f(x) := x", &host);
+        session.evaluate_cell(
+            NotebookCellId::new("cell-1"),
+            "a := 3",
+            &host,
+            &RuntimeResourceLimits::default(),
+        );
+        let result = session.evaluate_cell(
+            NotebookCellId::new("cell-2"),
+            "define-f f(x) := x",
+            &host,
+            &RuntimeResourceLimits::default(),
+        );
 
         let variables: Vec<_> = result.snapshot.variables().collect();
         let functions: Vec<_> = result.snapshot.functions().collect();
@@ -501,7 +517,7 @@ mod tests {
             Box::new(StatefulEvaluator::new()),
         );
         let host = EmptyRuntimeHost;
-        session.evaluate_cell(cell_id, "a := 3", &host);
+        session.evaluate_cell(cell_id, "a := 3", &host, &RuntimeResourceLimits::default());
 
         let result = session.restart();
 

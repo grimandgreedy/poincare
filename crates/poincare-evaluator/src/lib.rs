@@ -175,7 +175,18 @@ pub struct EvalContext {
     pub run_count: u64,
     pub variables: Vec<VariableSummary>,
     pub stale_reasons: Vec<EvalStaleReason>,
+    pub resource_limits: EvalResourceLimits,
     pub options: Vec<(String, String)>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EvalResourceLimits {
+    pub max_loop_iterations: Option<u64>,
+    pub max_wall_time_ms: Option<u64>,
+    pub max_output_count: Option<usize>,
+    pub max_text_chars: Option<usize>,
+    pub max_table_rows: Option<usize>,
+    pub max_graph_outputs: Option<usize>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -354,6 +365,7 @@ pub struct AttachmentValue {
     pub display_name: String,
     pub media_type: Option<String>,
     pub size_bytes: Option<u64>,
+    pub hash: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -543,11 +555,29 @@ pub trait RuntimeHost {
 
     fn attachment_bytes(&self, attachment: &EvalAttachmentId) -> Result<Vec<u8>, HostError>;
 
+    fn should_cancel(&self) -> bool {
+        false
+    }
+
     fn attachment_text(&self, attachment: &EvalAttachmentId) -> Result<String, HostError> {
         let bytes = self.attachment_bytes(attachment)?;
         String::from_utf8(bytes).map_err(|err| HostError {
             kind: HostErrorKind::InvalidUtf8,
             message: err.to_string(),
+        })
+    }
+
+    fn attachment_table(&self, attachment: &EvalAttachmentId) -> Result<TableValue, HostError> {
+        Err(HostError {
+            kind: HostErrorKind::UnsupportedMediaType,
+            message: format!("attachment `{}` cannot be read as a table", attachment.0),
+        })
+    }
+
+    fn attachment_array(&self, attachment: &EvalAttachmentId) -> Result<ArrayValue, HostError> {
+        Err(HostError {
+            kind: HostErrorKind::UnsupportedMediaType,
+            message: format!("attachment `{}` cannot be read as an array", attachment.0),
         })
     }
 }
@@ -591,6 +621,7 @@ mod tests {
                     display_name: "samples.csv".to_string(),
                     media_type: Some("text/csv".to_string()),
                     size_bytes: Some(11),
+                    hash: Some("sha256:test".to_string()),
                 })
             } else {
                 Err(HostError::not_found("attachment not found"))
