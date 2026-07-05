@@ -172,3 +172,23 @@ points = scatter(data, x = \"x\", y = \"y\", z = \"z\")
 plot points";
     resolve_ok(src);
 }
+
+#[test]
+fn plot_formula_coordinates_are_in_scope() {
+    // `x` and `y` are unbound coordinate variables inside the surface formula;
+    // they must not be flagged, while a genuinely undefined name still is.
+    resolve_ok("g = add_plot(graph(), surface(z = x^2 + y^2, x = -3..3, y = -3..3))");
+    resolve_ok("amp = 2\ncurve(y = amp * sin(x), x = -6..6)");
+}
+
+#[test]
+fn plot_formula_still_flags_unknown_names() {
+    // `w` is neither a coordinate variable nor defined anywhere.
+    resolve_errs("surface(z = x + w, x = -1..1, y = -1..1)");
+}
+
+#[test]
+fn coordinate_scope_does_not_leak_outside_the_plot_call() {
+    // `x` is only in scope inside the plot constructor, not after it.
+    resolve_errs("surface(z = x, x = -1..1, y = -1..1)\nprint(x)");
+}

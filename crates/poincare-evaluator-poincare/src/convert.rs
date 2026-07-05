@@ -46,6 +46,7 @@ pub fn to_eval_value(value: &Value) -> EvalValue {
             name: Some((*name).to_string()),
             parameters: Vec::new(),
         }),
+        Value::Expr(e) => EvalValue::String(e.source.clone()),
     }
 }
 
@@ -64,6 +65,7 @@ pub fn value_kind(value: &Value) -> ValueKind {
         Value::Graph(_) => ValueKind::Graph,
         Value::Attachment(_) => ValueKind::Attachment,
         Value::Closure(_) | Value::Builtin(_) => ValueKind::Function,
+        Value::Expr(_) => ValueKind::Expression,
     }
 }
 
@@ -113,6 +115,7 @@ fn plot_to_spec(plot: &Plot) -> PlotSpec {
             _ => {}
         }
     }
+    let (expression, parameters) = plot_expression(plot);
     PlotSpec {
         name: plot.kind.clone(),
         visible: true,
@@ -120,20 +123,25 @@ fn plot_to_spec(plot: &Plot) -> PlotSpec {
         resolution,
         style: PlotStyle::default(),
         definition: PlotDefinition::ExprCartesian {
-            expression: plot_expression(plot),
-            parameters: Vec::new(),
+            expression,
+            parameters,
         },
     }
 }
 
-/// Best-effort expression string from a plot's primary scalar field.
-fn plot_expression(plot: &Plot) -> String {
+/// The expression string and numeric parameters for a plot's primary scalar
+/// field. A captured formula (`Value::Expr`) supplies its source text and any
+/// parameters it closed over; other values fall back to their display form.
+fn plot_expression(plot: &Plot) -> (String, Vec<(String, f64)>) {
     for key in ["z", "y", "expr", "value"] {
         if let Some((_, value)) = plot.fields.iter().find(|(name, _)| name == key) {
-            return value.display();
+            return match value {
+                Value::Expr(e) => (e.source.clone(), e.params.clone()),
+                other => (other.display(), Vec::new()),
+            };
         }
     }
-    "0".to_string()
+    ("0".to_string(), Vec::new())
 }
 
 // --- diagnostics ---

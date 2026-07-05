@@ -37,9 +37,10 @@ print("columns:", columns(data))
 print("y column:", column(data, "y"))
 
 # a graph value, emitted as an output
+amp = 2
 g = graph()
-g = add_plot(g, surface(z = 1, x = -3..3, y = -3..3))
-g = add_plot(g, curve(y = 2))
+g = add_plot(g, surface(z = amp * (x^2 + y^2), x = -3..3, y = -3..3))
+g = add_plot(g, curve(y = sin(x), x = -6..6))
 emit(g)
 
 # the final expression is the cell value

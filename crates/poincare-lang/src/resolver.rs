@@ -294,9 +294,21 @@ impl Resolver<'_> {
             }
             Expr::Call { callee, args, .. } => {
                 self.resolve_expr(callee);
-                for arg in args {
-                    // Named-argument labels are not references.
-                    self.resolve_expr(&arg.value);
+                // A plot constructor's formula argument (e.g. the `z` in
+                // `surface(z = x^2 + y^2)`) ranges over coordinate variables,
+                // which are in scope there even though nothing binds them.
+                let coord_vars = plot_ctor_coord_vars(callee);
+                if coord_vars.is_empty() {
+                    for arg in args {
+                        // Named-argument labels are not references.
+                        self.resolve_expr(&arg.value);
+                    }
+                } else {
+                    self.scopes.push(coord_vars.iter().map(|v| v.to_string()).collect());
+                    for arg in args {
+                        self.resolve_expr(&arg.value);
+                    }
+                    self.scopes.pop();
                 }
             }
             Expr::Index { base, index, .. } => {
@@ -317,5 +329,16 @@ impl Resolver<'_> {
             Some(ElseBranch::If(nested)) => self.resolve_if(nested),
             None => {}
         }
+    }
+}
+
+/// If `callee` names a plot constructor with a formula argument, the coordinate
+/// variables that are in scope inside that call; otherwise empty.
+fn plot_ctor_coord_vars(callee: &Expr) -> &'static [&'static str] {
+    match callee {
+        Expr::Ident(id) if builtins::plot_formula_field(id.sym.as_str()).is_some() => {
+            builtins::plot_coord_vars(id.sym.as_str())
+        }
+        _ => &[],
     }
 }

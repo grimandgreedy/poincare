@@ -1,7 +1,7 @@
 use eframe::egui;
 use poincare_notebook_lib::{
-    DiagnosticSeverity, ExecutionState, NotebookBlock, NotebookBlockKind, NotebookOutputKind,
-    TextFormat,
+    DiagnosticSeverity, ExecutionState, GraphBlockId, GraphOutput, GraphOwnership, NotebookBlock,
+    NotebookBlockKind, NotebookOutputKind, TextFormat,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -20,14 +20,29 @@ pub enum CellAction {
     ConvertToCode,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GraphOutputAction {
+    Activate { graph_id: GraphBlockId },
+    Deactivate { graph_id: GraphBlockId },
+    ResetView { graph_id: GraphBlockId },
+    OpenInPoincare { graph_id: GraphBlockId },
+    RefreshPreview { graph_id: GraphBlockId },
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct CellUiResponse {
     pub action: Option<CellAction>,
+    pub graph_action: Option<GraphOutputAction>,
     pub edited: bool,
     pub clicked: bool,
 }
 
-pub fn show_cell(ui: &mut egui::Ui, block: &mut NotebookBlock, selected: bool) -> CellUiResponse {
+pub fn show_cell(
+    ui: &mut egui::Ui,
+    block: &mut NotebookBlock,
+    selected: bool,
+    active_graph: Option<&GraphBlockId>,
+) -> CellUiResponse {
     let mut response = CellUiResponse::default();
     let frame = egui::Frame::default()
         .fill(if selected {
@@ -137,7 +152,7 @@ pub fn show_cell(ui: &mut egui::Ui, block: &mut NotebookBlock, selected: bool) -
                     }
                 });
                 if !block.state.outputs_collapsed {
-                    show_outputs(ui, block);
+                    show_outputs(ui, block, active_graph, &mut response);
                 }
             }
         }
@@ -196,7 +211,12 @@ fn cell_menu(ui: &mut egui::Ui, response: &mut CellUiResponse) {
     });
 }
 
-fn show_outputs(ui: &mut egui::Ui, block: &NotebookBlock) {
+fn show_outputs(
+    ui: &mut egui::Ui,
+    block: &NotebookBlock,
+    active_graph: Option<&GraphBlockId>,
+    response: &mut CellUiResponse,
+) {
     for output in &block.outputs {
         let stale = !output.stale.is_empty();
         egui::Frame::default()
@@ -230,7 +250,7 @@ fn show_outputs(ui: &mut egui::Ui, block: &NotebookBlock) {
                         ));
                     }
                     NotebookOutputKind::Graph(graph) => {
-                        ui.label(format!("Graph output {}", graph.graph_id.0));
+                        show_graph_output(ui, graph, active_graph, response);
                     }
                     NotebookOutputKind::Image(image) => {
                         ui.label(format!("Image {}", image.path.0));
@@ -250,6 +270,85 @@ fn show_outputs(ui: &mut egui::Ui, block: &NotebookBlock) {
                 }
             });
         ui.add_space(4.0);
+    }
+}
+
+fn show_graph_output(
+    ui: &mut egui::Ui,
+    graph: &GraphOutput,
+    active_graph: Option<&GraphBlockId>,
+    response: &mut CellUiResponse,
+) {
+    let is_active = active_graph
+        .map(|active_graph| *active_graph == graph.graph_id)
+        .unwrap_or(false);
+
+    ui.horizontal(|ui| {
+        ui.monospace(graph.graph_id.0.as_str());
+        ui.label(graph_ownership_label(&graph.ownership));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.small_button("Open").clicked() {
+                response.graph_action = Some(GraphOutputAction::OpenInPoincare {
+                    graph_id: graph.graph_id.clone(),
+                });
+            }
+            if ui.small_button("Refresh").clicked() {
+                response.graph_action = Some(GraphOutputAction::RefreshPreview {
+                    graph_id: graph.graph_id.clone(),
+                });
+            }
+            if ui.small_button("Reset").clicked() {
+                response.graph_action = Some(GraphOutputAction::ResetView {
+                    graph_id: graph.graph_id.clone(),
+                });
+            }
+            if is_active {
+                if ui.small_button("Done").clicked() {
+                    response.graph_action = Some(GraphOutputAction::Deactivate {
+                        graph_id: graph.graph_id.clone(),
+                    });
+                }
+            } else if ui.small_button("Activate").clicked() {
+                response.graph_action = Some(GraphOutputAction::Activate {
+                    graph_id: graph.graph_id.clone(),
+                });
+            }
+        });
+    });
+
+    let width = ui.available_width().clamp(260.0, 720.0);
+    let (rect, preview_response) =
+        ui.allocate_exact_size(egui::vec2(width, 220.0), egui::Sense::click());
+    paint_graph_preview(ui, rect, graph, is_active);
+    if preview_response.clicked() && !is_active {
+        response.graph_action = Some(GraphOutputAction::Activate {
+            graph_id: graph.graph_id.clone(),
+        });
+    }
+}
+
+fn paint_graph_preview(ui: &egui::Ui, rect: egui::Rect, graph: &GraphOutput, is_active: bool) {
+    // Render the computed graph directly from its spec. The interactive 3D
+    // viewport (activation) is a separate, future path; this is a CPU-sampled
+    // static thumbnail of the plots the cell produced.
+    crate::graph_preview::paint_graph_spec(ui, rect, &graph.graph, is_active);
+
+    let painter = ui.painter_at(rect);
+    if is_active {
+        painter.rect_stroke(
+            rect,
+            egui::CornerRadius::same(6),
+            egui::Stroke::new(1.0, ui.visuals().selection.stroke.color),
+            egui::StrokeKind::Inside,
+        );
+    }
+}
+
+fn graph_ownership_label(ownership: &GraphOwnership) -> String {
+    match ownership {
+        GraphOwnership::Snapshot => "snapshot".to_string(),
+        GraphOwnership::Linked { source } => format!("linked {}", source.path),
+        GraphOwnership::Computed { source_cell } => format!("computed from {}", source_cell.0),
     }
 }
 

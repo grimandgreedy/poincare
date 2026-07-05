@@ -13,6 +13,7 @@ pub struct RuntimeOutputLimits {
     pub max_outputs_per_cell: usize,
     pub max_text_chars: usize,
     pub max_table_rows: usize,
+    pub max_graph_outputs: usize,
 }
 
 impl Default for RuntimeOutputLimits {
@@ -21,6 +22,7 @@ impl Default for RuntimeOutputLimits {
             max_outputs_per_cell: 64,
             max_text_chars: 64 * 1024,
             max_table_rows: 1_000,
+            max_graph_outputs: 16,
         }
     }
 }
@@ -67,7 +69,9 @@ struct OutputMapper<'a> {
     limits: &'a RuntimeOutputLimits,
     outputs: Vec<NotebookOutput>,
     next_index: usize,
+    graph_outputs: usize,
     limit_reached: bool,
+    limit_reason: Option<String>,
 }
 
 impl<'a> OutputMapper<'a> {
@@ -82,7 +86,9 @@ impl<'a> OutputMapper<'a> {
             limits,
             outputs: Vec::new(),
             next_index: 0,
+            graph_outputs: 0,
             limit_reached: false,
+            limit_reason: None,
         }
     }
 
@@ -105,6 +111,10 @@ impl<'a> OutputMapper<'a> {
     fn push(&mut self, kind: NotebookOutputKind, provenance: OutputProvenance) {
         if self.outputs.len() >= self.limits.max_outputs_per_cell {
             self.limit_reached = true;
+            self.limit_reason = Some(format!(
+                "output count exceeded {}",
+                self.limits.max_outputs_per_cell
+            ));
             return;
         }
 
@@ -130,7 +140,10 @@ impl<'a> OutputMapper<'a> {
     fn finish(mut self) -> RuntimeOutputBatch {
         let completion = if self.limit_reached {
             RuntimeOutputCompletion::Truncated {
-                reason: format!("output count exceeded {}", self.limits.max_outputs_per_cell),
+                reason: self
+                    .limit_reason
+                    .clone()
+                    .unwrap_or_else(|| "output limit exceeded".to_string()),
             }
         } else {
             RuntimeOutputCompletion::Complete
@@ -157,7 +170,7 @@ impl<'a> OutputMapper<'a> {
     }
 
     fn output_kind_from_value(
-        &self,
+        &mut self,
         value: &evaluator::EvalValue,
         display: evaluator::EvalDisplayHint,
     ) -> Option<NotebookOutputKind> {
@@ -188,22 +201,37 @@ impl<'a> OutputMapper<'a> {
                     .collect(),
                 truncated: value.truncated || value.rows.len() > self.limits.max_table_rows,
             })),
-            evaluator::EvalValue::Graph(_) => Some(NotebookOutputKind::Graph(GraphOutput {
-                graph_id: GraphBlockId::new(format!(
-                    "{}-run-{}-graph-{}",
-                    self.cell_id.0,
-                    self.response
-                        .session
-                        .as_ref()
-                        .map(|session| session.run_count)
-                        .unwrap_or(0),
-                    self.next_index
-                )),
-                ownership: GraphOwnership::Computed {
-                    source_cell: self.cell_id.clone(),
-                },
-                preview: None,
-            })),
+            evaluator::EvalValue::Graph(spec) => {
+                if self.graph_outputs >= self.limits.max_graph_outputs {
+                    return Some(NotebookOutputKind::Diagnostic(NotebookDiagnostic {
+                        severity: DiagnosticSeverity::Warning,
+                        message: format!(
+                            "graph output count exceeded {}",
+                            self.limits.max_graph_outputs
+                        ),
+                        span: None,
+                        code: Some("GRAPH_OUTPUT_LIMIT".to_string()),
+                    }));
+                }
+                self.graph_outputs += 1;
+                Some(NotebookOutputKind::Graph(GraphOutput {
+                    graph_id: GraphBlockId::new(format!(
+                        "{}-run-{}-graph-{}",
+                        self.cell_id.0,
+                        self.response
+                            .session
+                            .as_ref()
+                            .map(|session| session.run_count)
+                            .unwrap_or(0),
+                        self.next_index
+                    )),
+                    ownership: GraphOwnership::Computed {
+                        source_cell: self.cell_id.clone(),
+                    },
+                    graph: spec.clone(),
+                    preview: None,
+                }))
+            }
             evaluator::EvalValue::Analysis(value) => {
                 Some(NotebookOutputKind::Analysis(AnalysisSnapshot {
                     title: value.title.clone(),
@@ -476,6 +504,37 @@ mod tests {
         assert!(matches!(
             batch.completion,
             RuntimeOutputCompletion::Truncated { .. }
+        ));
+    }
+
+    #[test]
+    fn applies_graph_output_limit() {
+        let cell_id = NotebookCellId::new("cell-1");
+        let response = EvalResponse::complete(vec![
+            EvalOutput::display(
+                EvalValue::Graph(poincare_lib::GraphSpec::new()),
+                EvalCellId::new("cell-1"),
+            ),
+            EvalOutput::display(
+                EvalValue::Graph(poincare_lib::GraphSpec::new()),
+                EvalCellId::new("cell-1"),
+            ),
+        ]);
+        let limits = RuntimeOutputLimits {
+            max_graph_outputs: 1,
+            ..RuntimeOutputLimits::default()
+        };
+
+        let batch = notebook_outputs_from_eval_response(&cell_id, &response, &limits);
+
+        assert_eq!(batch.outputs.len(), 2);
+        assert!(matches!(
+            batch.outputs[0].kind,
+            NotebookOutputKind::Graph(_)
+        ));
+        assert!(matches!(
+            batch.outputs[1].kind,
+            NotebookOutputKind::Diagnostic(_)
         ));
     }
 }

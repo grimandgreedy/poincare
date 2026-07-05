@@ -7,14 +7,18 @@
 use poincare_lib::{GraphSpec, PlotSpec};
 use serde::{Deserialize, Serialize};
 
+pub mod attachments;
 pub mod errors;
 pub mod inspection;
 pub mod outputs;
+pub mod resources;
 pub mod runner;
 pub mod runtime;
+pub use attachments::*;
 pub use errors::*;
 pub use inspection::*;
 pub use outputs::*;
+pub use resources::*;
 pub use runner::*;
 pub use runtime::*;
 
@@ -279,10 +283,13 @@ pub struct TableOutput {
     pub truncated: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GraphOutput {
     pub graph_id: GraphBlockId,
     pub ownership: GraphOwnership,
+    /// The graph document computed by the cell. Carries the plots and axis
+    /// configuration so the output can be rendered or promoted to a graph block.
+    pub graph: GraphSpec,
     pub preview: Option<BundlePath>,
 }
 

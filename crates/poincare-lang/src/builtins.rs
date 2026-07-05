@@ -40,3 +40,25 @@ pub fn is_builtin(name: &str) -> bool {
 pub fn all() -> impl Iterator<Item = &'static str> {
     GROUPS.iter().flat_map(|group| group.iter().copied())
 }
+
+/// The "formula" argument name of a plot constructor, if it has one. This is
+/// the dependent field whose expression ranges over coordinate variables and is
+/// captured unevaluated (see [`plot_coord_vars`]). Both the resolver and the
+/// interpreter special-case it so `surface(z = x^2 + y^2)` works.
+pub fn plot_formula_field(name: &str) -> Option<&'static str> {
+    match name {
+        "surface" => Some("z"),
+        "curve" => Some("y"),
+        _ => None,
+    }
+}
+
+/// The coordinate variables a plot constructor's formula ranges over. These are
+/// treated as bound inside the formula argument.
+pub fn plot_coord_vars(name: &str) -> &'static [&'static str] {
+    match name {
+        "surface" => &["x", "y"],
+        "curve" => &["x", "t"],
+        _ => &[],
+    }
+}

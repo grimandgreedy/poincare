@@ -132,6 +132,39 @@ fn emit_produces_a_graph_output() {
 }
 
 #[test]
+fn surface_formula_reaches_the_graph_spec() {
+    let mut evaluator = PoincareEvaluator::new();
+    let host = NoHost;
+    let response = run(
+        &mut evaluator,
+        &host,
+        "amp = 3\ng = add_plot(graph(), surface(z = amp * (x^2 + y^2), x = -3..3, y = -3..3))\nemit(g)",
+    );
+    assert_eq!(response.status, EvalStatus::Complete, "{:?}", response.diagnostics);
+    let spec = response
+        .outputs
+        .iter()
+        .find_map(|o| match &o.value {
+            EvalValue::Graph(spec) => Some(spec),
+            _ => None,
+        })
+        .expect("expected a graph output");
+    let plot = spec.plots.first().expect("one plot");
+    match &plot.definition {
+        poincare_lib::PlotDefinition::ExprCartesian {
+            expression,
+            parameters,
+        } => {
+            assert_eq!(expression, "(amp * ((x ^ 2) + (y ^ 2)))");
+            assert_eq!(parameters, &vec![("amp".to_string(), 3.0)]);
+        }
+        other => panic!("expected an ExprCartesian plot, got {other:?}"),
+    }
+    assert_eq!(*plot.domain.x.start(), -3.0);
+    assert_eq!(*plot.domain.x.end(), 3.0);
+}
+
+#[test]
 fn csv_attachment_becomes_a_table() {
     let mut evaluator = PoincareEvaluator::new();
     let host = TestHost {

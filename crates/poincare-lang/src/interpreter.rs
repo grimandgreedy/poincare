@@ -63,6 +63,19 @@ pub enum Value {
     Attachment(Rc<str>),
     Closure(Rc<Closure>),
     Builtin(&'static str),
+    /// A captured, unevaluated plot formula (e.g. the `z` in
+    /// `surface(z = x^2 + y^2)`). Coordinate variables such as `x`/`y` are left
+    /// free; other free variables bound to numbers are recorded as parameters.
+    /// The evaluator adapter lowers this into a `poincare-lib` expression plot.
+    Expr(Rc<ExprValue>),
+}
+
+/// A captured plot formula: its source text plus the numeric parameters it
+/// closed over at capture time.
+#[derive(Clone, Debug)]
+pub struct ExprValue {
+    pub source: String,
+    pub params: Vec<(String, f64)>,
 }
 
 #[derive(Debug)]
@@ -110,6 +123,7 @@ impl Value {
             Value::Attachment(_) => "attachment",
             Value::Closure(_) => "function",
             Value::Builtin(_) => "builtin",
+            Value::Expr(_) => "expression",
         }
     }
 
@@ -142,7 +156,149 @@ impl Value {
             Value::Attachment(name) => format!("<attachment {name}>"),
             Value::Closure(_) => "<function>".to_string(),
             Value::Builtin(name) => format!("<builtin {name}>"),
+            Value::Expr(e) => e.source.clone(),
         }
+    }
+}
+
+/// Capture a plot formula: render its source text and record any free variables
+/// (other than coordinate variables) that are bound to numbers as parameters.
+fn capture_formula(core: &Core, coord_vars: &[&str], env: &Environment) -> Value {
+    let source = render_formula(core);
+    let mut names = Vec::new();
+    collect_free_vars(core, &mut names);
+    let mut params: Vec<(String, f64)> = Vec::new();
+    for name in names {
+        if coord_vars.contains(&name.as_str()) {
+            continue;
+        }
+        if params.iter().any(|(existing, _)| *existing == name) {
+            continue;
+        }
+        if let Some(Value::Num(value)) = env.get(&name) {
+            params.push((name, value));
+        }
+    }
+    Value::Expr(Rc::new(ExprValue { source, params }))
+}
+
+/// Render a core expression back to a source string compatible with
+/// `poincare-lib`'s expression grammar (`+ - * / ^`, function calls, unary `-`).
+fn render_formula(core: &Core) -> String {
+    match core {
+        Core::Num { value, .. } => format_number(*value),
+        Core::Bool { value, .. } => value.to_string(),
+        Core::Str { value, .. } => value.clone(),
+        Core::Var { name, .. } => name.clone(),
+        Core::Unary { op, expr, .. } => {
+            let inner = render_formula(expr);
+            match op {
+                UnaryOp::Neg => format!("(-{inner})"),
+                UnaryOp::Not => format!("(!{inner})"),
+            }
+        }
+        Core::Binary { op, lhs, rhs, .. } => {
+            format!(
+                "({} {} {})",
+                render_formula(lhs),
+                binary_op_symbol(*op),
+                render_formula(rhs)
+            )
+        }
+        Core::Apply { func, args, .. } => {
+            let rendered: Vec<String> = args.iter().map(|a| render_formula(&a.value)).collect();
+            format!("{}({})", render_formula(func), rendered.join(", "))
+        }
+        Core::List { items, .. } => {
+            let rendered: Vec<String> = items.iter().map(render_formula).collect();
+            format!("[{}]", rendered.join(", "))
+        }
+        Core::Range { lo, hi, .. } => {
+            format!("{}..{}", render_formula(lo), render_formula(hi))
+        }
+        // Constructs with no expression-grammar equivalent fall back to a marker
+        // that surfaces as a parse error in the preview rather than silently
+        // rendering wrong data.
+        _ => "<unsupported>".to_string(),
+    }
+}
+
+fn binary_op_symbol(op: BinaryOp) -> &'static str {
+    match op {
+        BinaryOp::Add => "+",
+        BinaryOp::Sub => "-",
+        BinaryOp::Mul => "*",
+        BinaryOp::Div => "/",
+        BinaryOp::Rem => "%",
+        BinaryOp::Pow => "^",
+        BinaryOp::Eq => "==",
+        BinaryOp::Ne => "!=",
+        BinaryOp::Lt => "<",
+        BinaryOp::Le => "<=",
+        BinaryOp::Gt => ">",
+        BinaryOp::Ge => ">=",
+        BinaryOp::And => "&&",
+        BinaryOp::Or => "||",
+    }
+}
+
+/// Format a number without a trailing `.0`, so `2.0` renders as `2`.
+fn format_number(value: f64) -> String {
+    if value.is_finite() && value.fract() == 0.0 && value.abs() < 1e15 {
+        format!("{}", value as i64)
+    } else {
+        format!("{value}")
+    }
+}
+
+/// Collect the free variable names referenced in a core expression, in order of
+/// first appearance. Variables bound by an inner lambda are excluded.
+fn collect_free_vars(core: &Core, out: &mut Vec<String>) {
+    match core {
+        Core::Var { name, .. } => {
+            if !out.contains(name) {
+                out.push(name.clone());
+            }
+        }
+        Core::Unary { expr, .. } => collect_free_vars(expr, out),
+        Core::Binary { lhs, rhs, .. } => {
+            collect_free_vars(lhs, out);
+            collect_free_vars(rhs, out);
+        }
+        Core::Apply { func, args, .. } => {
+            collect_free_vars(func, out);
+            for arg in args {
+                collect_free_vars(&arg.value, out);
+            }
+        }
+        Core::Index { base, index, .. } => {
+            collect_free_vars(base, out);
+            collect_free_vars(index, out);
+        }
+        Core::List { items, .. } => {
+            for item in items {
+                collect_free_vars(item, out);
+            }
+        }
+        Core::Range { lo, hi, .. } => {
+            collect_free_vars(lo, out);
+            collect_free_vars(hi, out);
+        }
+        Core::If { cond, then, els, .. } => {
+            collect_free_vars(cond, out);
+            collect_free_vars(then, out);
+            collect_free_vars(els, out);
+        }
+        Core::Lambda { params, body, .. } => {
+            let mut inner = Vec::new();
+            collect_free_vars(body, &mut inner);
+            for name in inner {
+                if !params.contains(&name) && !out.contains(&name) {
+                    out.push(name);
+                }
+            }
+        }
+        _ => {}
     }
 }
 
@@ -522,6 +678,15 @@ impl Run<'_> {
         env: &Environment,
     ) -> EvalResult {
         let callee = self.eval(func, env)?;
+
+        // Plot constructors capture their formula argument unevaluated so it can
+        // refer to unbound coordinate variables (`surface(z = x^2 + y^2)`).
+        if let Value::Builtin(name) = callee {
+            if let Some(formula_field) = builtins::plot_formula_field(name) {
+                return self.eval_plot_ctor(name, formula_field, args, span, env);
+            }
+        }
+
         let mut arg_values: Vec<CallArg> = Vec::with_capacity(args.len());
         for arg in args {
             let value = self.eval(&arg.value, env)?;
@@ -536,6 +701,32 @@ impl Run<'_> {
                 span,
             )),
         }
+    }
+
+    /// Evaluate a plot constructor (`surface`, `curve`, ...), capturing its
+    /// formula argument unevaluated while evaluating domain/resolution args
+    /// normally. The formula is stored as a [`Value::Expr`] carrying its source
+    /// text and any numeric parameters it references.
+    fn eval_plot_ctor(
+        &mut self,
+        name: &'static str,
+        formula_field: &str,
+        args: &[CoreArg],
+        span: Span,
+        env: &Environment,
+    ) -> EvalResult {
+        let coord_vars = builtins::plot_coord_vars(name);
+        let mut arg_values: Vec<CallArg> = Vec::with_capacity(args.len());
+        for arg in args {
+            if arg.name.as_deref() == Some(formula_field) {
+                let captured = capture_formula(&arg.value, coord_vars, env);
+                arg_values.push((arg.name.clone(), captured));
+            } else {
+                let value = self.eval(&arg.value, env)?;
+                arg_values.push((arg.name.clone(), value));
+            }
+        }
+        self.call_builtin(name, arg_values, span)
     }
 
     /// Apply a callable value to positional arguments (used by higher-order

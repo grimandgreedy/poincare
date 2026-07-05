@@ -130,6 +130,67 @@ fn surface_captures_named_fields() {
     }
 }
 
+#[test]
+fn surface_formula_is_captured_unevaluated_over_coordinates() {
+    // `x` and `y` are unbound coordinate variables; capturing the formula must
+    // not try to evaluate them.
+    let outcome = run("emit(surface(z = x^2 + y^2, x = -3..3, y = -3..3))");
+    assert!(outcome.error.is_none(), "{:?}", outcome.error);
+    let plot = match &outcome.emitted[0] {
+        Value::Plot(p) => p,
+        other => panic!("expected a plot, got {other:?}"),
+    };
+    let (_, z) = plot
+        .fields
+        .iter()
+        .find(|(name, _)| name == "z")
+        .expect("z field");
+    match z {
+        Value::Expr(e) => {
+            assert_eq!(e.source, "((x ^ 2) + (y ^ 2))");
+            assert!(e.params.is_empty());
+        }
+        other => panic!("expected a captured expression, got {other:?}"),
+    }
+}
+
+#[test]
+fn curve_formula_supports_builtin_calls() {
+    let outcome = run("emit(curve(y = sin(x), x = -6..6))");
+    assert!(outcome.error.is_none(), "{:?}", outcome.error);
+    match &outcome.emitted[0] {
+        Value::Plot(p) => {
+            let (_, y) = p.fields.iter().find(|(name, _)| name == "y").unwrap();
+            assert!(matches!(y, Value::Expr(e) if e.source == "sin(x)"));
+        }
+        other => panic!("expected a plot, got {other:?}"),
+    }
+}
+
+#[test]
+fn formula_captures_bound_scalars_as_parameters() {
+    // `amp` is bound to a number and is not a coordinate variable, so it is
+    // recorded as a parameter while `x`/`y` stay free.
+    let src = "\
+amp = 2
+emit(surface(z = amp * (x^2 + y^2), x = -3..3, y = -3..3))";
+    let outcome = run(src);
+    assert!(outcome.error.is_none(), "{:?}", outcome.error);
+    match &outcome.emitted[0] {
+        Value::Plot(p) => {
+            let (_, z) = p.fields.iter().find(|(name, _)| name == "z").unwrap();
+            match z {
+                Value::Expr(e) => {
+                    assert_eq!(e.source, "(amp * ((x ^ 2) + (y ^ 2)))");
+                    assert_eq!(e.params, vec![("amp".to_string(), 2.0)]);
+                }
+                other => panic!("expected a captured expression, got {other:?}"),
+            }
+        }
+        other => panic!("expected a plot, got {other:?}"),
+    }
+}
+
 // --- tables and CSV ---
 
 #[test]

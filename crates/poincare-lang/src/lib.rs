@@ -24,7 +24,7 @@ pub use diagnostic::{Diagnostic, Severity};
 pub use env::Env;
 pub use host::Host;
 pub use interpreter::{
-    Graph, Interpreter, Limits, Plot, RunOutcome, RuntimeError, Table, Value,
+    ExprValue, Graph, Interpreter, Limits, Plot, RunOutcome, RuntimeError, Table, Value,
 };
 pub use lexer::lex;
 pub use parser::{ParseResult, parse};

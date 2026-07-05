@@ -1,6 +1,8 @@
 mod app;
 mod cells;
+mod dock;
 mod evaluator;
+mod graph_preview;
 mod persistence;
 
 use app::NotebookApp;
