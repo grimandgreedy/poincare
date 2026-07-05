@@ -4,6 +4,7 @@ mod dock;
 mod evaluator;
 mod graph_preview;
 mod graph_viewport;
+mod launcher;
 mod persistence;
 
 use app::NotebookApp;

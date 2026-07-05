@@ -13,6 +13,7 @@ use poincare_notebook_lib::{
 use crate::cells::{self, CellAction, GraphOutputAction};
 use crate::dock::{self, DockTab};
 use crate::evaluator::EmptyNotebookHost;
+use crate::launcher::{self, LauncherAction, RecentNotebook};
 use poincare_evaluator_poincare::PoincareEvaluator;
 use crate::persistence;
 
@@ -35,6 +36,8 @@ pub struct NotebookApp {
     pub(crate) panel_tree: Option<PanelTree<DockTab>>,
     pub(crate) panel_style: PanelStyle,
     pub(crate) pending_focus_tab: Option<DockTab>,
+    show_launcher: bool,
+    recents: Vec<RecentNotebook>,
 }
 
 #[derive(Clone, Debug)]
@@ -62,7 +65,12 @@ impl Default for GraphOutputUiState {
 }
 
 impl NotebookApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        let recents = cc
+            .storage
+            .and_then(|storage| eframe::get_value(storage, launcher::RECENTS_STORAGE_KEY))
+            .unwrap_or_default();
+
         let mut document = NotebookDocument::new(NotebookId::new("notebook-1"), "Untitled");
         document.add_block(NotebookBlock::markdown(
             NotebookCellId::new("cell-1"),
@@ -93,6 +101,8 @@ impl NotebookApp {
             panel_tree: Some(dock::build_panel_tree(true)),
             panel_style: dock::default_panel_style(),
             pending_focus_tab: None,
+            show_launcher: true,
+            recents,
         }
     }
 
@@ -110,6 +120,7 @@ impl NotebookApp {
         self.last_run_summary = None;
         self.active_graph = None;
         self.graph_ui_states.clear();
+        self.show_launcher = false;
         self.pending_focus_tab = Some(DockTab::Notebook);
     }
 
@@ -120,12 +131,18 @@ impl NotebookApp {
         else {
             return;
         };
+        self.load_document_from_path(path);
+    }
 
+    /// Load a notebook from `path`, replacing the current document on success and
+    /// recording the file as recently used. Records the error otherwise.
+    fn load_document_from_path(&mut self, path: PathBuf) {
         match persistence::load_document(&path) {
             Ok(document) => {
                 self.record_undo();
                 self.next_cell_id = next_cell_counter(&document);
                 self.selected_cell = document.blocks.first().map(|block| block.id.clone());
+                self.record_recent(&path, &document.title);
                 self.document = document;
                 self.runtime = scratch_runtime(&self.document);
                 self.path = Some(path);
@@ -134,10 +151,15 @@ impl NotebookApp {
                 self.last_run_summary = None;
                 self.active_graph = None;
                 self.graph_ui_states.clear();
+                self.show_launcher = false;
                 self.pending_focus_tab = Some(DockTab::Notebook);
             }
             Err(err) => self.last_error = Some(err),
         }
+    }
+
+    fn record_recent(&mut self, path: &PathBuf, title: &str) {
+        launcher::push_recent(&mut self.recents, path.clone(), title.to_string());
     }
 
     fn save_document(&mut self) {
@@ -162,6 +184,8 @@ impl NotebookApp {
     fn save_document_to(&mut self, path: PathBuf) {
         match persistence::save_document(&path, &self.document) {
             Ok(()) => {
+                let title = self.document.title.clone();
+                self.record_recent(&path, &title);
                 self.path = Some(path);
                 self.dirty = false;
                 self.last_error = None;
@@ -672,6 +696,13 @@ impl NotebookApp {
 
 impl eframe::App for NotebookApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        if self.show_launcher {
+            if let Some(action) = launcher::show(ctx, &self.recents, self.last_error.as_deref()) {
+                self.handle_launcher_action(action);
+            }
+            return;
+        }
+
         // Reconcile GPU graph render state (static images + one live viewport)
         // here, where the wgpu render state is available, before drawing cells.
         let graph_specs = document_graph_specs(&self.document);
@@ -684,6 +715,31 @@ impl eframe::App for NotebookApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             self.dock_ui(ui, frame);
         });
+    }
+
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        eframe::set_value(storage, launcher::RECENTS_STORAGE_KEY, &self.recents);
+    }
+}
+
+impl NotebookApp {
+    fn handle_launcher_action(&mut self, action: LauncherAction) {
+        match action {
+            LauncherAction::NewNotebook => self.new_document(),
+            LauncherAction::OpenDialog => self.open_document(),
+            LauncherAction::OpenRecent(path) => {
+                if path.exists() {
+                    self.load_document_from_path(path);
+                } else {
+                    self.recents.retain(|entry| entry.path != path);
+                    self.last_error =
+                        Some(format!("notebook no longer exists: {}", path.display()));
+                }
+            }
+            LauncherAction::RemoveRecent(path) => {
+                self.recents.retain(|entry| entry.path != path);
+            }
+        }
     }
 }
 
