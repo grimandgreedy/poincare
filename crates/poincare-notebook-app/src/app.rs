@@ -31,6 +31,7 @@ pub struct NotebookApp {
     pub(crate) show_side_panel: bool,
     active_graph: Option<GraphBlockId>,
     graph_ui_states: BTreeMap<String, GraphOutputUiState>,
+    graphs: crate::graph_viewport::GraphRenderManager,
     pub(crate) panel_tree: Option<PanelTree<DockTab>>,
     pub(crate) panel_style: PanelStyle,
     pub(crate) pending_focus_tab: Option<DockTab>,
@@ -88,6 +89,7 @@ impl NotebookApp {
             show_side_panel: true,
             active_graph: None,
             graph_ui_states: BTreeMap::new(),
+            graphs: crate::graph_viewport::GraphRenderManager::default(),
             panel_tree: Some(dock::build_panel_tree(true)),
             panel_style: dock::default_panel_style(),
             pending_focus_tab: None,
@@ -542,6 +544,13 @@ impl NotebookApp {
 
 impl eframe::App for NotebookApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        // Reconcile GPU graph render state (static images + one live viewport)
+        // here, where the wgpu render state is available, before drawing cells.
+        let graph_specs = document_graph_specs(&self.document);
+        let active_id = self.active_graph.as_ref().map(|id| id.0.clone());
+        self.graphs
+            .sync(ctx, frame, &graph_specs, active_id.as_deref());
+
         self.show_top_bar(ctx);
         egui::CentralPanel::default().show(ctx, |ui| {
             self.dock_ui(ui, frame);
@@ -700,8 +709,13 @@ impl NotebookApp {
                             .as_ref()
                             .map(|cell_id| *cell_id == block.id)
                             .unwrap_or(false);
-                        let cell_response =
-                            cells::show_cell(ui, block, selected, active_graph.as_ref());
+                        let cell_response = cells::show_cell(
+                            ui,
+                            block,
+                            selected,
+                            active_graph.as_ref(),
+                            &mut self.graphs,
+                        );
                         if cell_response.clicked {
                             self.selected_cell = Some(block.id.clone());
                         }
@@ -874,6 +888,22 @@ fn document_graph_ids(document: &NotebookDocument) -> BTreeSet<String> {
         .flat_map(|block| block.outputs.iter())
         .filter_map(|output| match &output.kind {
             NotebookOutputKind::Graph(graph) => Some(graph.graph_id.0.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Every computed graph output in the document, paired with its spec, in
+/// document order. Feeds the graph render manager.
+fn document_graph_specs(document: &NotebookDocument) -> Vec<(String, poincare_lib::GraphSpec)> {
+    document
+        .blocks
+        .iter()
+        .flat_map(|block| block.outputs.iter())
+        .filter_map(|output| match &output.kind {
+            NotebookOutputKind::Graph(graph) => {
+                Some((graph.graph_id.0.clone(), graph.graph.clone()))
+            }
             _ => None,
         })
         .collect()

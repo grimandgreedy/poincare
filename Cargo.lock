@@ -2545,6 +2545,7 @@ version = "0.1.0"
 dependencies = [
  "eframe",
  "egui",
+ "glam",
  "grimdock",
  "poincare-evaluator",
  "poincare-evaluator-poincare",
@@ -2552,6 +2553,7 @@ dependencies = [
  "poincare-notebook-lib",
  "rfd",
  "serde_json",
+ "viewport-lib",
 ]
 
 [[package]]

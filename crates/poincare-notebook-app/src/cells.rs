@@ -42,6 +42,7 @@ pub fn show_cell(
     block: &mut NotebookBlock,
     selected: bool,
     active_graph: Option<&GraphBlockId>,
+    graphs: &mut crate::graph_viewport::GraphRenderManager,
 ) -> CellUiResponse {
     let mut response = CellUiResponse::default();
     let frame = egui::Frame::default()
@@ -152,7 +153,7 @@ pub fn show_cell(
                     }
                 });
                 if !block.state.outputs_collapsed {
-                    show_outputs(ui, block, active_graph, &mut response);
+                    show_outputs(ui, block, active_graph, graphs, &mut response);
                 }
             }
         }
@@ -215,6 +216,7 @@ fn show_outputs(
     ui: &mut egui::Ui,
     block: &NotebookBlock,
     active_graph: Option<&GraphBlockId>,
+    graphs: &mut crate::graph_viewport::GraphRenderManager,
     response: &mut CellUiResponse,
 ) {
     for output in &block.outputs {
@@ -250,7 +252,7 @@ fn show_outputs(
                         ));
                     }
                     NotebookOutputKind::Graph(graph) => {
-                        show_graph_output(ui, graph, active_graph, response);
+                        show_graph_output(ui, graph, active_graph, graphs, response);
                     }
                     NotebookOutputKind::Image(image) => {
                         ui.label(format!("Image {}", image.path.0));
@@ -277,6 +279,7 @@ fn show_graph_output(
     ui: &mut egui::Ui,
     graph: &GraphOutput,
     active_graph: Option<&GraphBlockId>,
+    graphs: &mut crate::graph_viewport::GraphRenderManager,
     response: &mut CellUiResponse,
 ) {
     let is_active = active_graph
@@ -317,9 +320,39 @@ fn show_graph_output(
     });
 
     let width = ui.available_width().clamp(260.0, 720.0);
+    let graph_id = graph.graph_id.0.as_str();
+
+    if is_active && graphs.is_live(graph_id) {
+        // Live, interactive 3D viewport: orbit with drag, zoom with scroll.
+        let (rect, viewport_response) =
+            ui.allocate_exact_size(egui::vec2(width, 320.0), egui::Sense::click_and_drag());
+        graphs.show_live(graph_id, ui, rect, &viewport_response);
+        let painter = ui.painter_at(rect);
+        painter.rect_stroke(
+            rect,
+            egui::CornerRadius::same(6),
+            egui::Stroke::new(1.0, ui.visuals().selection.stroke.color),
+            egui::StrokeKind::Inside,
+        );
+        if viewport_response.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+        }
+        return;
+    }
+
     let (rect, preview_response) =
         ui.allocate_exact_size(egui::vec2(width, 220.0), egui::Sense::click());
-    paint_graph_preview(ui, rect, graph, is_active);
+    if let Some(texture) = graphs.static_texture(graph_id) {
+        // Headless-rendered still image of the 3D scene.
+        let image = egui::Image::new(texture)
+            .maintain_aspect_ratio(true)
+            .fit_to_exact_size(rect.size());
+        image.paint_at(ui, rect);
+    } else {
+        // The GPU image is not ready yet (or the scene is empty): fall back to
+        // the lightweight CPU-sampled thumbnail.
+        paint_graph_preview(ui, rect, graph, is_active);
+    }
     if preview_response.clicked() && !is_active {
         response.graph_action = Some(GraphOutputAction::Activate {
             graph_id: graph.graph_id.clone(),

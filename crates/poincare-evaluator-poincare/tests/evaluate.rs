@@ -165,6 +165,39 @@ fn surface_formula_reaches_the_graph_spec() {
 }
 
 #[test]
+fn curve_maps_to_a_cartesian_line() {
+    let mut evaluator = PoincareEvaluator::new();
+    let host = NoHost;
+    let response = run(
+        &mut evaluator,
+        &host,
+        "g = add_plot(graph(), curve(y = sin(x), x = -6..6))\nemit(g)",
+    );
+    assert_eq!(response.status, EvalStatus::Complete, "{:?}", response.diagnostics);
+    let spec = response
+        .outputs
+        .iter()
+        .find_map(|o| match &o.value {
+            EvalValue::Graph(spec) => Some(spec),
+            _ => None,
+        })
+        .expect("expected a graph output");
+    match &spec.plots.first().expect("one plot").definition {
+        poincare_lib::PlotDefinition::ExprCartesianLine {
+            dep_var,
+            ind_var,
+            expression,
+            ..
+        } => {
+            assert_eq!(dep_var, "y");
+            assert_eq!(ind_var, "x");
+            assert_eq!(expression, "sin(x)");
+        }
+        other => panic!("expected an ExprCartesianLine plot, got {other:?}"),
+    }
+}
+
+#[test]
 fn csv_attachment_becomes_a_table() {
     let mut evaluator = PoincareEvaluator::new();
     let host = TestHost {

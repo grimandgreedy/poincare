@@ -116,16 +116,28 @@ fn plot_to_spec(plot: &Plot) -> PlotSpec {
         }
     }
     let (expression, parameters) = plot_expression(plot);
+    // A `curve` is a 2D line `y = f(x)`; everything else is treated as a
+    // cartesian surface `z = f(x, y)`.
+    let definition = if plot.kind == "curve" {
+        PlotDefinition::ExprCartesianLine {
+            dep_var: "y".to_string(),
+            ind_var: "x".to_string(),
+            expression,
+            parameters,
+        }
+    } else {
+        PlotDefinition::ExprCartesian {
+            expression,
+            parameters,
+        }
+    };
     PlotSpec {
         name: plot.kind.clone(),
         visible: true,
         domain,
         resolution,
         style: PlotStyle::default(),
-        definition: PlotDefinition::ExprCartesian {
-            expression,
-            parameters,
-        },
+        definition,
     }
 }
 
